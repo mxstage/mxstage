@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="industry-styles.css">
+<style>
+html,body{height:100%;margin:0;background:#ffffff}
+body{font-family:"Barlow","Hiragino Sans","Yu Gothic UI",Meiryo,system-ui,sans-serif;font-size:14px;line-height:1.5;background:#ffffff;color:var(--color-text)}
+a{color:var(--color-accent-700)}
+a:hover{color:var(--color-accent-800)}
+</style>
+</helmet>
+
+<sc-if value="{{ isApp }}" hint-placeholder-val="{{ true }}">
+<div data-screen-label="作業画面" style="position:relative;display:flex;flex-direction:column;height:100vh;min-height:760px;min-width:1100px;background:#ffffff;font-size:13px">
+
+  <header style="display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-2);min-height:44px;padding:var(--space-2) var(--space-4);border-bottom:1px solid var(--color-divider)">
+    <span style="font-family:var(--font-heading);font-weight:600;font-size:20px;letter-spacing:-0.01em;margin-right:var(--space-2)">mxstudio</span>
+    <span class="tag tag-accent" title="LLM のツールはこのタブで実行されます。">中継: primary</span>
+    <span class="tag tag-accent">Maximo: MAXADMIN@mas-dev（demo.example.com / MAXADMIN）</span>
+    <span style="flex:1"></span>
+    <span title="作業名" style="color:var(--color-neutral-700);white-space:nowrap">工事管理の整備</span>
+    <a href="#" style="font-size:12px;white-space:nowrap;text-decoration:none" title="Maximo から読み込んだオブジェクト構造（キー列・子オブジェクト・属性）を見る">オブジェクト構造</a>
+    <a href="#" style="font-size:12px;white-space:nowrap;text-decoration:none">設定</a>
+    <button class="btn btn-secondary" style="font-size:12px;padding:3px 10px">作業終了</button>
+  </header>
+
+  <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:var(--space-4);padding:var(--space-2) var(--space-4) 0;border-bottom:1px solid var(--color-divider)">
+    <div role="tablist" aria-label="シート" style="display:flex;gap:0;min-width:0;overflow-x:auto">
+      <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="3">
+        <button role="tab" aria-selected="{{ t.sel }}" style="display:inline-flex;align-items:center;gap:6px;font:inherit;font-size:13px;padding:6px 14px 7px;background:transparent;border:0;border-bottom:2px solid {{ t.line }};color:{{ t.fg }};font-weight:{{ t.fw }};cursor:pointer;margin-bottom:-1px" style-hover="background:color-mix(in srgb, var(--color-text) 5%, transparent)">
+          {{ t.name }}
+          <sc-if value="{{ t.hasCount }}" hint-placeholder-val="{{ false }}"><span title="変更の件数" style="font-family:var(--font-heading);font-size:12px;line-height:16px;min-width:18px;text-align:center;padding:0 5px;background:var(--color-accent-200);color:var(--color-accent-800)">{{ t.count }}</span></sc-if>
+          <sc-if value="{{ t.dot }}" hint-placeholder-val="{{ false }}"><span title="反映の依頼あり" style="width:7px;height:7px;background:var(--color-accent);transform:rotate(45deg)"></span></sc-if>
+        </button>
+      </sc-for>
+    </div>
+    <div style="display:flex;gap:var(--space-2);align-items:center;margin-bottom:6px">
+      <div class="seg" role="group" aria-label="表示">
+        <sc-for list="{{ views }}" as="v" hint-placeholder-count="3">
+          <label class="seg-opt" style="padding:3px 12px;font-size:12px"><input type="radio" name="view" checked="{{ v.on }}" onChange="{{ v.pick }}"></input>{{ v.label }}</label>
+        </sc-for>
+      </div>
+      <button class="btn btn-secondary" style="font-size:12px;padding:3px 10px" title="反映と変更履歴のパネルを出し入れする（表を広く使う）">パネルを隠す</button>
+    </div>
+  </div>
+
+  <div style="flex:1;display:flex;min-height:0">
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+      <div style="flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-auto-rows:minmax(0,1fr);gap:var(--space-6);padding:var(--space-6)">
+        <sc-for list="{{ panes }}" as="p" hint-placeholder-count="4">
+          <section class="blueprint" aria-label="{{ p.title }}" style="display:flex;flex-direction:column;min-width:0;min-height:0;border-color:{{ p.border }}">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            <header style="display:flex;align-items:baseline;gap:var(--space-2);padding:5px var(--space-3);border-bottom:1px solid var(--color-divider);cursor:pointer">
+              <span style="font-family:var(--font-heading);font-weight:600;font-size:16px;white-space:nowrap">{{ p.title }}</span>
+              <span style="font-family:ui-monospace,Consolas,'BIZ UDGothic',monospace;font-size:11px;color:var(--color-neutral-700);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ p.subtitle }}</span>
+              <span style="margin-left:auto;display:flex;gap:4px">
+                <sc-if value="{{ p.linked }}" hint-placeholder-val="{{ false }}"><button class="btn btn-ghost" style="font-size:12px;padding:1px 6px">連動を外す</button></sc-if>
+                <button class="btn btn-secondary" style="font-size:12px;padding:1px 8px" title="この表だけを広げる">広げる</button>
+              </span>
+            </header>
+            <div role="status" style="display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-2);padding:4px var(--space-3);border-bottom:1px solid var(--color-divider);font-size:12px;color:var(--color-neutral-700)">
+              <span style="font-family:var(--font-heading);font-size:13px;color:var(--color-text)">{{ p.rowCount }}</span>
+              <span>{{ p.hint }}</span>
+              <button class="btn btn-secondary" aria-pressed="{{ p.detail }}" style="margin-left:auto;font-size:12px;padding:1px 8px" title="選んだ行の全列を縦に並べて読む">{{ p.detailLabel }}</button>
+            </div>
+            <div style="flex:1;min-height:0;overflow:hidden;background:var(--color-neutral-100)">
+              <div style="width:max-content;font-size:13px">
+                <div style="display:flex">
+                  <sc-for list="{{ p.cols }}" as="c" hint-placeholder-count="5">
+                    <div style="width:{{ c.w }}px;height:40px;flex:none;display:flex;align-items:center;gap:4px;padding:0 6px 0 8px;background:var(--color-surface);border-right:1px solid var(--color-neutral-300);border-bottom:1px solid var(--color-neutral-400);font-weight:600">
+                      <div style="flex:1;min-width:0;line-height:1.25">
+                        <div style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.main }}</div>
+                        <div style="font-size:10.5px;font-weight:400;letter-spacing:0.04em;color:var(--color-neutral-600);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.sub }}</div>
+                      </div>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--color-neutral-600)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg>
+                    </div>
+                  </sc-for>
+                </div>
+                <sc-for list="{{ p.rows }}" as="r" hint-placeholder-count="6">
+                  <div style="display:flex">
+                    <sc-for list="{{ r.cells }}" as="cell" hint-placeholder-count="5">
+                      <div style="width:{{ cell.w }}px;height:32px;line-height:31px;flex:none;padding:0 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-right:1px solid var(--color-neutral-300);border-bottom:1px solid var(--color-neutral-300);background:{{ cell.bg }};color:{{ cell.fg }};box-shadow:{{ cell.ring }};text-decoration:{{ cell.deco }}">{{ cell.text }}</div>
+                    </sc-for>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+            <sc-if value="{{ p.detail }}" hint-placeholder-val="{{ false }}">
+              <section aria-label="行の詳細" style="flex:0 0 auto;max-height:45%;overflow:auto;border-top:1px solid var(--color-divider);font-size:12px">
+                <header style="position:sticky;top:0;display:flex;align-items:baseline;gap:var(--space-2);padding:4px var(--space-3);border-bottom:1px solid var(--color-divider);background:#ffffff">
+                  <span style="font-family:ui-monospace,Consolas,monospace;font-weight:600">{{ detailTitle }}</span>
+                  <span style="color:var(--color-neutral-700)">{{ detailFilled }}</span>
+                  <button class="btn btn-secondary" style="margin-left:auto;font-size:12px;padding:1px 8px">閉じる</button>
+                </header>
+                <dl style="margin:0;padding:6px var(--space-3) var(--space-3);display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px 14px">
+                  <sc-for list="{{ detailItems }}" as="d" hint-placeholder-count="6">
+                    <div style="min-width:0;padding:2px 4px 4px;border-bottom:1px dotted var(--color-neutral-400);grid-column:{{ d.span }};background:{{ d.bg }}">
+                      <dt style="display:flex;align-items:baseline;gap:6px;margin:0"><span style="font-weight:600">{{ d.label }}</span><span style="font-family:ui-monospace,Consolas,monospace;font-size:10.5px;color:var(--color-neutral-600)">{{ d.attr }}</span></dt>
+                      <dd style="margin:2px 0 0;white-space:pre-wrap;word-break:break-word;color:{{ d.fg }}">{{ d.value }}</dd>
+                    </div>
+                  </sc-for>
+                </dl>
+              </section>
+            </sc-if>
+          </section>
+        </sc-for>
+      </div>
+      <div aria-label="色の意味" style="display:flex;flex-wrap:wrap;align-items:center;gap:4px 16px;padding:6px var(--space-4);border-top:1px solid var(--color-divider);font-size:12px">
+        <sc-for list="{{ legend }}" as="l" hint-placeholder-count="5">
+          <span style="display:inline-flex;align-items:center;gap:6px"><span style="width:11px;height:11px;background:{{ l.bg }};border:1px solid var(--color-neutral-400)"></span>{{ l.label }}</span>
+        </sc-for>
+        <span style="color:var(--color-neutral-700)">セルにマウスを置くと作者・根拠・変更前後を表示します</span>
+      </div>
+    </div>
+
+    <aside style="width:320px;flex-shrink:0;overflow-y:auto;border-left:1px solid var(--color-divider)">
+      <section aria-label="Maximo への反映" style="padding:var(--space-4);border-bottom:1px solid var(--color-divider);background:{{ requestBg }}">
+        <div style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:2px">Commit</div>
+        <h2 style="font-size:20px;margin:0 0 var(--space-2)">Maximo への反映</h2>
+        <p title="シートを読み込んだオブジェクト構造と接続先に反映します" style="margin:0 0 var(--space-3);font-size:12px">反映先: <span style="font-family:ui-monospace,Consolas,monospace">MXAPIWODETAIL</span><span style="color:var(--color-neutral-700)">（demo.example.com）</span></p>
+        <sc-if value="{{ requested }}" hint-placeholder-val="{{ false }}">
+          <div role="status" style="margin-bottom:var(--space-3);padding:var(--space-2) var(--space-3);border:1px solid var(--color-accent);font-size:13px">
+            <strong>LLM から反映の依頼があります。</strong> 差分を確認してから反映してください。
+            <p style="margin:6px 0;padding:6px 8px;border:1px solid var(--color-accent-300);background:#ffffff;white-space:pre-wrap;word-break:break-word;max-height:10em;overflow-y:auto;font-size:12px">説明の表記ゆれ（「動作不良」「指示不良」の混在）を 3 件そろえました。
+WO101005 は重複登録のため削除しています。</p>
+            <button class="btn btn-ghost" style="font-size:12px;padding:0">依頼を閉じる</button>
+          </div>
+        </sc-if>
+        <dl class="blueprint" style="display:grid;grid-template-columns:repeat(4,1fr);margin:0 0 var(--space-3)">
+          <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+          <sc-for list="{{ counts }}" as="k" hint-placeholder-count="4">
+            <div style="padding:6px 4px 4px;text-align:center;border-left:{{ k.rule }}">
+              <dt style="font-size:10.5px;color:var(--color-neutral-700);white-space:nowrap">{{ k.label }}</dt>
+              <dd style="margin:0;font-family:var(--font-heading);font-weight:600;font-size:26px;line-height:1.1">{{ k.n }}</dd>
+            </div>
+          </sc-for>
+        </dl>
+        <p style="margin:0 0 var(--space-2);font-size:12px">状態: {{ stateLabel }}</p>
+        <button class="btn btn-primary blueprint" style="width:100%;padding:9px 12px;font-size:15px" onClick="{{ openDialog }}">
+          <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+          Maximo に反映
+        </button>
+        <button class="btn btn-secondary" style="margin-top:var(--space-3);font-size:12px;padding:3px 10px">書き込みログ（CSV）</button>
+      </section>
+      <section aria-label="変更履歴" style="padding:var(--space-4)">
+        <div style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:2px">History</div>
+        <h2 style="font-size:20px;margin:0 0 var(--space-2)">変更履歴</h2>
+        <ul style="list-style:none;margin:0;padding:0">
+          <sc-for list="{{ history }}" as="h" hint-placeholder-count="3">
+            <li style="padding:8px 0;border-bottom:1px solid color-mix(in srgb, var(--color-text) 8%, transparent);font-size:12px;opacity:{{ h.op }}">
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="padding:0 6px;font-weight:600;background:{{ h.abg }};color:{{ h.afg }}">{{ h.author }}</span>
+                <span>{{ h.n }}</span>
+                <time style="font-family:ui-monospace,Consolas,monospace;color:var(--color-neutral-700)">{{ h.time }}</time>
+                <button class="btn btn-secondary" disabled="{{ h.undone }}" style="margin-left:auto;font-size:12px;padding:1px 8px">{{ h.btn }}</button>
+              </div>
+              <div style="margin-top:3px;color:var(--color-neutral-700);white-space:pre-wrap;word-break:break-word">{{ h.reason }}</div>
+            </li>
+          </sc-for>
+        </ul>
+      </section>
+    </aside>
+  </div>
+
+  <sc-if value="{{ dialog }}" hint-placeholder-val="{{ false }}">
+    <div class="dialog-backdrop" style="position:absolute;z-index:1500">
+      <div class="dialog blueprint" role="dialog" aria-label="Maximo に反映しますか？" style="width:min(480px,100%);background:#ffffff">
+        <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+        <div class="dialog-title">Maximo に反映しますか？</div>
+        <div style="font-size:14px">
+          <ul style="list-style:none;padding:0;margin:0 0 8px">
+            <li>反映先: MXAPIWODETAIL（demo.example.com）</li>
+            <li>親レコード 3 件（変更セル 4・追加 1・削除 1）</li>
+          </ul>
+          <p style="font-size:12px;color:var(--color-neutral-700)">最初の 1 件を送ったところで結果を確認してから、残りを送ります。自動では再試行しません。</p>
+          <label style="display:flex;gap:8px;align-items:center;margin:8px 0;cursor:pointer"><input type="checkbox" checked="{{ delChecked }}" onChange="{{ toggleDel }}" style="accent-color:var(--color-accent);width:15px;height:15px"></input>削除 1 件を含むことを確認しました</label>
+        </div>
+        <div class="dialog-actions">
+          <button class="btn btn-secondary" onClick="{{ closeDialog }}">やめる</button>
+          <button class="btn btn-primary" disabled="{{ confirmDisabled }}">反映する</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+</div>
+</sc-if>
+
+<sc-if value="{{ isSettings }}" hint-placeholder-val="{{ false }}">
+<main data-screen-label="設定" style="max-width:760px;margin:0 auto;padding:var(--space-8) var(--space-4) 64px">
+  <header style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-6)">
+    <h1 style="font-size:36px;margin:0">設定</h1>
+    <button class="btn btn-secondary">作業画面に戻る</button>
+  </header>
+
+  <section class="card blueprint" style="margin-bottom:var(--space-8);padding:var(--space-6)">
+    <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+    <div class="card-kicker">Maximo</div>
+    <h2 style="font-size:22px;margin:0">Maximo への接続</h2>
+    <p style="margin:0;padding:8px 12px;border-left:0;background:var(--color-accent-100);color:var(--color-accent-800)" role="status">接続しました。</p>
+    <dl style="display:grid;grid-template-columns:max-content 1fr;gap:6px 20px;margin:4px 0 8px">
+      <dt style="color:var(--color-neutral-700)">接続名</dt><dd style="margin:0">MAXADMIN@mas-dev</dd>
+      <dt style="color:var(--color-neutral-700)">Maximo</dt><dd style="margin:0">demo.example.com（proxy）</dd>
+      <dt style="color:var(--color-neutral-700)">Maximo の利用者</dt><dd style="margin:0">MAXADMIN</dd>
+    </dl>
+    <div style="display:flex;gap:var(--space-2);flex-wrap:wrap">
+      <button class="btn btn-primary blueprint"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>作業画面に戻る</button>
+      <button class="btn btn-secondary">別の接続にする</button>
+      <button class="btn btn-secondary">接続を切る</button>
+    </div>
+  </section>
+
+  <section class="card blueprint" style="margin-bottom:var(--space-8);padding:var(--space-6)">
+    <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+    <div class="card-kicker">Maximo · 未接続のとき</div>
+    <h2 style="font-size:22px;margin:0">Maximo への接続</h2>
+    <p style="margin:0;font-size:13px;color:var(--color-neutral-700)">API キーはこのタブのメモリ（専用の Web Worker）にだけ置き、サーバやブラウザのストレージには保存しません。記憶はブラウザのパスワードマネージャーに任せてください。</p>
+    <form style="max-width:440px;display:flex;flex-direction:column;gap:var(--space-3)" onSubmit="{{ noSubmit }}">
+      <div class="field"><label>Maximo URL</label><input class="input" type="url" placeholder="https://maximo.example.com" value="https://demo.example.com"></input></div>
+      <div class="field"><label>接続方式</label><select class="input"><option>proxy（このパソコンの橋渡し経由。既定）</option><option>直結（ブラウザから直接。Maximo 側の CORS 設定が必要）</option></select></div>
+      <div class="field"><label>接続名</label><input class="input" type="text" placeholder="MAXADMIN@mas-dev"></input></div>
+      <div class="field"><label>API キー</label><input class="input" type="password" aria-invalid="true" style="border-color:#a13a32"></input><p style="margin:4px 0 0;font-size:12px;color:#a13a32">API キーを入れてください。</p></div>
+      <div style="display:flex;gap:var(--space-2);align-items:center">
+        <button type="submit" class="btn btn-primary blueprint"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>接続</button>
+        <span style="color:var(--color-neutral-700)">確認しています…</span>
+      </div>
+    </form>
+  </section>
+
+  <section class="card blueprint" style="margin-bottom:var(--space-8);padding:var(--space-6)">
+    <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+    <div class="card-kicker">LLM</div>
+    <h2 style="font-size:22px;margin:0">LLM クライアントの接続</h2>
+    <p style="margin:0;padding:8px 12px;background:var(--color-accent-100);color:var(--color-accent-800)" role="status">Claude Code に登録済みです。</p>
+    <p style="margin:0;font-size:13px;color:var(--color-neutral-700)">Claude Code が起動する橋渡し（stdio の MCP サーバ）は、この画面を配っている橋渡しに中継します。URL もトークンも要りません。</p>
+    <p style="margin:0;font-size:13px;color:var(--color-neutral-700)">Claude Code のツールの一覧に mxstudio が出てこないときは、Claude Code に「mxstudio を入れ直して」と頼むか、導入をもう一度実行してください。</p>
+    <div class="field">
+      <label>登録を確かめる</label>
+      <div style="display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap">
+        <code style="font-family:ui-monospace,Consolas,monospace;font-size:12.5px;padding:5px 10px;border:1px solid var(--color-divider);background:var(--color-surface)">claude mcp list</code>
+        <button class="btn btn-secondary" style="font-size:12px;padding:3px 10px">コピー</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="card blueprint" style="padding:var(--space-6)">
+    <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+    <div class="card-kicker">Skill</div>
+    <h2 style="font-size:22px;margin:0">Skill（作業手順書）</h2>
+    <p style="margin:0;font-size:13px;color:var(--color-neutral-700)">LLM に mxstudio の作業手順と禁止事項を教えるファイルです。Claude Code は新しいセッションから読みます。</p>
+    <h3 style="font-size:16px;margin:var(--space-3) 0 0">アプリ既定</h3>
+    <p style="margin:0;font-size:12px;color:var(--color-neutral-700)">mxstudio と一緒に入り、mxstudio を更新すると置き換わります。書き換えないでください。</p>
+    <div><code style="font-family:ui-monospace,Consolas,monospace;font-size:12.5px">mxstudio-workbench</code></div>
+    <h3 style="font-size:16px;margin:var(--space-3) 0 0">利用者の Skill</h3>
+    <p style="margin:0;font-size:12px;color:var(--color-neutral-700)">業務や客先ごとの手順です。 <code style="font-family:ui-monospace,Consolas,monospace">~/.config/mxstudio/skills</code> の下に <code style="font-family:ui-monospace,Consolas,monospace">&lt;名前&gt;/SKILL.md</code> で置きます。mxstudio を更新しても消えず、公開もされません。置いたあと導入をやり直すと Claude Code に入ります。</p>
+    <p style="margin:0;font-size:12px;color:var(--color-neutral-700)">まだありません。</p>
+  </section>
+</main>
+</sc-if>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;screen&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;作業画面&quot;,&quot;設定&quot;],&quot;default&quot;:&quot;作業画面&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;requested&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;},&quot;showDialog&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;}}">
+const TONE = {
+  normal: { bg: '#f5f5f8', fg: '#1d1f20' },
+  readonly: { bg: '#e7e7ea', fg: '#5d5d60' },
+  llm: { bg: '#d6ebff', fg: '#2c455d' },
+  user: { bg: '#f1e5c6', fg: '#5e4516' },
+  added: { bg: '#dbeadb', fg: '#2b5236' },
+  deleted: { bg: '#f0dcd8', fg: '#74302a' },
+};
+const LEGEND = [['llm', 'LLM の変更'], ['user', '利用者の変更'], ['added', '追加行'], ['deleted', '削除行'], ['readonly', '読み取り専用']];
+const STATUSES = ['作成中', '承認済み', '工事中', '工事完了', 'キャンセル'];
+const pad2 = (i) => String(i).padStart(2, '0');
+
+function woRow(i) {
+  return {
+    SITEID: 'BEDFORD', WONUM: `WO10${1000 + i}`, STATUS: STATUSES[i % 5],
+    DESCRIPTION: i % 3 === 0 ? `P-25${pad2(i)}B動作不良の件` : `FS-25${pad2(i)}指示不良の件`,
+    EXT_WORKDETAIL: i % 4 === 0 ? '' : `P-25${pad2(i)}B の分解点検を行う。\n・保温着脱、開放清掃、ﾒｶﾆｶﾙｼｰﾙ交換（部品は別伝票で手配済み）\n・復旧後に試運転を行い、振動と軸受温度を記録する\n※ 現場責任者の立会いのもとで実施すること`,
+    PERSONGROUP: ['MECH', 'ELEC', 'INST', 'CIVIL'][i % 4], ASSETNUM: `A${50000 + i}`, LOCATION: `P-25${pad2(i)}B`,
+  };
+}
+
+function build(cols, data, opts) {
+  const { keys = [], changes = {}, status = {}, sel = null, view } = opts;
+  const rows = data.map((d, ri) => ({
+    cells: cols.map((c) => {
+      const ch = changes[`${ri}:${c.name}`];
+      const st = status[ri];
+      let tone = keys.includes(c.name) ? 'readonly' : 'normal';
+      let text = d[c.name] ?? '';
+      if (view !== 'base') {
+        if (st) tone = st;
+        else if (ch) tone = ch.tone;
+        if (ch && !st) text = view === 'diff' ? `${d[c.name]} → ${ch.val}` : ch.val;
+      }
+      const t = TONE[tone];
+      return {
+        text: String(text).split('\n')[0], w: c.w, bg: t.bg, fg: t.fg,
+        ring: sel && sel[0] === ri && sel[1] === c.name ? 'inset 0 0 0 2px #5980a6' : (sel && sel[0] === ri ? 'inset 0 0 0 999px rgba(89,128,166,0.10)' : 'none'),
+        deco: tone === 'deleted' ? 'line-through' : 'none',
+      };
+    }),
+  }));
+  return { cols: cols.map((c) => ({ w: c.w, main: c.title || c.name, sub: c.title ? c.name : '' })), rows };
+}
+
+class Component extends DCLogic {
+  state = { view: 'final', dialog: null, del: false };
+  renderVals() {
+    const screen = this.props.screen ?? '作業画面';
+    const requested = this.props.requested ?? true;
+    const dialog = this.state.dialog ?? (this.props.showDialog ?? false);
+    const view = this.state.view;
+
+    const woCols = [
+      { name: 'SITEID', title: 'サイト', w: 88 }, { name: 'WONUM', title: '工事管理No.', w: 104 },
+      { name: 'STATUS', title: 'ステータス', w: 92 }, { name: 'DESCRIPTION', title: '説明', w: 170 },
+      { name: 'EXT_WORKDETAIL', title: '作業内容（詳細）', w: 200 }, { name: 'PERSONGROUP', title: '工事担当部署', w: 104 },
+      { name: 'ASSETNUM', title: '資産', w: 90 }, { name: 'LOCATION', title: 'ロケーション', w: 100 },
+    ];
+    const woData = Array.from({ length: 10 }, (_, i) => woRow(i));
+    woData.push({ ...woRow(24), WONUM: '（新規）', STATUS: '作成中', DESCRIPTION: 'P-2524B動作不良の件' });
+    const wo = build(woCols, woData, {
+      view, keys: ['SITEID', 'WONUM'], sel: [3, 'DESCRIPTION'],
+      changes: {
+        '1:DESCRIPTION': { tone: 'llm', val: 'FS-2501 指示不良の件' },
+        '2:DESCRIPTION': { tone: 'llm', val: 'FS-2502 指示不良の件' },
+        '3:DESCRIPTION': { tone: 'llm', val: 'P-2503B 動作不良の件' },
+        '7:STATUS': { tone: 'user', val: '承認済み' },
+      },
+      status: { 5: 'deleted', 10: 'added' },
+    });
+
+    const chCols = [
+      { name: 'SITEID', title: 'サイト', w: 84 }, { name: 'WONUM', title: '工事管理No.', w: 100 },
+      { name: 'MULTIASSETLOCCI.MULTIID', title: 'MULTI ID', w: 110 }, { name: 'MULTIASSETLOCCI.ASSETNUM', title: '資産', w: 130 },
+      { name: 'MULTIASSETLOCCI.LOCATION', title: 'ロケーション', w: 140 }, { name: 'MULTIASSETLOCCI.ISPRIMARY', title: 'プライマリーですか', w: 150 },
+    ];
+    const ch = build(chCols, [{ SITEID: 'BEDFORD', WONUM: 'WO101003', 'MULTIASSETLOCCI.MULTIID': '17003', 'MULTIASSETLOCCI.ASSETNUM': 'A10001', 'MULTIASSETLOCCI.LOCATION': 'GEN-01', 'MULTIASSETLOCCI.ISPRIMARY': 'false' }], { view, keys: ['SITEID', 'WONUM', 'MULTIASSETLOCCI.MULTIID'] });
+    const asCols = [{ name: 'ASSETNUM', title: '資産', w: 96 }, { name: 'DESCRIPTION', title: '説明', w: 150 }, { name: 'EXT_EQUIPTAG', title: 'タグ番号', w: 110 }, { name: 'LOCATION', title: 'ロケーション', w: 110 }];
+    const as = build(asCols, [{ ASSETNUM: 'A10001', DESCRIPTION: '発電設備（本体）', EXT_EQUIPTAG: 'P-2501B', LOCATION: 'P-2501B' }], { view, keys: ['ASSETNUM'] });
+    const loCols = [{ name: 'LOCATION', title: 'ロケーション', w: 110 }, { name: 'DESCRIPTION', title: '説明', w: 170 }, { name: 'STATUS', title: 'ステータス', w: 100 }];
+    const lo = build(loCols, [{ LOCATION: 'P-2503B', DESCRIPTION: 'P-2503B の設備', STATUS: '稼働' }], { view, keys: ['LOCATION'] });
+
+    const hint = '列の見出しの ▾ から絞り込めます';
+    const panes = [
+      { title: '工事管理', subtitle: 'MXAPIWODETAIL', border: '#5980a6', linked: false, rowCount: '25 行', hint, detail: true, detailLabel: '行の詳細を閉じる', ...wo },
+      { title: 'MULTIASSETLOCCI', subtitle: '工事管理 の子', border: 'var(--color-divider)', linked: true, rowCount: '1 / 12 行', hint: '選んだ行に連動しています', detail: false, detailLabel: '行の詳細', ...ch },
+      { title: '機器台帳', subtitle: 'MULTIASSETLOCCI.ASSETNUM → ASSETNUM', border: 'var(--color-divider)', linked: true, rowCount: '1 / 25 行', hint: '選んだ行に連動しています', detail: false, detailLabel: '行の詳細', ...as },
+      { title: 'ロケーション', subtitle: 'LOCATION → LOCATION', border: 'var(--color-divider)', linked: true, rowCount: '1 / 24 行', hint: '選んだ行に連動しています', detail: false, detailLabel: '行の詳細', ...lo },
+    ];
+
+    const sr = woRow(3);
+    const detailItems = [
+      ...woCols.filter((c) => c.name !== 'EXT_WORKDETAIL').map((c) => {
+        const changed = c.name === 'DESCRIPTION' && view !== 'base';
+        return { label: c.title, attr: c.name, value: changed ? 'P-2503B 動作不良の件' : sr[c.name], span: 'auto', bg: changed ? TONE.llm.bg : 'transparent', fg: 'var(--color-text)' };
+      }),
+      { label: '作業内容（詳細）', attr: 'EXT_WORKDETAIL', value: sr.EXT_WORKDETAIL, span: '1 / -1', bg: 'transparent', fg: 'var(--color-text)' },
+    ];
+
+    const tab = (name, sel, count, dot) => ({ name, sel, count, hasCount: count > 0, dot, line: sel ? '#5980a6' : 'transparent', fg: sel ? 'var(--color-text)' : 'var(--color-neutral-700)', fw: sel ? 600 : 400 });
+    const rule = '1px solid var(--color-divider)';
+    return {
+      isApp: screen === '作業画面', isSettings: screen === '設定',
+      tabs: [tab('工事管理', true, 6, requested), tab('機器台帳', false, 0, false), tab('ロケーション', false, 0, false)],
+      views: [['final', '最終'], ['diff', '差分'], ['base', '元の値']].map(([k, label]) => ({ label, on: view === k, pick: () => this.setState({ view: k }) })),
+      panes, detailItems, detailTitle: 'BEDFORD / WO101003', detailFilled: '8 / 8 列に値',
+      legend: LEGEND.map(([k, label]) => ({ label, bg: TONE[k].bg })),
+      requested, requestBg: requested ? 'var(--color-accent-100)' : 'transparent',
+      stateLabel: requested ? '反映の依頼あり' : '未反映',
+      counts: [['親レコード', 3], ['変更セル', 4], ['追加行', 1], ['削除行', 1]].map(([label, n], i) => ({ label, n, rule: i ? rule : 'none' })),
+      history: [
+        { author: '利用者', abg: TONE.user.bg, afg: TONE.user.fg, n: '1 件', time: '10:44:51', reason: '', undone: false, btn: '取り消す', op: 1 },
+        { author: 'LLM', abg: TONE.llm.bg, afg: TONE.llm.fg, n: '3 件', time: '10:42:18', reason: '説明の表記ゆれ（「動作不良」「指示不良」の前の空白・機器番号の書式）をそろえる', undone: false, btn: '取り消す', op: 1 },
+        { author: 'LLM', abg: TONE.llm.bg, afg: TONE.llm.fg, n: '2 件', time: '10:39:02', reason: '重複登録と思われる WO101005 を削除、P-2524B の工事を追加', undone: false, btn: '取り消す', op: 1 },
+        { author: 'LLM', abg: TONE.llm.bg, afg: TONE.llm.fg, n: '1 件', time: '10:31:40', reason: '工事担当部署を INST に変更', undone: true, btn: '取り消し済み', op: 0.55 },
+      ],
+      dialog, delChecked: this.state.del, confirmDisabled: !this.state.del,
+      toggleDel: () => this.setState((s) => ({ del: !s.del })),
+      openDialog: () => this.setState({ dialog: true }),
+      closeDialog: () => this.setState({ dialog: false, del: false }),
+      noSubmit: (e) => e.preventDefault(),
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,1794 @@
+// scripts/setup-local.mjs の試験。Node 標準の node:test で動かす。
+//
+//   npm run test:setup
+//
+// 実在の設定ファイル（~/.claude.json・Claude Desktop・Antigravity（~/.gemini）・スタートアップ・デスクトップ・~/.config/mxstudio）には一切触らない。
+// - 書き先はすべて一時フォルダに差し替える。
+// - MXSTUDIO_SETUP_TEST=1 を立てる。setup-local.mjs はこの印があると、書き先が一時フォルダでない・--port / --bridge /
+//   --no-open が無いときは何もせずに止まり、本物の claude コマンドを**探しもしない**。
+// - claude コマンドを試すときは、一時フォルダに置いた偽物（呼ばれた引数を記録し、差し替えた書き先に書く）を使う。
+// - 最後の試験で、本物の設定ファイルとフォルダの更新時刻が、この試験の前後で変わっていないことを確かめる。
+// 橋渡しの代わりに、/_mxstudio/health と /ws だけを返す小さなサーバを使う。
+// ポートは OS に割り当てさせる（利用者が 8788 で動かしている橋渡しに触れないため）。
+// vitest の projects（tests/worker・tests/app・tests/bridge）には含まれないので、npx vitest run では動かない。
+
+import assert from "node:assert/strict";
+import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { createServer as createHttpServer } from "node:http";
+import { createServer } from "node:net";
+import os from "node:os";
+import path from "node:path";
+import test from "node:test";
+import { fileURLToPath } from "node:url";
+
+import {
+  antigravityPaths,
+  antigravityWanted,
+  bridgeArgs,
+  bridgeTestEnv,
+  buildAntigravityEntry,
+  buildCodeEntry,
+  buildDesktopEntry,
+  buildInternetShortcut,
+  canUseClaudeCli,
+  chooseClaudeCli,
+  classifyPrevious,
+  decidePort,
+  entryFromBackup,
+  expectedPeerProtocol,
+  findBrowser,
+  findOnPath,
+  isBridgeCommandLine,
+  isBridgeHealth,
+  isInside,
+  isOurEntry,
+  isSameEntry,
+  isServeBridgeCommandLine,
+  isSetupShapedEntry,
+  keyFileEnvStep,
+  lastWrittenEntries,
+  main,
+  mergeMcpServer,
+  missingTargets,
+  nodeFlagsFor,
+  parseArgs,
+  planSkillInstall,
+  planSkillRemoval,
+  previousEntrySteps,
+  probeBridge,
+  quoteArgs,
+  quoteForCmd,
+  readJsonFile,
+  readRepoSkills,
+  realWriteLocations,
+  redactArgs,
+  redactEntry,
+  redactUrl,
+  rememberPrevious,
+  removeMcpServer,
+  resolveBridgeEntry,
+  runPowerShell,
+  singleBridgeStep,
+  skillTargets,
+  testSandboxProblem,
+} from "../../scripts/setup-local.mjs";
+import { needsBuild, needsInstall, nodeVersionOk } from "../../scripts/setup-local.mjs";
+
+// 試験中の印（setup-local.mjs の main() が見る）
+process.env.MXSTUDIO_SETUP_TEST = "1";
+
+const IS_WINDOWS = process.platform === "win32";
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+const SETUP_SCRIPT = path.join(REPO_ROOT, "scripts", "setup-local.mjs");
+
+// ---------------------------------------------------------------------------
+// 本物の設定ファイルとフォルダ（試験の最初に更新時刻を控え、最後の試験で比べる）
+// ---------------------------------------------------------------------------
+
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/** 本物の書き先。owner は、試験とは関係なくそこを書き換えうるプログラム */
+function realTargets() {
+  const home = os.homedir();
+  const appData = process.env.APPDATA || path.join(home, "AppData", "Roaming");
+  const localAppData = process.env.LOCALAPPDATA || path.join(home, "AppData", "Local");
+  const shell = { desktop: null, startup: null };
+  if (IS_WINDOWS) {
+    // Windows に聞く（読むだけ）。デスクトップが OneDrive に移されていることがあるため
+    const ran = runPowerShell("@{ desktop = [Environment]::GetFolderPath('Desktop'); startup = [Environment]::GetFolderPath('Startup') } | ConvertTo-Json -Compress");
+    try {
+      const lines = ran.stdout.split(/\r?\n/).filter((l) => l.trim());
+      Object.assign(shell, JSON.parse(lines[lines.length - 1] ?? "{}"));
+    } catch {
+      // 聞けなくても、決まった場所は見る
+    }
+  }
+  const targets = [
+    { path: path.join(home, ".claude.json"), type: "json", owner: "Claude Code" },
+    process.env.CLAUDE_CONFIG_DIR ? { path: path.join(process.env.CLAUDE_CONFIG_DIR, ".claude.json"), type: "json", owner: "Claude Code" } : null,
+    { path: path.join(appData, "Claude", "claude_desktop_config.json"), type: "json", owner: "Claude Desktop" },
+    { path: path.join(home, ".claude"), type: "dir", owner: "Claude Code" },
+    { path: path.join(appData, "Claude"), type: "dir", owner: "Claude Desktop" },
+    { path: path.join(appData, "Microsoft", "Windows", "Start Menu", "Programs", "Startup"), type: "dir", owner: "Windows" },
+    shell.startup ? { path: shell.startup, type: "dir", owner: "Windows" } : null,
+    { path: path.join(home, "Desktop"), type: "dir", owner: "Windows / OneDrive" },
+    { path: path.join(home, "OneDrive", "Desktop"), type: "dir", owner: "Windows / OneDrive" },
+    shell.desktop ? { path: shell.desktop, type: "dir", owner: "Windows / OneDrive" } : null,
+    { path: path.join(home, ".gemini", "config", "mcp_config.json"), type: "json", owner: "Antigravity" },
+    { path: path.join(home, ".gemini", "skills"), type: "dir", owner: "Antigravity" },
+    // ほかに書くプログラムが無い場所。更新時刻が変わったらそれだけで失敗にする
+    { path: path.join(home, ".config", "mxstudio"), type: "strict", owner: null },
+    // 導入の記録と控え。控えのフォルダが既にあると、中に控えが増えても親フォルダの更新時刻は変わらないので、別に見る
+    { path: path.join(home, ".config", "mxstudio", "setup.json"), type: "strict", owner: null },
+    { path: path.join(home, ".config", "mxstudio", "backup"), type: "strict", owner: null },
+    // 本物の橋渡しが作る鍵。試験中に起動する橋渡しは一時フォルダの鍵を使うので、ここは変わらないはず
+    { path: path.join(home, ".config", "mxstudio", "bridge.key"), type: "strict", owner: null },
+    // 以前の版の置き場所（%LOCALAPPDATA%\mxstudio）。残っている PC があるので、ここも見る
+    { path: path.join(localAppData, "mxstudio"), type: "strict", owner: null },
+    { path: path.join(localAppData, "mxstudio", "setup.json"), type: "strict", owner: null },
+    { path: path.join(localAppData, "mxstudio", "backup"), type: "strict", owner: null },
+    { path: path.join(localAppData, "mxstudio", "bridge.key"), type: "strict", owner: null },
+  ].filter(Boolean);
+  const seen = new Set();
+  return targets.filter((t) => {
+    const key = path.resolve(t.path).toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/** mcpServers.mxstudio だけを読む（中身は画面に出さず、比べるだけ） */
+function mxstudioEntryOf(file) {
+  for (let i = 0; i < 10; i++) {
+    try {
+      const json = JSON.parse(readFileSync(file, "utf8").replace(/^\uFEFF/, ""));
+      return JSON.stringify(json?.mcpServers?.mxstudio ?? null);
+    } catch (err) {
+      if (err && err.code === "ENOENT") return "(無い)";
+      sleepSync(50); // 持ち主のプログラムが書いている途中かもしれない
+    }
+  }
+  return "(読めない)";
+}
+
+function snapshotReal(targets) {
+  return targets.map((t) => {
+    let st = null;
+    try {
+      st = statSync(t.path);
+    } catch {
+      // 無い
+    }
+    const snap = { ...t, exists: Boolean(st), mtimeMs: st ? st.mtimeMs : null };
+    if (st && t.type === "json") {
+      snap.entry = mxstudioEntryOf(t.path);
+      snap.tmp = existsSync(`${t.path}.mxstudio.tmp`);
+    }
+    if (st && st.isDirectory()) {
+      try {
+        snap.names = readdirSync(t.path).filter((n) => /mxstudio/i.test(n)).sort();
+      } catch {
+        snap.names = null;
+      }
+    }
+    return snap;
+  });
+}
+
+const REAL_TARGETS = realTargets();
+const REAL_BEFORE = snapshotReal(REAL_TARGETS);
+
+// ---------------------------------------------------------------------------
+// 引数
+// ---------------------------------------------------------------------------
+
+test("parseArgs: 既定は導入モードで、すべての手順を行う", () => {
+  const opts = parseArgs([]);
+  assert.equal(opts.mode, "install");
+  assert.equal(opts.dryRun, false);
+  assert.equal(opts.autostart, true);
+  assert.equal(opts.open, true);
+  assert.equal(opts.port, null);
+  assert.equal(opts.claudeCli, null);
+});
+
+test("parseArgs: --uninstall と --status と --no-* が効く", () => {
+  assert.equal(parseArgs(["--uninstall"]).mode, "uninstall");
+  assert.equal(parseArgs(["--status"]).mode, "status");
+  const opts = parseArgs(["--no-autostart", "--no-open", "--no-shortcut", "--dry-run", "--no-skills", "--claude-skills-dir", "x"]);
+  assert.equal(opts.autostart, false);
+  assert.equal(opts.open, false);
+  assert.equal(opts.shortcut, false);
+  assert.equal(opts.dryRun, true);
+  assert.equal(opts.skills, false);
+  assert.equal(opts.claudeSkillsDir, "x");
+  assert.equal(parseArgs([]).skills, true);
+});
+
+test("planSkillInstall / planSkillRemoval: 入れたままなら上書き・削除し、利用者が書き換えたものは控えを取るか残す", () => {
+  const text = "---\nname: a\n---\n本文\n";
+  const hash = createHash("sha256").update(text, "utf8").digest("hex");
+  assert.equal(planSkillInstall(text, null, undefined), "install");
+  assert.equal(planSkillInstall(text, text.replace(/\n/g, "\r\n"), undefined), "same", "改行の違いは同じ中身");
+  assert.equal(planSkillInstall("---\nname: a\n---\n新しい本文\n", text, hash), "update", "前回入れた中身のままなら上書きしてよい");
+  assert.equal(planSkillInstall("---\nname: a\n---\n新しい本文\n", `${text}メモ\n`, hash), "backup", "書き換えられていたら控えを取る");
+  assert.equal(planSkillInstall(text, "別の Skill", undefined), "backup", "記録が無い同じ名前の別物も控えを取る");
+  assert.equal(planSkillRemoval(null, hash), "absent");
+  assert.equal(planSkillRemoval(text, hash), "remove");
+  assert.equal(planSkillRemoval(`${text}メモ\n`, hash), "keep");
+  assert.equal(planSkillRemoval(text, undefined), "keep", "記録が無ければ消さない");
+});
+
+test("導入で書き換えられていた Skill は、控えを取ってから置き換える", { timeout: 60_000 }, async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-setup-skills-"));
+  let port = null;
+  try {
+    const bridge = path.join(dir, "fake-bridge.mjs");
+    writeFileSync(bridge, FAKE_BRIDGE, "utf8");
+    port = await freePort();
+    const common = [...sandboxArgs(dir), "--no-autostart", "--no-shortcut", "--no-start", "--port", String(port), "--bridge", bridge];
+    const skillsDir = path.join(dir, "claude-skills");
+    const repoSkills = readRepoSkills(path.resolve(import.meta.dirname, "..", ".."));
+    const target = path.join(skillsDir, repoSkills[0].name, "SKILL.md");
+    mkdirSync(path.dirname(target), { recursive: true });
+    writeFileSync(target, "利用者が自分で置いた同じ名前の Skill\n", "utf8");
+
+    const run = await runJson(common);
+    const backup = stepOf(run.json, "skills_backup");
+    assert.equal(backup.length, 1, run.stdout);
+    assert.equal(readFileSync(target, "utf8"), repoSkills[0].text, "置き換えた");
+    const state = JSON.parse(readFileSync(path.join(dir, "state", "setup.json"), "utf8"));
+    const saved = state.backups.find((b) => b.includes(`skill-${repoSkills[0].name}`));
+    assert.ok(saved && isInside(dir, saved), "控えは記録の置き場所（一時フォルダ）の中");
+    assert.equal(readFileSync(path.join(saved, "SKILL.md"), "utf8"), "利用者が自分で置いた同じ名前の Skill\n");
+  } finally {
+    if (port !== null) await stopFakeBridgeOn(port);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("--no-skills なら Skill の置き場所を指定しなくても試験の囲いを通り、Skill を書かない", () => {
+  const dir = path.join(os.tmpdir(), "mxs-noskills");
+  const base = ["--no-open", "--no-install", "--no-build", "--port", "19002", "--bridge", "b.mjs"];
+  const withoutSkillsDir = sandboxArgs(dir).filter((a, i, all) => a !== "--claude-skills-dir" && all[i - 1] !== "--claude-skills-dir");
+  assert.match(testSandboxProblem(parseArgs([...withoutSkillsDir, ...base])) ?? "", /--claude-skills-dir がありません（Skill を入れないなら --no-skills）/);
+  assert.equal(testSandboxProblem(parseArgs([...withoutSkillsDir, ...base, "--no-skills"])), null);
+});
+
+test("--no-antigravity なら Antigravity の設定フォルダを指定しなくても試験の囲いを通る", () => {
+  const dir = path.join(os.tmpdir(), "mxs-noantigravity");
+  const base = ["--no-open", "--no-install", "--no-build", "--port", "19002", "--bridge", "b.mjs"];
+  const without = sandboxArgs(dir).filter((a, i, all) => a !== "--antigravity-dir" && all[i - 1] !== "--antigravity-dir");
+  assert.match(testSandboxProblem(parseArgs([...without, ...base])) ?? "", /--antigravity-dir がありません（Antigravity に登録しないなら --no-antigravity）/);
+  assert.equal(testSandboxProblem(parseArgs([...without, ...base, "--no-antigravity"])), null);
+  const outside = parseArgs([...without, ...base, "--antigravity-dir", path.join(os.homedir(), ".gemini")]);
+  assert.match(testSandboxProblem(outside) ?? "", /--antigravity-dir が/);
+});
+
+test("antigravityPaths / antigravityWanted / skillTargets: ~/.gemini があるときだけ Antigravity に登録し、Skill も写す", () => {
+  const dir = path.join(os.tmpdir(), "mxs-ag-paths", ".gemini");
+  const ag = antigravityPaths(dir);
+  assert.equal(ag.antigravityConfig, path.join(dir, "config", "mcp_config.json"));
+  assert.equal(ag.antigravitySkillsDir, path.join(dir, "skills"));
+  const paths = { ...ag, claudeSkillsDir: path.join(dir, "..", "claude-skills") };
+  const on = parseArgs([]);
+  assert.equal(antigravityWanted(on, paths, () => true).ok, true);
+  assert.match(antigravityWanted(on, paths, () => false).reason, /設定フォルダ.*が無い/);
+  assert.match(antigravityWanted(parseArgs(["--no-antigravity"]), paths, () => true).reason, /--no-antigravity/);
+  assert.deepEqual(skillTargets(on, paths, () => true).map((t) => [t.id, t.dir]), [
+    ["skills", paths.claudeSkillsDir],
+    ["antigravity_skills", ag.antigravitySkillsDir],
+  ]);
+  assert.deepEqual(skillTargets(on, paths, () => false).map((t) => t.id), ["skills"]);
+  // Antigravity の mcp_config.json には type を書かない（stdio は command / args）
+  assert.deepEqual(buildAntigravityEntry("C:\\node.exe", "C:\\r\\src\\bridge\\cli.mjs", 8788), { command: "C:\\node.exe", args: ["C:\\r\\src\\bridge\\cli.mjs", "--port", "8788"] });
+});
+
+test("Antigravity: 入っていれば登録し Skill も写す（ほかのサーバは残す）。取り消しで外して Skill も消す。入っていなければ触らない", { timeout: 120_000 }, async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-antigravity-"));
+  try {
+    const bridge = path.join(dir, "fake-bridge.mjs");
+    writeFileSync(bridge, FAKE_BRIDGE, "utf8");
+    const port = await freePort();
+    const common = [...sandboxArgs(dir), "--no-start", "--no-autostart", "--no-shortcut", "--port", String(port), "--bridge", bridge];
+    const geminiDir = path.join(dir, "gemini");
+    const agConfig = path.join(geminiDir, "config", "mcp_config.json");
+    const agSkills = path.join(geminiDir, "skills");
+    const repoSkills = readRepoSkills(path.resolve(import.meta.dirname, "..", ".."));
+
+    // --- Antigravity が入っていない（~/.gemini が無い）: 何も作らない ---
+    const absent = await runJson(common);
+    assert.equal(absent.code, 0, absent.stdout);
+    assert.equal(stepOf(absent.json, "antigravity")[0].level, "skip");
+    assert.equal(existsSync(geminiDir), false, "入れていない PC に ~/.gemini を作らない");
+    assert.equal(stepOf(absent.json, "antigravity_skills").length, 0);
+
+    // --- 入っている: ほかのサーバ（利用者の設定）を残して 1 ブロックだけ足す ---
+    const other = { command: "npx", args: ["chrome-devtools-mcp@latest"] };
+    mkdirSync(path.dirname(agConfig), { recursive: true });
+    writeFileSync(agConfig, JSON.stringify({ mcpServers: { "chrome-devtools-mcp": other } }, null, 2), "utf8");
+    mkdirSync(path.join(agSkills, "cloudflare"), { recursive: true });
+    writeFileSync(path.join(agSkills, "cloudflare", "SKILL.md"), "---\nname: cloudflare\n---\n利用者の Skill\n", "utf8");
+
+    const first = await runJson(common);
+    assert.equal(first.code, 0, first.stdout);
+    const written = JSON.parse(readFileSync(agConfig, "utf8"));
+    assert.deepEqual(written.mcpServers["chrome-devtools-mcp"], other, "ほかの MCP サーバを消していない");
+    assert.deepEqual(written.mcpServers.mxstudio, { command: process.execPath, args: [bridge, "--port", String(port)] });
+    assert.equal(stepOf(first.json, "antigravity")[0].level, "ok");
+    assert.ok(first.json.result.installed.antigravity);
+    for (const skill of repoSkills) {
+      assert.equal(readFileSync(path.join(agSkills, skill.name, "SKILL.md"), "utf8"), skill.text, `${skill.name} を Antigravity にも入れた`);
+    }
+    assert.equal(stepOf(first.json, "antigravity_skills")[0].level, "ok");
+    const state = JSON.parse(readFileSync(path.join(dir, "state", "setup.json"), "utf8"));
+    assert.deepEqual(state.installed.antigravitySkills.map((sk) => sk.name), repoSkills.map((sk) => sk.name));
+    assert.equal(state.previous.antigravity, null, "前に mxstudio は無かったので戻す先は無い");
+
+    // --- 状態を見る ---
+    const status = await runJson([...common, "--status"]);
+    assert.equal(stepOf(status.json, "antigravity")[0].level, "ok");
+    assert.equal(stepOf(status.json, "antigravity_skills")[0].level, "ok");
+
+    // --- もう一度（冪等）---
+    const again = await runJson(common);
+    assert.match(stepOf(again.json, "antigravity")[0].message, /既に同じ設定/);
+    assert.deepEqual(JSON.parse(readFileSync(agConfig, "utf8")), written, "2 回目は何も変えない");
+
+    // --- 取り消し ---
+    assert.equal(await quietMain([...common, "--uninstall"]), 0);
+    const after = JSON.parse(readFileSync(agConfig, "utf8"));
+    assert.equal("mxstudio" in after.mcpServers, false, "Antigravity から外れる");
+    assert.deepEqual(after.mcpServers["chrome-devtools-mcp"], other);
+    for (const skill of repoSkills) assert.equal(existsSync(path.join(agSkills, skill.name)), false, `${skill.name} は消す`);
+    assert.equal(existsSync(path.join(agSkills, "cloudflare", "SKILL.md")), true, "利用者の Skill は消さない");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("parseArgs: --port は 2 通りの書き方を受けて整数にする。--claude-cli を受ける", () => {
+  assert.equal(parseArgs(["--port", "8080"]).port, 8080);
+  assert.equal(parseArgs(["--port=8080"]).port, 8080);
+  assert.equal(parseArgs(["--claude-cli", "C:\\tmp\\claude.cmd"]).claudeCli, "C:\\tmp\\claude.cmd");
+});
+
+test("parseArgs: 知らない引数と不正なポートは断る", () => {
+  assert.match(parseArgs(["--nope"]).error, /知らない引数/);
+  assert.match(parseArgs(["--port", "0"]).error, /--port/);
+  assert.match(parseArgs(["--port", "abc"]).error, /--port/);
+  assert.match(parseArgs(["--bridge"]).error, /値が必要/);
+});
+
+// ---------------------------------------------------------------------------
+// MCP の設定を足す・外す
+// ---------------------------------------------------------------------------
+
+const NODE = "C:\\Program Files\\nodejs\\node.exe";
+const ENTRY = "C:\\repo\\src\\bridge\\cli.ts";
+const JS_ENTRY = "C:\\repo\\dist\\bridge\\cli.js";
+
+test("buildCodeEntry: claude mcp add が書くのと同じ形にする（.ts には型を外す指定を付ける）", () => {
+  assert.deepEqual(buildCodeEntry(NODE, ENTRY, 7777), {
+    type: "stdio",
+    command: NODE,
+    args: ["--experimental-strip-types", ENTRY, "--port", "7777"],
+    env: {},
+  });
+  assert.deepEqual(buildCodeEntry(NODE, JS_ENTRY, 7777).args, [JS_ENTRY, "--port", "7777"]);
+});
+
+test("buildDesktopEntry: Claude Desktop には type を書かない", () => {
+  assert.deepEqual(buildDesktopEntry(NODE, ENTRY, 7777), { command: NODE, args: ["--experimental-strip-types", ENTRY, "--port", "7777"] });
+});
+
+test("bridgeArgs: 画面だけ動かすときは --no-mcp を入口の後ろに置く", () => {
+  assert.deepEqual(bridgeArgs(ENTRY, 8788, ["--no-mcp"]), ["--experimental-strip-types", ENTRY, "--no-mcp", "--port", "8788"]);
+  assert.deepEqual(nodeFlagsFor(JS_ENTRY), []);
+});
+
+test("isSameEntry: command と args が同じなら同じ（type・env の違いは見ない）", () => {
+  const a = buildCodeEntry(NODE, ENTRY, 7777);
+  assert.equal(isSameEntry(a, buildDesktopEntry(NODE, ENTRY, 7777)), true);
+  assert.equal(isSameEntry(a, buildCodeEntry(NODE, ENTRY, 7778)), false);
+  assert.equal(isSameEntry(a, null), false);
+  assert.equal(isSameEntry(a, { type: "http", url: "https://example.test/mcp" }), false);
+});
+
+test("mergeMcpServer: ほかのサーバとほかの設定を残したまま 1 ブロックだけ足す", () => {
+  const before = {
+    numStartups: 12,
+    projects: { "C:\\work": {} },
+    mcpServers: { other: { type: "http", url: "https://example.test/mcp", headers: { Authorization: "Bearer KEEP" } } },
+  };
+  const entry = buildCodeEntry(NODE, ENTRY, 7777);
+  const { next, previous, changed } = mergeMcpServer(before, "mxstudio", entry);
+  assert.equal(changed, true);
+  assert.equal(previous, null);
+  assert.equal(next.numStartups, 12);
+  assert.deepEqual(next.projects, { "C:\\work": {} });
+  assert.deepEqual(next.mcpServers.other, before.mcpServers.other);
+  assert.deepEqual(next.mcpServers.mxstudio, entry);
+  // 元のオブジェクトは変えない
+  assert.equal("mxstudio" in before.mcpServers, false);
+});
+
+test("mergeMcpServer: 同じ内容なら changed は false（何度実行しても書き換えない）", () => {
+  const entry = buildCodeEntry(NODE, ENTRY, 7777);
+  const { changed } = mergeMcpServer({ mcpServers: { mxstudio: entry } }, "mxstudio", entry);
+  assert.equal(changed, false);
+});
+
+test("mergeMcpServer: mcpServers が無い設定にも足せる", () => {
+  const entry = buildDesktopEntry(NODE, ENTRY, 7777);
+  const { next } = mergeMcpServer({ preferences: { a: 1 } }, "mxstudio", entry);
+  assert.deepEqual(next.preferences, { a: 1 });
+  assert.deepEqual(next.mcpServers.mxstudio, entry);
+});
+
+test("removeMcpServer: 外す・前の設定に戻す・ほかは残す", () => {
+  const ours = buildCodeEntry(NODE, ENTRY, 7777);
+  const before = { mcpServers: { other: { type: "http" }, mxstudio: ours } };
+  const removed = removeMcpServer(before, "mxstudio", null);
+  assert.equal(removed.changed, true);
+  assert.equal("mxstudio" in removed.next.mcpServers, false);
+  assert.deepEqual(removed.next.mcpServers.other, { type: "http" });
+
+  const old = { type: "http", url: "https://example.test/mcp" };
+  const restored = removeMcpServer(before, "mxstudio", old);
+  assert.deepEqual(restored.next.mcpServers.mxstudio, old);
+
+  const none = removeMcpServer({ mcpServers: {} }, "mxstudio", null);
+  assert.equal(none.changed, false);
+});
+
+test("isOurEntry: 橋渡しを起動している設定だけを自分のものと見なす", () => {
+  assert.equal(isOurEntry(buildCodeEntry(NODE, ENTRY, 7777), ENTRY), true);
+  assert.equal(isOurEntry({ type: "http", url: "https://example.test/mcp" }, ENTRY), false);
+  assert.equal(isOurEntry({ command: "node", args: ["C:\\other\\thing.mjs"] }, ENTRY), false);
+});
+
+test("redactEntry: ヘッダと環境変数の値を伏せる（トークンを画面にも記録にも出さない）", () => {
+  const red = redactEntry({ type: "http", url: "https://example.test/mcp", headers: { Authorization: "Bearer SECRET" }, env: { TOKEN: "SECRET" } });
+  assert.equal(red.headers.Authorization, "<伏せ>");
+  assert.equal(red.env.TOKEN, "<伏せ>");
+  assert.equal(JSON.stringify(red).includes("SECRET"), false);
+  assert.equal(red.url, "https://example.test/mcp");
+});
+
+test("canUseClaudeCli: claude コマンドに任せてよいのは、書き先がちょうど既定の .claude.json のときだけ", () => {
+  const def = path.join(os.homedir(), ".claude.json");
+  assert.equal(canUseClaudeCli(def, def), true);
+  // 別の場所の .claude.json（試験で差し替えたとき）は claude コマンドでは書かない（本物を書き換えてしまうため）
+  assert.equal(canUseClaudeCli(path.join(os.tmpdir(), "x", ".claude.json"), def), false);
+  assert.equal(canUseClaudeCli(path.join(os.tmpdir(), "claude-code.json"), def), false);
+  assert.equal(canUseClaudeCli(def, null), false);
+});
+
+test("redactUrl / redactArgs: 秘密リンクのトークン・クエリ・利用者情報・トークンらしい引数を伏せる", () => {
+  assert.equal(redactUrl("https://example.test/mcp"), "https://example.test/mcp");
+  const link = redactUrl("https://mxstudio.example.workers.dev/w/Zx81kQ2vN7pLr4TtY9uWc3/app?key=SECRETQ#frag");
+  assert.equal(link.includes("Zx81kQ2vN7pLr4TtY9uWc3"), false);
+  assert.equal(link.includes("SECRETQ"), false);
+  assert.ok(link.startsWith("https://mxstudio.example.workers.dev/w/"));
+  assert.equal(redactUrl("https://user:pw-SECRET@example.test/mcp").includes("SECRET"), false);
+  assert.equal(redactUrl("これは URL ではない"), "<伏せ>");
+
+  const args = redactArgs(["--experimental-strip-types", "C:\\repo\\src\\bridge\\cli.ts", "--port", "8788", "--token", "abc", "--api-key=xyz", "Bearer qwe", "sk0123456789abcdefghijklmnop", "https://h.test/p?k=SECRETZ"]);
+  assert.deepEqual(args.slice(0, 5), ["--experimental-strip-types", "C:\\repo\\src\\bridge\\cli.ts", "--port", "8788", "--token"]);
+  const joined = JSON.stringify(args);
+  for (const secret of ["abc", "xyz", "qwe", "sk0123456789abcdefghijklmnop", "SECRETZ"]) assert.equal(joined.includes(secret), false, secret);
+
+  const red = redactEntry({ type: "http", url: "https://h.test/mcp/Zx81kQ2vN7pLr4TtY9uWc3" });
+  assert.equal(JSON.stringify(red).includes("Zx81kQ2vN7pLr4TtY9uWc3"), false);
+});
+
+test("rememberPrevious: 利用者の設定は戻す先として覚え、この導入が前に書いた設定は覚えない", () => {
+  const ours = buildCodeEntry(NODE, ENTRY, 7777);
+  const cloud = { type: "http", url: "https://example.test/mcp", headers: { Authorization: "Bearer SECRET" } };
+  // 何も無かった
+  assert.deepEqual(rememberPrevious({}, "claudeCode", null, null, ENTRY), { claudeCode: null });
+  // 利用者の設定（トークンは写さない）
+  const rec = rememberPrevious({}, "claudeCode", cloud, "C:\\bak\\a.bak", ENTRY);
+  assert.equal(rec.claudeCode.backup, "C:\\bak\\a.bak");
+  assert.equal(JSON.stringify(rec).includes("SECRET"), false);
+  // 記録を無くしてから入れ直した（置き換える相手が自分の古い設定）: 戻す先にしない
+  assert.deepEqual(rememberPrevious({}, "claudeCode", ours, "C:\\bak\\b.bak", ENTRY), { claudeCode: null });
+  // 既に覚えている戻す先は、自分の設定を書き直すだけなら消さない
+  assert.deepEqual(rememberPrevious(rec, "claudeCode", ours, "C:\\bak\\c.bak", ENTRY), rec);
+});
+
+test("rememberPrevious: 指しているファイルが無い登録（壊れた登録）は戻す先として覚えない", () => {
+  const gone = path.join(os.tmpdir(), "mxs-no-such-dir", "server.mjs");
+  const broken = { type: "stdio", command: process.execPath, args: [gone], env: {} };
+  assert.deepEqual(rememberPrevious({}, "claudeCode", broken, "C:\\bak\\d.bak", ENTRY), { claudeCode: null });
+  // 既に覚えている利用者の設定は消さない
+  const rec = { claudeCode: { backup: "C:\\bak\\a.bak", entry: { type: "http" } } };
+  assert.deepEqual(rememberPrevious(rec, "claudeCode", broken, "C:\\bak\\e.bak", ENTRY), rec);
+});
+
+test("isSetupShapedEntry: この導入が書く形なら、入口の場所が違っても（消えていても）自分のものと見なす", () => {
+  assert.equal(isSetupShapedEntry(buildCodeEntry(NODE, "D:\\old\\mxstudio\\src\\bridge\\cli.ts", 8788)), true);
+  assert.equal(isSetupShapedEntry({ command: "/usr/bin/node", args: ["/home/a/mxstudio/bin/mxstudio-bridge.mjs", "--port", "8788"] }), true);
+  assert.equal(isSetupShapedEntry({ command: "node", args: ["C:\\work\\server.mjs", "--port", "8788"] }), false);
+  assert.equal(isSetupShapedEntry({ command: "npx", args: ["-y", "some-mcp"] }), false);
+  assert.equal(isSetupShapedEntry({ type: "http", url: "https://example.test/mcp" }), false);
+});
+
+test("lastWrittenEntries: 前回の記録から、そのとき書いた設定を組み立て直す", () => {
+  assert.deepEqual(lastWrittenEntries({ nodePath: NODE, bridgeEntry: ENTRY, port: 7777 }), [buildCodeEntry(NODE, ENTRY, 7777)]);
+  assert.deepEqual(lastWrittenEntries({}), []);
+  assert.deepEqual(lastWrittenEntries(null), []);
+});
+
+test("findOnPath: PATH（Windows は PATHEXT も）から探し、PATH が無ければ「分からない」を返す", () => {
+  const dirA = path.join(os.tmpdir(), "mxs-a");
+  const dirB = path.join(os.tmpdir(), "mxs-b");
+  const target = path.join(dirB, IS_WINDOWS ? "tool.EXE" : "tool");
+  const env = { PATH: [dirA, dirB].join(path.delimiter), PATHEXT: ".COM;.EXE" };
+  assert.equal(findOnPath("tool", env, (p) => p === target), target);
+  assert.equal(findOnPath("nothing", env, () => false), null);
+  assert.equal(findOnPath("tool", {}, () => true), undefined);
+});
+
+test("missingTargets: command と args が指すファイルのうち、無いものを返す（URL の設定と相対パスは問わない）", () => {
+  const here = path.join(os.tmpdir(), "mxs-here", "server.mjs");
+  const gone = path.join(os.tmpdir(), "mxs-gone", "server.mjs");
+  const exe = path.join(os.tmpdir(), "mxs-here", "node.exe");
+  const exists = (p) => p === here || p === exe;
+  const found = () => "found";
+  assert.deepEqual(missingTargets({ command: exe, args: [here, "--port", "8788"] }, exists, found), []);
+  assert.deepEqual(missingTargets({ command: exe, args: [gone] }, exists, found), [gone]);
+  const noExe = path.join(os.tmpdir(), "mxs-gone", "node.exe");
+  assert.deepEqual(missingTargets({ command: noExe, args: [here] }, exists, found), [noExe]);
+  // 名前だけのコマンドは PATH から。見つからなければ無い、分からなければ問わない
+  assert.equal(missingTargets({ command: "nodez", args: [] }, exists, () => null).length, 1);
+  assert.deepEqual(missingTargets({ command: "node", args: [] }, exists, () => undefined), []);
+  // 相対パス・フラグ・拡張子の無い値は問わない
+  assert.deepEqual(missingTargets({ command: exe, args: ["src/bridge/cli.ts", "--app-dir", "dist"] }, exists, found), []);
+  // URL の設定はファイルを指さない
+  assert.deepEqual(missingTargets({ type: "http", url: "https://example.test/mcp" }, exists, found), []);
+  // 形が壊れている
+  assert.equal(missingTargets({ type: "stdio" }, exists, found).length, 1);
+  assert.equal(missingTargets("node", exists, found).length, 1);
+});
+
+test("classifyPrevious: 無い / この導入のもの / 壊れた登録 / 利用者の設定 を見分ける", () => {
+  const gone = path.join(os.tmpdir(), "mxs-gone", "server.mjs");
+  assert.equal(classifyPrevious(null).kind, "none");
+  assert.equal(classifyPrevious(buildCodeEntry(NODE, ENTRY, 7777), { bridgeEntry: ENTRY }).kind, "ours");
+  // 前回の記録と同じ（入口のパスに bridge を含まない場所でも）
+  const custom = buildCodeEntry(process.execPath, path.join(os.tmpdir(), "mxs-x", "fake.mjs"), 19001);
+  assert.equal(classifyPrevious(custom, { lastWritten: [custom] }).kind, "ours");
+  const broken = classifyPrevious({ command: process.execPath, args: [gone] });
+  assert.equal(broken.kind, "broken");
+  assert.deepEqual(broken.missing, [gone]);
+  assert.equal(classifyPrevious({ type: "http", url: "https://example.test/mcp" }).kind, "user");
+  assert.equal(classifyPrevious({ command: process.execPath, args: [fileURLToPath(import.meta.url)] }).kind, "user");
+});
+
+test("previousEntrySteps: 記録しなかったときは、その理由を画面に出す（秘密は伏せる）", () => {
+  const gone = path.join(os.tmpdir(), "mxs-gone", "server.mjs");
+  const broken = { command: process.execPath, args: [gone, "--token", "SECRET-XYZ"] };
+  const [line] = previousEntrySteps("claude_code", broken, { kind: "broken", missing: [gone] }, "C:\\bak\\x.bak");
+  assert.equal(line.level, "warn");
+  assert.match(line.message, /戻す先としては記録しません/);
+  assert.ok(line.message.includes(gone));
+  assert.equal(JSON.stringify(line).includes("SECRET-XYZ"), false);
+  assert.match(line.hint, /x\.bak/);
+  const [ours] = previousEntrySteps("claude_code", buildCodeEntry(NODE, ENTRY, 1), { kind: "ours", missing: [] }, null);
+  assert.match(ours.message, /前回この導入が書いたもの/);
+  assert.match(ours.message, /記録しません/);
+  assert.deepEqual(previousEntrySteps("claude_code", null, { kind: "none", missing: [] }, null), []);
+});
+
+test("isBridgeCommandLine: 入口の絶対パスを含むときだけ橋渡しと見なす（ファイル名だけでは止めない）", { skip: !IS_WINDOWS && "Windows のパスで試す" }, () => {
+  const line = `"C:\\Program Files\\nodejs\\node.exe" --experimental-strip-types C:\\Repo\\src\\bridge\\cli.ts --no-mcp --port 8788`;
+  assert.equal(isBridgeCommandLine(line, "C:\\repo\\src\\bridge\\cli.ts"), true);
+  assert.equal(isBridgeCommandLine(`node C:\\other-tool\\cli.ts --port 8788`, "C:\\repo\\src\\bridge\\cli.ts"), false);
+  assert.equal(isBridgeCommandLine(`node C:\\mxstudio-notes\\run.mjs`, "C:\\repo\\src\\bridge\\cli.ts"), false);
+  assert.equal(isBridgeCommandLine("", "C:\\repo\\src\\bridge\\cli.ts"), false);
+  assert.equal(isBridgeCommandLine(line, null), false);
+  // 画面用（--no-mcp 付き）か、Claude が MCP サーバとして起動したものか
+  assert.equal(isServeBridgeCommandLine(line, "C:\\repo\\src\\bridge\\cli.ts"), true);
+  const claudeLaunched = `"C:\\Program Files\\nodejs\\node.exe" --experimental-strip-types C:\\Repo\\src\\bridge\\cli.ts --port 8788`;
+  assert.equal(isBridgeCommandLine(claudeLaunched, "C:\\repo\\src\\bridge\\cli.ts"), true);
+  assert.equal(isServeBridgeCommandLine(claudeLaunched, "C:\\repo\\src\\bridge\\cli.ts"), false);
+  assert.equal(isServeBridgeCommandLine(`node C:\\repo\\src\\bridge\\cli.ts --no-mcpx --port 8788`, "C:\\repo\\src\\bridge\\cli.ts"), false);
+  assert.equal(isServeBridgeCommandLine(`node C:\\other\\cli.ts --no-mcp --port 8788`, "C:\\repo\\src\\bridge\\cli.ts"), false);
+});
+
+test("runPowerShell: 日本語のパスが化けずに返る（OneDrive の「デスクトップ」・日本語のユーザー名）", { timeout: 60_000, skip: !IS_WINDOWS && "Windows だけ" }, () => {
+  const value = "C:\\Users\\山田\\OneDrive\\デスクトップ";
+  const ran = runPowerShell("@{ v = $env:MXS_V } | ConvertTo-Json -Compress", { MXS_V: value });
+  assert.equal(ran.ok, true, ran.stderr);
+  const lines = ran.stdout.split(/\r?\n/).filter((l) => l.trim());
+  assert.equal(JSON.parse(lines[lines.length - 1]).v, value);
+});
+
+test("nodeFlagsFor: この node が知らない指定は付けない（Claude から起動できなくなるため）", () => {
+  assert.deepEqual(nodeFlagsFor(ENTRY, () => true), ["--experimental-strip-types"]);
+  assert.deepEqual(nodeFlagsFor(ENTRY, () => false), []);
+});
+
+// ---------------------------------------------------------------------------
+// 試験の囲い（本物に触れない仕組み）
+// ---------------------------------------------------------------------------
+
+test("chooseClaudeCli: 試験中は本物の claude を探さず、一時フォルダの偽物だけを使う", () => {
+  const def = path.join(os.homedir(), ".claude.json");
+  const mustNotLocate = () => {
+    throw new Error("試験中に claude コマンドを探した");
+  };
+  const fake = path.join(os.tmpdir(), "mxs-fake", "claude.cmd");
+  // 書き先が既定の ~/.claude.json でも、試験中は探さない
+  assert.deepEqual(chooseClaudeCli({ configPath: def, defaultConfigPath: def, guard: true, locate: mustNotLocate }), { exe: null, source: "guard" });
+  assert.deepEqual(chooseClaudeCli({ explicit: fake, configPath: def, defaultConfigPath: def, guard: true, locate: mustNotLocate }), { exe: path.resolve(fake), source: "explicit" });
+  // 一時フォルダの外を指定されても使わない（本物かもしれない）
+  assert.equal(chooseClaudeCli({ explicit: "C:\\Users\\someone\\.local\\bin\\claude.exe", configPath: def, defaultConfigPath: def, guard: true, locate: mustNotLocate }).exe, null);
+
+  // ふだん: 書き先を差し替えたら探さない
+  assert.deepEqual(chooseClaudeCli({ configPath: path.join(os.tmpdir(), "x.json"), defaultConfigPath: def, locate: mustNotLocate }), { exe: null, source: "redirected" });
+  // ふだん: 既定の書き先なら、指定があればそれ、無ければ探す
+  assert.equal(chooseClaudeCli({ explicit: fake, configPath: def, defaultConfigPath: def, locate: mustNotLocate }).exe, path.resolve(fake));
+  assert.deepEqual(chooseClaudeCli({ configPath: def, defaultConfigPath: def, locate: () => "C:\\bin\\claude.exe" }), { exe: "C:\\bin\\claude.exe", source: "path" });
+});
+
+test("bridgeTestEnv: 試験中に起動する橋渡しの鍵ファイルを、記録の置き場所（一時フォルダ）に向ける", () => {
+  const paths = { stateDir: path.join(os.tmpdir(), "mxs-key", "state") };
+  assert.deepEqual(bridgeTestEnv(paths, { MXSTUDIO_SETUP_TEST: "1" }), { MXSTUDIO_BRIDGE_KEY_FILE: path.join(paths.stateDir, "bridge.key") });
+  // ふだんは何も足さない（本物の橋渡しと同じ既定の場所を使う）
+  assert.deepEqual(bridgeTestEnv(paths, {}), {});
+  // 既に差し替えてあれば、それを使う
+  assert.deepEqual(bridgeTestEnv(paths, { MXSTUDIO_SETUP_TEST: "1", MXSTUDIO_BRIDGE_KEY_FILE: path.join(os.tmpdir(), "k") }), {});
+});
+
+test("keyFileEnvStep: ふだんの導入で MXSTUDIO_BRIDGE_KEY_FILE が設定されていたら、鍵が食い違うと警告する（値は出さない）", () => {
+  const secretPath = path.join(os.tmpdir(), "mxs-key-SECRETPATH", "bridge.key");
+  const warn = keyFileEnvStep({ MXSTUDIO_BRIDGE_KEY_FILE: secretPath });
+  assert.equal(warn.level, "warn");
+  assert.equal(warn.id, "bridge_key_env");
+  assert.match(warn.hint, /認証に失敗/);
+  assert.equal(JSON.stringify(warn).includes("SECRETPATH"), false);
+  assert.equal(keyFileEnvStep({}), null);
+  assert.equal(keyFileEnvStep({ MXSTUDIO_BRIDGE_KEY_FILE: " " }), null);
+  // 試験中は、囲いが一時フォルダの鍵に向けるので警告しない
+  assert.equal(keyFileEnvStep({ MXSTUDIO_SETUP_TEST: "1", MXSTUDIO_BRIDGE_KEY_FILE: secretPath }), null);
+});
+
+test("testSandboxProblem: 書き先が一時フォルダの外・--port / --bridge / --no-open が無いときは止める", () => {
+  const dir = path.join(os.tmpdir(), "mxs-guard");
+  const ok = parseArgs([...sandboxArgs(dir), "--port", "19001", "--bridge", path.join(dir, "b.mjs")]);
+  assert.equal(testSandboxProblem(ok), null);
+  const missing = parseArgs(["--no-open", "--port", "19001", "--bridge", "b.mjs", "--state-dir", path.join(dir, "s")]);
+  assert.match(testSandboxProblem(missing), /--claude-code-config がありません/);
+  assert.match(testSandboxProblem(missing), /--desktop-dir がありません/);
+  const outside = parseArgs([...sandboxArgs(dir), "--port", "19001", "--bridge", "b.mjs", "--claude-code-config", path.join(os.homedir(), ".claude.json")]);
+  assert.match(testSandboxProblem(outside), /--claude-code-config が一時フォルダ/);
+  assert.match(testSandboxProblem(parseArgs([...sandboxArgs(dir), "--bridge", "b.mjs"])), /--port がありません/);
+  assert.match(testSandboxProblem(parseArgs([...sandboxArgs(dir), "--bridge", "b.mjs", "--port", "8788"])), /8788/);
+  assert.match(testSandboxProblem(parseArgs([...sandboxArgs(dir), "--port", "19001"])), /--bridge がありません/);
+  const withOpen = parseArgs([...sandboxArgs(dir).filter((a) => a !== "--no-open"), "--port", "19001", "--bridge", "b.mjs"]);
+  assert.match(testSandboxProblem(withOpen), /--no-open/);
+  const realCli = parseArgs([...sandboxArgs(dir), "--port", "19001", "--bridge", "b.mjs", "--claude-cli", path.join(os.homedir(), ".local", "bin", "claude.exe")]);
+  assert.match(testSandboxProblem(realCli), /--claude-cli が一時フォルダの外/);
+  assert.equal(isInside(os.tmpdir(), os.tmpdir()), false);
+  assert.equal(isInside(os.tmpdir(), path.join(os.tmpdir(), "a")), true);
+
+  // npm install / npm run build は本物のリポジトリを書き換えるので、試験中は必ず止める
+  const withNpm = parseArgs([...sandboxArgs(dir).filter((a) => a !== "--no-install" && a !== "--no-build"), "--port", "19001", "--bridge", "b.mjs"]);
+  assert.match(testSandboxProblem(withNpm), /--no-install がありません/);
+  assert.match(testSandboxProblem(withNpm), /--no-build がありません/);
+});
+
+test("testSandboxProblem: TEMP がホームフォルダに向いていても、本物の書き先（~/.claude.json・デスクトップなど）は拒む", () => {
+  // 一時フォルダがホームそのものだった場合を作る（実際のファイルには触らない。判定だけ）
+  const home = path.join(os.tmpdir(), "mxs-fakehome");
+  const env = { APPDATA: path.join(home, "AppData", "Roaming"), LOCALAPPDATA: path.join(home, "AppData", "Local") };
+  const real = realWriteLocations(env, home, home);
+  const args = [
+    "--no-open",
+    "--no-install",
+    "--no-build",
+    "--port",
+    "19001",
+    "--bridge",
+    "b.mjs",
+    "--state-dir",
+    path.join(home, ".config", "mxstudio"),
+    "--claude-code-config",
+    path.join(home, ".claude.json"),
+    "--claude-desktop-config",
+    path.join(home, "AppData", "Roaming", "Claude", "claude_desktop_config.json"),
+    "--startup-dir",
+    path.join(home, "AppData", "Roaming", "Microsoft", "Windows", "Start Menu", "Programs", "Startup"),
+    "--desktop-dir",
+    path.join(home, "OneDrive", "Desktop"),
+    "--antigravity-dir",
+    path.join(home, ".gemini"),
+  ];
+  const problem = testSandboxProblem(parseArgs(args), home, real);
+  for (const flag of ["--state-dir", "--claude-code-config", "--claude-desktop-config", "--startup-dir", "--desktop-dir", "--antigravity-dir"]) {
+    assert.match(problem, new RegExp(`${flag} が本物の書き先です`), flag);
+  }
+  // ホームの中でも、本物の書き先でない場所は通す
+  const ok = parseArgs([...sandboxArgs(path.join(home, "work")), "--port", "19001", "--bridge", "b.mjs"]);
+  assert.equal(testSandboxProblem(ok, home, real), null);
+  // 以前の版の置き場所（%LOCALAPPDATA%\mxstudio）も、残っている PC があるので拒む
+  const legacy = parseArgs([...sandboxArgs(path.join(home, "work")), "--port", "19001", "--bridge", "b.mjs", "--state-dir", path.join(home, "AppData", "Local", "mxstudio")]);
+  assert.match(testSandboxProblem(legacy, home, real), /--state-dir が本物の書き先です/);
+  // CLAUDE_CONFIG_DIR が一時フォルダの外なら、その .claude.json も本物として拒む。中なら試験の差し替えなので含めない
+  assert.ok(realWriteLocations({ CLAUDE_CONFIG_DIR: "D:\\cfg" }, "C:\\h", "C:\\t").some((p) => p === path.join("D:\\cfg", ".claude.json")));
+  assert.equal(realWriteLocations({ CLAUDE_CONFIG_DIR: path.join(home, "cfg") }, "C:\\h", home).some((p) => p.includes("cfg")), false);
+});
+
+test("main: 試験中に書き先を差し替え忘れたら、何もせずに終了コード 2 で止まる", async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-guardmain-"));
+  try {
+    // 万一囲いが効かなくても書き換えないように --dry-run と --no-* も付ける
+    const base = ["--dry-run", "--no-start", "--no-autostart", "--no-shortcut", "--no-install", "--no-build", "--bridge", path.join(dir, "b.mjs"), "--port", "19001"];
+    const withoutDesktop = sandboxArgs(dir).filter((a, i, all) => a !== "--claude-desktop-config" && all[i - 1] !== "--claude-desktop-config");
+    const run = await runMain([...withoutDesktop, ...base]);
+    assert.equal(run.code, 2);
+    assert.match(run.stderr, /MXSTUDIO_SETUP_TEST/);
+    assert.match(run.stderr, /--claude-desktop-config がありません/);
+    assert.equal(run.stdout, "", "手順を 1 つも実行していない");
+    assert.deepEqual(readdirSync(dir), [], "一時フォルダにも何も作っていない");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// ファイルまわり
+// ---------------------------------------------------------------------------
+
+test("readJsonFile: 壊れた JSON は error を返す（書き換えを諦めるため）", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-json-"));
+  try {
+    const broken = path.join(dir, "broken.json");
+    writeFileSync(broken, "{ これは JSON ではない", "utf8");
+    assert.ok(readJsonFile(broken).error);
+
+    const array = path.join(dir, "array.json");
+    writeFileSync(array, "[1,2,3]", "utf8");
+    assert.ok(readJsonFile(array).error);
+
+    const empty = path.join(dir, "empty.json");
+    writeFileSync(empty, "", "utf8");
+    assert.deepEqual(readJsonFile(empty).json, {});
+
+    assert.equal(readJsonFile(path.join(dir, "ない.json")).exists, false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("entryFromBackup: 控えから、その名前の設定だけを読み直す", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-bak-"));
+  try {
+    const backup = path.join(dir, ".claude.json.bak");
+    writeFileSync(backup, JSON.stringify({ mcpServers: { mxstudio: { type: "http", url: "https://example.test/mcp" } } }), "utf8");
+    assert.deepEqual(entryFromBackup(backup, "mxstudio"), { type: "http", url: "https://example.test/mcp" });
+    assert.equal(entryFromBackup(backup, "ない"), null);
+    assert.equal(entryFromBackup(path.join(dir, "ない.bak"), "mxstudio"), null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("resolveBridgeEntry: 候補を順に探し、--bridge が無いファイルなら missing を返す", () => {
+  const repo = "C:\\repo";
+  const only = path.join(repo, "src", "bridge", "index.ts");
+  const found = resolveBridgeEntry(repo, null, (p) => p === only);
+  assert.equal(found.entry, only);
+
+  const none = resolveBridgeEntry(repo, null, () => false);
+  assert.equal(none.entry, null);
+
+  const explicit = resolveBridgeEntry(repo, "custom\\bridge.mjs", () => false);
+  assert.equal(explicit.entry, null);
+  assert.equal(explicit.explicit, true);
+  assert.ok(explicit.missing.endsWith(path.join("custom", "bridge.mjs")));
+});
+
+test("findBrowser: Chrome があれば Chrome、無ければ Edge、どちらも無ければ null", () => {
+  const chrome = path.join(process.env.ProgramFiles || "C:\\Program Files", "Google", "Chrome", "Application", "chrome.exe");
+  assert.deepEqual(findBrowser((p) => p === chrome), { kind: "chrome", exe: chrome });
+  const edge = path.join(process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)", "Microsoft", "Edge", "Application", "msedge.exe");
+  assert.deepEqual(findBrowser((p) => p === edge), { kind: "edge", exe: edge });
+  assert.equal(findBrowser(() => false), null);
+});
+
+test("buildInternetShortcut と引用", () => {
+  assert.equal(buildInternetShortcut("http://127.0.0.1:7777/app"), "[InternetShortcut]\r\nURL=http://127.0.0.1:7777/app\r\n");
+  assert.equal(quoteArgs(["C:\\Program Files\\node.exe", "--serve"]), '"C:\\Program Files\\node.exe" --serve');
+  assert.equal(quoteForCmd("C:\\tmp\\a.exe"), "C:\\tmp\\a.exe");
+  assert.equal(quoteForCmd("C:\\Program Files\\a.exe"), '"C:\\Program Files\\a.exe"');
+});
+
+// ---------------------------------------------------------------------------
+// 偽の橋渡し・偽の claude コマンド
+// ---------------------------------------------------------------------------
+
+/** 偽の橋渡し（取り決めどおり）。/_mxstudio/health と /ws だけに応える */
+const FAKE_BRIDGE = `import { createServer } from "node:http";
+const args = process.argv.slice(2);
+const port = Number(args[args.indexOf("--port") + 1]);
+createServer((req, res) => {
+  if (req.url === "/_mxstudio/health") {
+    res.writeHead(200, { "content-type": "application/json" });
+    // keyFile: 起動したときに受け取った鍵ファイルの場所（本物の橋渡しはここに鍵を作る。試験で本物の場所に向いていないかを見る）
+    // protocol: 本物（src/bridge/peer.ts）と同じく取り決めの版を返す。FAKE_PROTOCOL を書き換えて版違いを作れる
+    res.end(JSON.stringify({ ok: true, name: "mxstudio-bridge", protocol: Number(process.env.FAKE_PROTOCOL ?? "1"), pid: process.pid, keyFile: process.env.MXSTUDIO_BRIDGE_KEY_FILE ?? null }));
+    return;
+  }
+  // 本物（src/bridge/server.ts）と同じ: /ws は 426 と upgrade_required を返す
+  if (req.url === "/ws") {
+    res.writeHead(426, { "content-type": "application/json" });
+    res.end(JSON.stringify({ ok: false, error: "upgrade_required", message: "WebSocket で接続してください。" }));
+    return;
+  }
+  res.writeHead(404, { "content-type": "application/json" });
+  res.end(JSON.stringify({ ok: false, error: "not_found" }));
+}).listen(port, "127.0.0.1");
+`;
+
+/** 古い版の偽の橋渡し（/_mxstudio/health が無い） */
+const LEGACY_BRIDGE = FAKE_BRIDGE.replace('req.url === "/_mxstudio/health"', 'req.url === "/_no_health_in_legacy"');
+
+/**
+ * 偽の client 役の橋渡し。ポートが塞がっている間は待ち、空いたら引き継いで応える
+ * （本物の橋渡しは、primary が終了すると client がポートを引き継ぐ）。
+ */
+const TAKEOVER_BRIDGE = `import { createServer } from "node:http";
+const args = process.argv.slice(2);
+const port = Number(args[args.indexOf("--port") + 1]);
+const handler = (req, res) => {
+  res.writeHead(req.url === "/_mxstudio/health" ? 200 : 404, { "content-type": "application/json" });
+  res.end(JSON.stringify(req.url === "/_mxstudio/health" ? { name: "mxstudio-bridge", pid: process.pid } : { ok: false }));
+};
+function tryListen() {
+  const server = createServer(handler);
+  server.once("error", () => setTimeout(tryListen, 500));
+  server.listen(port, "127.0.0.1");
+}
+tryListen();
+`;
+
+/**
+ * 偽の claude コマンド。呼ばれた引数を 1 行ずつ記録し、`mcp add` / `mcp remove` を差し替えた書き先（configPath）に反映する。
+ * Windows では .cmd（setup-local.mjs は .cmd をシェル経由で呼ぶ）、それ以外は sh のスクリプト。
+ */
+function makeFakeClaude(dir, configPath) {
+  mkdirSync(dir, { recursive: true });
+  const log = path.join(dir, "fake-claude.log");
+  const script = path.join(dir, "fake-claude.mjs");
+  writeFileSync(
+    script,
+    [
+      'import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";',
+      `const CONFIG = ${JSON.stringify(configPath)};`,
+      `const LOG = ${JSON.stringify(log)};`,
+      "const args = process.argv.slice(2);",
+      'appendFileSync(LOG, JSON.stringify(args) + "\\n");',
+      'const read = () => (existsSync(CONFIG) ? JSON.parse(readFileSync(CONFIG, "utf8") || "{}") : {});',
+      "const write = (json) => writeFileSync(CONFIG, JSON.stringify(json, null, 2));",
+      'if (args[0] === "mcp" && args[1] === "remove") { const j = read(); if (j.mcpServers) delete j.mcpServers[args[4]]; write(j); process.exit(0); }',
+      'if (args[0] === "mcp" && args[1] === "add") {',
+      '  const j = read(); const name = args[4]; const sep = args.indexOf("--"); j.mcpServers = j.mcpServers || {};',
+      '  if (j.mcpServers[name]) { console.error("already exists"); process.exit(1); }',
+      '  j.mcpServers[name] = { type: "stdio", command: args[sep + 1], args: args.slice(sep + 2), env: {} }; write(j); process.exit(0);',
+      "}",
+      "process.exit(1);",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  let exe;
+  if (IS_WINDOWS) {
+    exe = path.join(dir, "claude.cmd");
+    writeFileSync(exe, `@"${process.execPath}" "${script}" %*\r\n`, "utf8");
+  } else {
+    exe = path.join(dir, "claude");
+    writeFileSync(exe, `#!/bin/sh\nexec "${process.execPath}" "${script}" "$@"\n`, "utf8");
+    chmodSync(exe, 0o755);
+  }
+  const calls = () =>
+    existsSync(log)
+      ? readFileSync(log, "utf8")
+          .split(/\r?\n/)
+          .filter(Boolean)
+          .map((line) => JSON.parse(line))
+      : [];
+  return { exe, log, calls };
+}
+
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const server = createServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const { port } = server.address();
+      server.close(() => resolve(port));
+    });
+  });
+}
+
+/** main() を動かし、画面に出したものを受け取る（試験の出力は汚さない） */
+async function runMain(argv) {
+  const log = console.log;
+  const error = console.error;
+  const stdout = [];
+  const stderr = [];
+  console.log = (...a) => stdout.push(a.join(" "));
+  console.error = (...a) => stderr.push(a.join(" "));
+  try {
+    const code = await main(argv);
+    return { code, stdout: stdout.join("\n"), stderr: stderr.join("\n") };
+  } finally {
+    console.log = log;
+    console.error = error;
+  }
+}
+
+/** --json を付けて動かし、結果（steps・result）を読む */
+async function runJson(argv) {
+  const run = await runMain([...argv, "--json"]);
+  return { ...run, json: run.stdout ? JSON.parse(run.stdout) : null };
+}
+
+async function quietMain(argv) {
+  return (await runMain(argv)).code;
+}
+
+const stepOf = (json, id) => json.steps.filter((s) => s.id === id);
+
+/** 一時フォルダに差し替えた共通の引数 */
+function sandboxArgs(dir, extra = []) {
+  return [
+    "--no-open",
+    // 本物のリポジトリで npm install / npm run build を動かさない（試験の囲いが求める）
+    "--no-install",
+    "--no-build",
+    "--state-dir",
+    path.join(dir, "state"),
+    "--claude-code-config",
+    path.join(dir, "claude-code.json"),
+    "--claude-desktop-config",
+    path.join(dir, "claude_desktop_config.json"),
+    "--startup-dir",
+    path.join(dir, "startup"),
+    "--desktop-dir",
+    path.join(dir, "desktop"),
+    "--claude-skills-dir",
+    path.join(dir, "claude-skills"),
+    // フォルダは作らない（Antigravity を入れていない PC と同じ。作った試験だけが Antigravity に登録する）
+    "--antigravity-dir",
+    path.join(dir, "gemini"),
+    ...extra,
+  ];
+}
+
+/**
+ * 試験の途中で失敗したときに、導入が裏で起動した偽の橋渡し（detached で残る）を止める。
+ * 偽の橋渡しは /_mxstudio/health に自分の pid を載せるので、それを止める（本物の橋渡しは pid を返さないので触れない）。
+ */
+async function stopFakeBridgeOn(port) {
+  try {
+    const probe = await probeBridge(port, 500);
+    if (probe.state === "bridge" && Number.isInteger(probe.health?.pid) && probe.health.pid !== process.pid) process.kill(probe.health.pid);
+  } catch {
+    // もう止まっている
+  }
+}
+
+async function waitFor(check, timeoutMs = 15_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await check()) return true;
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------------------
+// 橋渡しが 1 つ動いているかを /_mxstudio/health で確かめる
+// ---------------------------------------------------------------------------
+
+test("isBridgeHealth / singleBridgeStep: /_mxstudio/health の応答で「橋渡しが 1 つ動いている」と出す", () => {
+  assert.equal(isBridgeHealth({ name: "mxstudio-bridge" }), true);
+  assert.equal(isBridgeHealth({ name: "other" }), false);
+  assert.equal(isBridgeHealth(null), false);
+  assert.equal(isBridgeHealth([]), false);
+
+  const ok = singleBridgeStep(8788, { state: "bridge", health: { name: "mxstudio-bridge", pid: 1234 }, legacy: false });
+  assert.equal(ok.level, "ok");
+  assert.match(ok.message, /1 つ動いています/);
+  assert.match(ok.message, /\/_mxstudio\/health/);
+  assert.match(ok.message, /プロセス 1234/);
+  assert.match(ok.hint, /中継/);
+
+  const legacy = singleBridgeStep(8788, { state: "bridge", health: null, legacy: true });
+  assert.equal(legacy.level, "warn");
+  assert.match(legacy.message, /古い版/);
+
+  assert.equal(singleBridgeStep(8788, { state: "other", health: null }).level, "warn");
+  assert.equal(singleBridgeStep(8788, { state: "down", health: null }).level, "warn");
+  assert.equal(singleBridgeStep(8788, { state: "down", health: null }, false).level, "skip");
+});
+
+test("decidePort: 橋渡しが居れば使い、空いていれば使い、ほかのものが使っていれば busy（ずらさない）", async () => {
+  const bridge = async () => ({ state: "bridge", health: { name: "mxstudio-bridge" }, legacy: false });
+  const down = async () => ({ state: "down", health: null, legacy: false });
+  assert.deepEqual(await decidePort(19001, bridge, async () => false), { port: 19001, reused: true, busy: false, health: { name: "mxstudio-bridge" }, legacy: false });
+  assert.deepEqual(await decidePort(19001, down, async () => true), { port: 19001, reused: false, busy: false, health: null, legacy: false });
+  const busy = await decidePort(19001, async () => ({ state: "other", health: null, legacy: false }), async () => false);
+  assert.equal(busy.busy, true);
+  assert.equal(busy.port, 19001, "隣のポートへずらさない");
+  // 橋渡しでないものが 127.0.0.1 に応えているなら、127.0.0.1 だけの待ち受けが通っても（0.0.0.0 で待ち受けているプログラムなど）使わない
+  const answeredButBindable = await decidePort(19001, async () => ({ state: "other", health: null, legacy: false }), async () => true);
+  assert.equal(answeredButBindable.busy, true);
+});
+
+test("expectedPeerProtocol / singleBridgeStep: 動いている橋渡しと取り決めの版（protocol）が違えば警告する", () => {
+  const entry = path.join(REPO_ROOT, "src", "bridge", "cli.ts");
+  // このリポジトリの本物の peer.ts から読める（数だけを見る）
+  assert.ok(Number.isInteger(expectedPeerProtocol(entry)), "src/bridge/peer.ts の BRIDGE_PEER_PROTOCOL を読める");
+  assert.equal(expectedPeerProtocol(ENTRY, () => "export const BRIDGE_PEER_PROTOCOL = 3;\n"), 3);
+  assert.equal(expectedPeerProtocol(ENTRY, () => "// 無い"), null);
+  assert.equal(
+    expectedPeerProtocol(ENTRY, () => {
+      throw new Error("ENOENT");
+    }),
+    null,
+  );
+  assert.equal(expectedPeerProtocol(null), null);
+
+  const health = (protocol) => ({ state: "bridge", health: { name: "mxstudio-bridge", version: "0.1.0", protocol }, legacy: false });
+  assert.equal(singleBridgeStep(8788, health(1), true, 1).level, "ok");
+  const mismatch = singleBridgeStep(8788, health(1), true, 2);
+  assert.equal(mismatch.level, "warn");
+  assert.match(mismatch.message, /取り決めの版が違います/);
+  assert.match(mismatch.hint, /中継できず/);
+  // 分からないときは比べない
+  assert.equal(singleBridgeStep(8788, health(1), true, null).level, "ok");
+  assert.equal(singleBridgeStep(8788, health(undefined), true, 2).level, "ok");
+});
+
+test("probeBridge: 今の橋渡し・古い版・ほかのもの・何も無い、を見分ける", { timeout: 60_000 }, async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-probe-"));
+  const children = [];
+  const servers = [];
+  try {
+    const current = path.join(dir, "fake-bridge.mjs");
+    const legacy = path.join(dir, "legacy-bridge.mjs");
+    writeFileSync(current, FAKE_BRIDGE, "utf8");
+    writeFileSync(legacy, LEGACY_BRIDGE, "utf8");
+    const [pCurrent, pLegacy, pOther, pDown] = [await freePort(), await freePort(), await freePort(), await freePort()];
+    children.push(spawn(process.execPath, [current, "--port", String(pCurrent)], { stdio: "ignore", windowsHide: true }));
+    children.push(spawn(process.execPath, [legacy, "--port", String(pLegacy)], { stdio: "ignore", windowsHide: true }));
+    const other = createHttpServer((req, res) => {
+      res.writeHead(200, { "content-type": "text/plain" });
+      res.end("hello");
+    });
+    servers.push(other);
+    await new Promise((resolve) => other.listen(pOther, "127.0.0.1", resolve));
+    assert.ok(await waitFor(async () => (await probeBridge(pCurrent)).state === "bridge"));
+    assert.ok(await waitFor(async () => (await probeBridge(pLegacy)).state === "bridge"));
+
+    const a = await probeBridge(pCurrent);
+    assert.equal(a.legacy, false);
+    assert.equal(a.health.name, "mxstudio-bridge");
+    assert.equal(a.health.pid, children[0].pid);
+    const b = await probeBridge(pLegacy);
+    assert.equal(b.legacy, true);
+    assert.equal(b.health, null);
+    assert.equal((await probeBridge(pOther)).state, "other");
+    assert.equal((await probeBridge(pDown)).state, "down");
+  } finally {
+    for (const child of children) child.kill();
+    for (const server of servers) server.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 導入と取り消しをひと通り（偽の橋渡しと一時フォルダで）
+// ---------------------------------------------------------------------------
+
+test("導入 → もう一度導入 → 取り消し（設定は壊れず、前の設定に戻る。橋渡しは 1 つと確かめる）", { timeout: 120_000 }, async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-setup-"));
+  let port = null;
+  try {
+    const bridge = path.join(dir, "fake-bridge.mjs");
+    writeFileSync(bridge, FAKE_BRIDGE, "utf8");
+    const codeConfig = path.join(dir, "claude-code.json");
+    const desktopConfig = path.join(dir, "claude_desktop_config.json");
+    const oldEntry = { type: "http", url: "https://mxstudio.example.workers.dev/mcp", headers: { Authorization: "Bearer OLD-PAT" } };
+    const otherEntry = { type: "http", url: "https://example.test/mcp", headers: { Authorization: "Bearer KEEP-ME" } };
+    writeFileSync(codeConfig, JSON.stringify({ numStartups: 3, mcpServers: { other: otherEntry, mxstudio: oldEntry } }, null, 2), "utf8");
+    writeFileSync(desktopConfig, JSON.stringify({ preferences: { sidebarMode: "epitaxy" } }, null, 2), "utf8");
+
+    // 利用者の Skill（状態フォルダの skills の下）。既定と同じ名前のものは入れない
+    const userSkillsDir = path.join(dir, "state", "skills");
+    const userSkillText = '---\nname: my-flow\ndescription: "業務の手順"\nmetadata:\n  version: "0.1.0"\n---\n\n# 業務の手順\n';
+    const putUserSkill = () => {
+      mkdirSync(path.join(userSkillsDir, "my-flow"), { recursive: true });
+      writeFileSync(path.join(userSkillsDir, "my-flow", "SKILL.md"), userSkillText, "utf8");
+    };
+    putUserSkill();
+    mkdirSync(path.join(userSkillsDir, "mxstudio-workbench"), { recursive: true });
+    writeFileSync(path.join(userSkillsDir, "mxstudio-workbench", "SKILL.md"), userSkillText.replace("my-flow", "mxstudio-workbench"), "utf8");
+
+    port = await freePort();
+    const common = [...sandboxArgs(dir), "--no-autostart", "--no-shortcut", "--port", String(port), "--bridge", bridge];
+
+    // --- 導入 ---
+    const first = await runJson(common);
+    assert.equal(first.code, 0, first.stdout);
+
+    const afterInstall = JSON.parse(readFileSync(codeConfig, "utf8"));
+    assert.deepEqual(afterInstall.mcpServers.other, otherEntry, "ほかの MCP サーバを消していない");
+    assert.equal(afterInstall.numStartups, 3, "MCP 以外の設定を消していない");
+    assert.equal(afterInstall.mcpServers.mxstudio.command, process.execPath);
+    assert.deepEqual(afterInstall.mcpServers.mxstudio.args, [bridge, "--port", String(port)]);
+
+    const afterDesktop = JSON.parse(readFileSync(desktopConfig, "utf8"));
+    assert.deepEqual(afterDesktop.preferences, { sidebarMode: "epitaxy" });
+    assert.deepEqual(afterDesktop.mcpServers.mxstudio.args, [bridge, "--port", String(port)]);
+
+    const state = JSON.parse(readFileSync(path.join(dir, "state", "setup.json"), "utf8"));
+    assert.equal(state.port, port);
+    assert.equal(state.bridgeEntry, bridge);
+    assert.equal(JSON.stringify(state).includes("OLD-PAT"), false, "記録にトークンを書いていない");
+    assert.equal(state.previous.claudeCode.entry.headers.Authorization, "<伏せ>");
+    assert.ok(existsSync(state.previous.claudeCode.backup), "書き換える前の控えがある");
+    assert.equal(first.stdout.includes("OLD-PAT"), false, "画面にもトークンを出さない");
+
+    // 橋渡しが 1 つ動いていることを /_mxstudio/health で確かめて出す。「2 つ動く」警告はもう出さない
+    const single = stepOf(first.json, "bridge_single");
+    assert.equal(single.length, 1);
+    assert.equal(single[0].level, "ok");
+    assert.match(single[0].message, /1 つ動いています/);
+    assert.equal(stepOf(first.json, "two_bridges").length, 0);
+    assert.equal(first.json.steps.some((s) => /隣のポートで別に動きます/.test(s.message)), false);
+
+    const probe = await probeBridge(port);
+    assert.equal(probe.state, "bridge", "橋渡しが起動している");
+    assert.equal(probe.legacy, false);
+    assert.ok(isInside(dir, probe.health.keyFile), `試験中に起動した橋渡しの鍵ファイルは一時フォルダの中: ${probe.health.keyFile}`);
+
+    // --- 状態を見る（何も書き換えない）---
+    const status = await runJson([...common, "--status"]);
+    assert.equal(stepOf(status.json, "bridge_single")[0].level, "ok");
+    assert.deepEqual(JSON.parse(readFileSync(codeConfig, "utf8")), afterInstall);
+
+    // --- もう一度（冪等）---
+    assert.equal(await quietMain(common), 0);
+    const again = JSON.parse(readFileSync(codeConfig, "utf8"));
+    assert.deepEqual(again, afterInstall, "2 回目は何も変えない");
+
+    // --- Skill（Claude Code の置き場所を一時フォルダに差し替えている）---
+    const skillsDir = path.join(dir, "claude-skills");
+    const repoSkills = readRepoSkills(path.resolve(import.meta.dirname, "..", ".."));
+    assert.ok(repoSkills.length >= 1, "リポジトリの Skill（アプリ既定）を読めている");
+    for (const skill of repoSkills) {
+      assert.equal(readFileSync(path.join(skillsDir, skill.name, "SKILL.md"), "utf8"), skill.text, `${skill.name} を入れた`);
+    }
+    // 利用者の Skill も入る。既定と同じ名前のものは入れず、既定の中身のまま
+    assert.equal(readFileSync(path.join(skillsDir, "my-flow", "SKILL.md"), "utf8"), userSkillText.replace(/\r\n/g, "\n"));
+    assert.deepEqual(
+      state.installed.skills.map((sk) => [sk.name, sk.origin]),
+      [...repoSkills.map((sk) => [sk.name, "default"]), ["my-flow", "user"]],
+    );
+    assert.equal(stepOf(first.json, "skills")[0].level, "ok");
+    assert.match(stepOf(first.json, "skills")[0].message, /利用者の Skill: my-flow/);
+    assert.match(stepOf(first.json, "skills")[0].hint, /SKILL\.md/);
+    assert.doesNotMatch(stepOf(first.json, "skills")[0].hint, /カスタマイズ > スキル/, "ZIP の手作業は案内しない");
+    assert.equal(stepOf(first.json, "user_skills")[0].level, "warn");
+    assert.match(stepOf(first.json, "user_skills")[0].message, /アプリ既定と同じ名前/);
+
+    // 利用者が Skill を消したら、次の導入で Claude Code からも消える（書き換えていなければ）
+    rmSync(path.join(userSkillsDir, "my-flow"), { recursive: true, force: true });
+    const retired = await runJson(common);
+    assert.equal(retired.code, 0, retired.stdout);
+    assert.equal(existsSync(path.join(skillsDir, "my-flow")), false, "消えた利用者の Skill を片付ける");
+    assert.match(stepOf(retired.json, "skills_retired")[0].message, /my-flow/);
+    putUserSkill();
+    assert.equal(await quietMain(common), 0);
+    assert.equal(existsSync(path.join(skillsDir, "my-flow", "SKILL.md")), true, "置き直せば入る");
+    assert.equal(stepOf(status.json, "skills")[0].level, "ok");
+
+    // --- 取り消し ---
+    // 利用者が書き換えた Skill は残し、入れたままのものは消す
+    const edited = path.join(skillsDir, repoSkills[0].name, "SKILL.md");
+    writeFileSync(edited, `${repoSkills[0].text}\n利用者のメモ\n`, "utf8");
+    assert.equal(await quietMain([...common, "--uninstall"]), 0);
+    assert.equal(existsSync(edited), true, "書き換えられた Skill は残す");
+    for (const skill of repoSkills.slice(1)) assert.equal(existsSync(path.join(skillsDir, skill.name)), false, `${skill.name} は消す`);
+    assert.equal(existsSync(path.join(skillsDir, "my-flow")), false, "入れたままの利用者の Skill は消す");
+    assert.equal(existsSync(path.join(userSkillsDir, "my-flow", "SKILL.md")), true, "利用者の Skill の元は消さない");
+    const afterUninstall = JSON.parse(readFileSync(codeConfig, "utf8"));
+    assert.deepEqual(afterUninstall.mcpServers.mxstudio, oldEntry, "置き換える前の設定に戻る（トークンごと）");
+    assert.deepEqual(afterUninstall.mcpServers.other, otherEntry);
+    const desktopAfterUninstall = JSON.parse(readFileSync(desktopConfig, "utf8"));
+    assert.equal("mxstudio" in (desktopAfterUninstall.mcpServers ?? {}), false, "Claude Desktop からは外れる");
+    assert.deepEqual(desktopAfterUninstall.preferences, { sidebarMode: "epitaxy" });
+    assert.equal(existsSync(path.join(dir, "state", "setup.json")), false, "記録は消える");
+
+    if (IS_WINDOWS) {
+      const after = await probeBridge(port);
+      assert.equal(after.state, "down", "橋渡しは止まっている");
+    }
+  } finally {
+    // 途中で失敗したとき・Windows 以外（取り消しで止められない）で、裏で起動した橋渡しを残さない
+    if (port !== null) await stopFakeBridgeOn(port);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("壊れた既存登録（指すファイルが無い）は戻す先として記録せず、画面にそう出し、取り消しでは外すだけ", { timeout: 120_000 }, async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-broken-"));
+  try {
+    const bridge = path.join(dir, "fake-bridge.mjs");
+    writeFileSync(bridge, FAKE_BRIDGE, "utf8");
+    const codeConfig = path.join(dir, "claude-code.json");
+    const desktopConfig = path.join(dir, "claude_desktop_config.json");
+    const gone = path.join(dir, "消したリポジトリ", "server.mjs");
+    const brokenCode = { type: "stdio", command: process.execPath, args: [gone, "--token", "SECRET-XYZ"], env: {} };
+    const missingExe = path.join(dir, "no-such-node", "node.exe");
+    const brokenDesktop = { command: missingExe, args: [] };
+    const other = { type: "http", url: "https://example.test/mcp" };
+    writeFileSync(codeConfig, JSON.stringify({ mcpServers: { other, mxstudio: brokenCode } }), "utf8");
+    writeFileSync(desktopConfig, JSON.stringify({ mcpServers: { mxstudio: brokenDesktop } }), "utf8");
+    const port = await freePort();
+    const args = [...sandboxArgs(dir), "--no-start", "--no-autostart", "--no-shortcut", "--port", String(port), "--bridge", bridge];
+
+    const install = await runJson(args);
+    assert.equal(install.code, 0, install.stdout);
+    const state = JSON.parse(readFileSync(path.join(dir, "state", "setup.json"), "utf8"));
+    assert.equal(state.previous.claudeCode, null, "Claude Code の壊れた登録を戻す先として記録していない");
+    assert.equal(state.previous.claudeDesktop, null, "Claude Desktop の壊れた登録も記録していない");
+
+    const codePrev = stepOf(install.json, "claude_code_prev");
+    assert.equal(codePrev.length, 1);
+    assert.equal(codePrev[0].level, "warn");
+    assert.match(codePrev[0].message, /戻す先としては記録しません/);
+    assert.ok(codePrev[0].message.includes(gone), "見つからないファイルを出す");
+    const desktopPrev = stepOf(install.json, "claude_desktop_prev");
+    assert.ok(desktopPrev[0].message.includes(missingExe));
+    assert.equal(install.stdout.includes("SECRET-XYZ"), false, "壊れた登録の秘密も画面に出さない");
+    assert.equal(JSON.stringify(state).includes("SECRET-XYZ"), false);
+
+    assert.equal(await quietMain([...args, "--uninstall"]), 0);
+    const code = JSON.parse(readFileSync(codeConfig, "utf8"));
+    assert.equal("mxstudio" in code.mcpServers, false, "壊れた登録には戻さず、外すだけ");
+    assert.deepEqual(code.mcpServers.other, other);
+    const desktop = JSON.parse(readFileSync(desktopConfig, "utf8"));
+    assert.equal("mxstudio" in desktop.mcpServers, false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("古い版の導入が壊れた登録を記録していても、取り消しではそこに戻さない", { timeout: 60_000 }, async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-oldrec-"));
+  try {
+    const bridge = path.join(dir, "fake-bridge.mjs");
+    writeFileSync(bridge, FAKE_BRIDGE, "utf8");
+    const port = await freePort();
+    const codeConfig = path.join(dir, "claude-code.json");
+    const ours = buildCodeEntry(process.execPath, bridge, port);
+    writeFileSync(codeConfig, JSON.stringify({ mcpServers: { mxstudio: ours } }), "utf8");
+    // 古い版の導入が残した記録と控え（控えの中身は、今は無いファイルを指す登録）
+    const backupDir = path.join(dir, "state", "backup");
+    mkdirSync(backupDir, { recursive: true });
+    const backup = path.join(backupDir, "claude-code.json.old.bak");
+    const gone = path.join(dir, "gone", "server.mjs");
+    writeFileSync(backup, JSON.stringify({ mcpServers: { mxstudio: { command: process.execPath, args: [gone] } } }), "utf8");
+    writeFileSync(
+      path.join(dir, "state", "setup.json"),
+      JSON.stringify({ version: 1, bridgeEntry: bridge, nodePath: process.execPath, port, previous: { claudeCode: { backup, entry: { command: process.execPath } } } }),
+      "utf8",
+    );
+
+    const run = await runJson([...sandboxArgs(dir), "--uninstall", "--port", String(port), "--bridge", bridge]);
+    assert.equal(run.code, 0, run.stdout);
+    const code = JSON.parse(readFileSync(codeConfig, "utf8"));
+    assert.equal("mxstudio" in code.mcpServers, false, "壊れた登録に戻していない");
+    assert.ok(stepOf(run.json, "claude_code").some((s) => s.level === "warn" && /戻しません/.test(s.message)));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ポートを橋渡しではないものが使っていると、ずらさずに NG で止まり、何も書き換えない", { timeout: 60_000 }, async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-busy-"));
+  const other = createHttpServer((req, res) => {
+    res.writeHead(200, { "content-type": "text/plain" });
+    res.end("not a bridge");
+  });
+  try {
+    const bridge = path.join(dir, "fake-bridge.mjs");
+    writeFileSync(bridge, FAKE_BRIDGE, "utf8");
+    const codeConfig = path.join(dir, "claude-code.json");
+    const before = JSON.stringify({ mcpServers: {} });
+    writeFileSync(codeConfig, before, "utf8");
+    const port = await freePort();
+    await new Promise((resolve) => other.listen(port, "127.0.0.1", resolve));
+
+    const run = await runJson([...sandboxArgs(dir), "--no-autostart", "--no-shortcut", "--port", String(port), "--bridge", bridge]);
+    assert.equal(run.code, 1);
+    const portStep = stepOf(run.json, "port");
+    assert.equal(portStep[0].level, "error");
+    assert.match(portStep[0].hint, /ずらしません/);
+    assert.equal(run.json.steps.some((s) => s.id === "bridge_start"), false, "橋渡しを起動しない");
+    assert.equal(readFileSync(codeConfig, "utf8"), before, "設定は変わらない");
+    assert.equal(existsSync(path.join(dir, "claude_desktop_config.json")), false);
+    assert.equal(existsSync(path.join(dir, "state", "setup.json")), false, "記録も書かない");
+  } finally {
+    other.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("古い版の橋渡し（/_mxstudio/health が無い）が動いていると、そう知らせる", { timeout: 60_000 }, async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-legacy-"));
+  let child = null;
+  try {
+    const legacy = path.join(dir, "legacy-bridge.mjs");
+    writeFileSync(legacy, LEGACY_BRIDGE, "utf8");
+    const port = await freePort();
+    child = spawn(process.execPath, [legacy, "--port", String(port)], { stdio: "ignore", windowsHide: true });
+    assert.ok(await waitFor(async () => (await probeBridge(port)).state === "bridge"));
+
+    const run = await runJson([...sandboxArgs(dir), "--status", "--port", String(port), "--bridge", legacy]);
+    const single = stepOf(run.json, "bridge_single");
+    assert.equal(single[0].level, "warn");
+    assert.match(single[0].message, /古い版/);
+  } finally {
+    child?.kill();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("claude コマンドは差し替えられる（一時フォルダの偽物で登録し、呼ばれた引数を確かめる）", { timeout: 60_000 }, async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-fakecli-"));
+  try {
+    const bridge = path.join(dir, "fake-bridge.mjs");
+    writeFileSync(bridge, FAKE_BRIDGE, "utf8");
+    const codeConfig = path.join(dir, ".claude.json");
+    const cloud = { type: "http", url: "https://example.test/mcp", headers: { Authorization: "Bearer CLOUD-PAT" } };
+    writeFileSync(codeConfig, JSON.stringify({ mcpServers: { mxstudio: cloud } }, null, 2), "utf8");
+    const fake = makeFakeClaude(path.join(dir, "bin"), codeConfig);
+    const port = await freePort();
+
+    const run = await runJson([
+      ...sandboxArgs(dir),
+      "--claude-code-config",
+      codeConfig,
+      "--claude-cli",
+      fake.exe,
+      "--no-start",
+      "--no-autostart",
+      "--no-shortcut",
+      "--port",
+      String(port),
+      "--bridge",
+      bridge,
+    ]);
+    assert.equal(run.code, 0, run.stdout);
+    assert.deepEqual(fake.calls(), [
+      ["mcp", "remove", "--scope", "user", "mxstudio"],
+      ["mcp", "add", "--scope", "user", "mxstudio", "--", process.execPath, bridge, "--port", String(port)],
+    ]);
+    const after = JSON.parse(readFileSync(codeConfig, "utf8"));
+    assert.equal(isSameEntry(after.mcpServers.mxstudio, buildCodeEntry(process.execPath, bridge, port)), true);
+    assert.match(stepOf(run.json, "claude_code")[0].message, /claude コマンド/);
+    const state = JSON.parse(readFileSync(path.join(dir, "state", "setup.json"), "utf8"));
+    assert.ok(state.previous.claudeCode.backup, "置き換える前の利用者の設定は戻す先として記録する");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test(
+  "試験中は、PATH に claude があり書き先が既定の場所（CLAUDE_CONFIG_DIR）でも、claude コマンドを呼ばない（子プロセスで確かめる）",
+  { timeout: 60_000 },
+  async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-noclaude-"));
+    try {
+      const bridge = path.join(dir, "fake-bridge.mjs");
+      writeFileSync(bridge, FAKE_BRIDGE, "utf8");
+      const home = path.join(dir, "home");
+      const configDir = path.join(dir, "claude-config");
+      mkdirSync(home);
+      mkdirSync(configDir);
+      const codeConfig = path.join(configDir, ".claude.json");
+      writeFileSync(codeConfig, "{}", "utf8");
+      const bin = path.join(dir, "bin");
+      const fake = makeFakeClaude(bin, codeConfig);
+      const systemRoot = process.env.SystemRoot || "C:\\Windows";
+      const pathDirs = IS_WINDOWS
+        ? [bin, path.dirname(process.execPath), path.join(systemRoot, "System32"), path.join(systemRoot, "System32", "WindowsPowerShell", "v1.0")]
+        : [bin, path.dirname(process.execPath), "/usr/bin", "/bin"];
+      // 利用者のホーム・設定の場所も一時フォルダに向ける（万一既定の場所を使っても本物に届かない）
+      const env = {
+        PATH: pathDirs.join(path.delimiter),
+        PATHEXT: process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD",
+        SystemRoot: systemRoot,
+        windir: process.env.windir ?? systemRoot,
+        ComSpec: process.env.ComSpec ?? path.join(systemRoot, "System32", "cmd.exe"),
+        TEMP: os.tmpdir(),
+        TMP: os.tmpdir(),
+        TMPDIR: os.tmpdir(),
+        USERPROFILE: home,
+        HOME: home,
+        APPDATA: path.join(home, "AppData", "Roaming"),
+        LOCALAPPDATA: path.join(home, "AppData", "Local"),
+        CLAUDE_CONFIG_DIR: configDir,
+        MXSTUDIO_SETUP_TEST: "1",
+      };
+      if (IS_WINDOWS) {
+        // 対照: この PATH なら claude として偽物が見つかる（場所を調べるだけで、claude は呼ばない）
+        const where = spawnSync("where", ["claude"], { env, encoding: "utf8", windowsHide: true });
+        const first = (where.stdout ?? "").split(/\r?\n/).find((l) => l.trim());
+        assert.equal(first?.toLowerCase(), fake.exe.toLowerCase());
+      }
+      const port = await freePort();
+      const run = spawnSync(
+        process.execPath,
+        [
+          SETUP_SCRIPT,
+          "--json",
+          ...sandboxArgs(dir),
+          "--claude-code-config",
+          codeConfig,
+          "--no-start",
+          "--no-autostart",
+          "--no-shortcut",
+          "--no-install",
+          "--no-build",
+          "--port",
+          String(port),
+          "--bridge",
+          bridge,
+        ],
+        { env, cwd: REPO_ROOT, encoding: "utf8", timeout: 50_000, windowsHide: true },
+      );
+      assert.equal(run.status, 0, `${run.stderr}\n${run.stdout}`);
+      assert.deepEqual(fake.calls(), [], "claude コマンド（偽物）は 1 回も呼ばれていない");
+      const json = JSON.parse(run.stdout);
+      assert.equal(json.paths.claudeCodeConfigDefault.toLowerCase(), codeConfig.toLowerCase(), "書き先は、この環境での既定の場所だった");
+      assert.doesNotMatch(stepOf(json, "claude_code")[0].message, /claude コマンド/, "自分で書いた");
+      const after = JSON.parse(readFileSync(codeConfig, "utf8"));
+      assert.equal(isSameEntry(after.mcpServers.mxstudio, buildCodeEntry(process.execPath, bridge, port)), true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  },
+);
+
+test("記録を無くしてから入れ直しても、取り消しで古い自分の設定に「戻さない」", { timeout: 120_000 }, async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-relost-"));
+  try {
+    const bridge = path.join(dir, "fake-bridge.mjs");
+    writeFileSync(bridge, FAKE_BRIDGE, "utf8");
+    const codeConfig = path.join(dir, "claude-code.json");
+    writeFileSync(codeConfig, JSON.stringify({ mcpServers: { other: { type: "http", url: "https://example.test/mcp" } } }), "utf8");
+    const [portA, portB] = [await freePort(), await freePort()];
+    const base = ["--no-start", "--no-autostart", "--no-shortcut", "--bridge", bridge];
+
+    assert.equal(await quietMain(sandboxArgs(dir, [...base, "--port", String(portA)])), 0);
+    rmSync(path.join(dir, "state", "setup.json"));
+    const second = await runJson(sandboxArgs(dir, [...base, "--port", String(portB)]));
+    assert.equal(second.code, 0);
+    const state = JSON.parse(readFileSync(path.join(dir, "state", "setup.json"), "utf8"));
+    assert.equal(state.previous.claudeCode, null, "自分の古い設定（ポート A）を戻す先として覚えていない");
+    assert.match(stepOf(second.json, "claude_code_prev")[0].message, /前回この導入が書いたもの/, "記録しないことを画面に出す");
+
+    assert.equal(await quietMain(sandboxArgs(dir, [...base, "--uninstall", "--port", String(portB)])), 0);
+    const after = JSON.parse(readFileSync(codeConfig, "utf8"));
+    assert.equal("mxstudio" in after.mcpServers, false, "外れる（ポート A の設定に戻っていない）");
+    assert.deepEqual(after.mcpServers.other, { type: "http", url: "https://example.test/mcp" });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test(
+  "記録が無くても、ポートで待ち受けている橋渡しを確かめてから止める／同じファイル名でも別の場所のプロセスは止めない",
+  { timeout: 180_000, skip: !IS_WINDOWS && "プロセスの確認は Windows だけ" },
+  async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-stop-"));
+    const children = [];
+    try {
+      const bridge = path.join(dir, "fake-bridge.mjs");
+      writeFileSync(bridge, FAKE_BRIDGE, "utf8");
+      // 同じファイル名で別の場所にある、無関係なプロセス（止めてはいけない）
+      mkdirSync(path.join(dir, "other"));
+      const decoy = path.join(dir, "other", "fake-bridge.mjs");
+      writeFileSync(decoy, FAKE_BRIDGE, "utf8");
+
+      const [port, decoyPort] = [await freePort(), await freePort()];
+      children.push(spawn(process.execPath, [bridge, "--no-mcp", "--port", String(port)], { stdio: "ignore", windowsHide: true }));
+      children.push(spawn(process.execPath, [decoy, "--no-mcp", "--port", String(decoyPort)], { stdio: "ignore", windowsHide: true }));
+      assert.ok(await waitFor(async () => (await probeBridge(port)).state === "bridge"));
+      assert.ok(await waitFor(async () => (await probeBridge(decoyPort)).state === "bridge"));
+
+      // 記録（setup.json）は無い。入口は bridge。decoy のポートを指定しても止めない
+      assert.equal(await quietMain(sandboxArgs(dir, ["--uninstall", "--bridge", bridge, "--port", String(decoyPort)])), 0);
+      assert.equal((await probeBridge(decoyPort)).state, "bridge", "入口が違うプロセスは止めない");
+
+      // 入口が一致するプロセスは、記録が無くてもポートから見つけて止める
+      assert.equal(await quietMain(sandboxArgs(dir, ["--uninstall", "--bridge", bridge, "--port", String(port)])), 0);
+      assert.equal((await probeBridge(port)).state, "down", "ポートで待ち受けている橋渡しを止めた");
+    } finally {
+      for (const child of children) child.kill();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "取り消しで橋渡しを止めたあと、別の橋渡し（Claude が起動した client 役）がポートを引き継いだら、止めずに知らせる",
+  { timeout: 180_000, skip: !IS_WINDOWS && "プロセスの確認は Windows だけ" },
+  async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-takeover-"));
+    let client = null;
+    let port = null;
+    try {
+      const bridge = path.join(dir, "fake-bridge.mjs");
+      writeFileSync(bridge, FAKE_BRIDGE, "utf8");
+      const clientScript = path.join(dir, "client", "fake-bridge.mjs");
+      mkdirSync(path.dirname(clientScript));
+      writeFileSync(clientScript, TAKEOVER_BRIDGE, "utf8");
+      port = await freePort();
+      const args = [...sandboxArgs(dir), "--no-autostart", "--no-shortcut", "--bridge", bridge, "--port", String(port)];
+
+      assert.equal(await quietMain(args), 0);
+      const primary = await probeBridge(port);
+      assert.equal(primary.state, "bridge");
+      client = spawn(process.execPath, [clientScript, "--port", String(port)], { stdio: "ignore", windowsHide: true });
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+
+      const run = await runJson([...args, "--uninstall"]);
+      assert.equal(run.code, 0, run.stdout);
+      assert.equal(stepOf(run.json, "bridge_stop")[0].level, "ok", "画面用の橋渡しは止めた");
+      const takeover = stepOf(run.json, "bridge_takeover");
+      assert.equal(takeover.length, 1, JSON.stringify(run.json.steps));
+      assert.match(takeover[0].message, new RegExp(`プロセス ${client.pid}`));
+      const after = await probeBridge(port);
+      assert.equal(after.health?.pid, client.pid, "引き継いだ橋渡しは止めていない");
+    } finally {
+      client?.kill();
+      // 途中で失敗して、導入が起動した画面用の偽の橋渡しが残っていれば止める
+      if (port !== null) await stopFakeBridgeOn(port);
+      rmSync(dir, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "Claude Code / Claude Desktop が起動した橋渡し（--no-mcp なし）がポートを持っていたら、導入はそう出し、取り消しでも止めない",
+  { timeout: 120_000, skip: !IS_WINDOWS && "プロセスの確認は Windows だけ" },
+  async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-claudeowned-"));
+    let claudeBridge = null;
+    try {
+      const bridge = path.join(dir, "fake-bridge.mjs");
+      writeFileSync(bridge, FAKE_BRIDGE, "utf8");
+      const port = await freePort();
+      // Claude の登録と同じ形（node <入口> --port <番号>。--no-mcp が無い）で起動したもの
+      claudeBridge = spawn(process.execPath, [bridge, "--port", String(port)], { stdio: "ignore", windowsHide: true });
+      assert.ok(await waitFor(async () => (await probeBridge(port)).state === "bridge"));
+      const args = [...sandboxArgs(dir), "--no-autostart", "--no-shortcut", "--bridge", bridge, "--port", String(port)];
+
+      const install = await runJson(args);
+      assert.equal(install.code, 0, install.stdout);
+      const started = stepOf(install.json, "bridge_start");
+      assert.equal(started.length, 1, JSON.stringify(install.json.steps));
+      assert.match(started[0].message, new RegExp(`Claude Code / Claude Desktop が起動したもの（プロセス ${claudeBridge.pid}）`));
+      const state = JSON.parse(readFileSync(path.join(dir, "state", "setup.json"), "utf8"));
+      assert.equal(state.bridgePid, null, "Claude が起動した橋渡しの番号は記録しない");
+
+      const uninstall = await runJson([...args, "--uninstall"]);
+      assert.equal(uninstall.code, 0, uninstall.stdout);
+      const stop = stepOf(uninstall.json, "bridge_stop");
+      assert.equal(stop[0].level, "warn");
+      assert.match(stop[0].message, /止めていません/);
+      assert.equal((await probeBridge(port)).health?.pid, claudeBridge.pid, "Claude が起動した橋渡しは動いたまま");
+      assert.equal(claudeBridge.exitCode, null);
+    } finally {
+      claudeBridge?.kill();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  },
+);
+
+test("動いている橋渡しの取り決めの版（protocol）が、このリポジトリの橋渡しと違えば --status で警告する", { timeout: 60_000 }, async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-protocol-"));
+  let child = null;
+  try {
+    const bridge = path.join(dir, "fake-bridge.mjs");
+    writeFileSync(bridge, FAKE_BRIDGE, "utf8");
+    // 入口と同じフォルダの peer.ts が「このリポジトリの取り決めの版」
+    writeFileSync(path.join(dir, "peer.ts"), "export const BRIDGE_PEER_PROTOCOL = 2;\n", "utf8");
+    const port = await freePort();
+    child = spawn(process.execPath, [bridge, "--no-mcp", "--port", String(port)], { stdio: "ignore", windowsHide: true, env: { ...process.env, FAKE_PROTOCOL: "1" } });
+    assert.ok(await waitFor(async () => (await probeBridge(port)).state === "bridge"));
+
+    const run = await runJson([...sandboxArgs(dir), "--status", "--port", String(port), "--bridge", bridge]);
+    const single = stepOf(run.json, "bridge_single");
+    assert.equal(single[0].level, "warn", JSON.stringify(single));
+    assert.match(single[0].message, /動いている橋渡し: 1/);
+    assert.match(single[0].message, /このリポジトリ: 2/);
+  } finally {
+    child?.kill();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test(
+  "自動起動とデスクトップのショートカットを作り、取り消しで消す（日本語のフォルダ名でも。中身も確かめる）",
+  { timeout: 180_000, skip: !IS_WINDOWS && "ショートカットは Windows だけ" },
+  async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-lnk-"));
+    try {
+      // OneDrive の「デスクトップ」や日本語のユーザー名を想定して、フォルダ名に日本語を使う
+      mkdirSync(path.join(dir, "リポジトリ"));
+      const bridge = path.join(dir, "リポジトリ", "fake-bridge.mjs");
+      writeFileSync(bridge, FAKE_BRIDGE, "utf8");
+      const startupDir = path.join(dir, "スタートアップ");
+      const desktopDir = path.join(dir, "デスクトップ");
+      mkdirSync(startupDir);
+      mkdirSync(desktopDir);
+      const port = await freePort();
+      const args = [...sandboxArgs(dir), "--startup-dir", startupDir, "--desktop-dir", desktopDir, "--bridge", bridge, "--port", String(port)];
+      assert.equal(await quietMain([...args, "--no-start"]), 0);
+
+      const startup = path.join(startupDir, "mxstudio-bridge.lnk");
+      assert.ok(existsSync(startup), "スタートアップにショートカットがある");
+      const read = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", "-"], {
+        input: "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\n$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:MXS_LNK); @{ target = $s.TargetPath; args = $s.Arguments; style = $s.WindowStyle } | ConvertTo-Json -Compress\n",
+        encoding: "utf8",
+        env: { ...process.env, MXS_LNK: startup },
+        windowsHide: true,
+      });
+      const lnk = JSON.parse(read.stdout.trim().split(/\r?\n/).pop());
+      assert.equal(lnk.target.toLowerCase(), process.execPath.toLowerCase());
+      assert.ok(lnk.args.includes(bridge) && lnk.args.includes("--no-mcp") && lnk.args.includes(`--port ${port}`), lnk.args);
+      assert.equal(lnk.style, 7, "最小化で起動する");
+
+      const desktopLnk = path.join(desktopDir, "mxstudio.lnk");
+      const desktopUrl = path.join(desktopDir, "mxstudio.url");
+      assert.ok(existsSync(desktopLnk) || existsSync(desktopUrl), "デスクトップにショートカットがある");
+      if (existsSync(desktopUrl)) assert.match(readFileSync(desktopUrl, "utf8"), new RegExp(`URL=http://127\\.0\\.0\\.1:${port}/app`));
+
+      assert.equal(await quietMain([...args, "--uninstall"]), 0);
+      assert.equal(existsSync(startup), false, "自動起動は消える");
+      assert.equal(existsSync(desktopLnk) || existsSync(desktopUrl), false, "デスクトップのショートカットも消える");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  },
+);
+
+test("--dry-run では何も書き換えない", { timeout: 60_000 }, async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-dry-"));
+  try {
+    const bridge = path.join(dir, "fake-bridge.mjs");
+    writeFileSync(bridge, FAKE_BRIDGE, "utf8");
+    const codeConfig = path.join(dir, "claude-code.json");
+    const before = JSON.stringify({ mcpServers: { other: { type: "http" } } }, null, 2);
+    writeFileSync(codeConfig, before, "utf8");
+    const port = await freePort();
+    const code = await quietMain([...sandboxArgs(dir), "--dry-run", "--port", String(port), "--bridge", bridge]);
+    assert.equal(code, 0);
+    assert.equal(readFileSync(codeConfig, "utf8"), before, "設定ファイルは変わらない");
+    assert.equal(existsSync(path.join(dir, "state", "setup.json")), false, "記録も書かない");
+    assert.equal((await probeBridge(port)).state, "down", "橋渡しも起動しない");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("橋渡しの入口が無いときは、何も書き換えずに NG で終わる", { timeout: 60_000 }, async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-nobridge-"));
+  try {
+    const codeConfig = path.join(dir, "claude-code.json");
+    const before = JSON.stringify({ mcpServers: {} }, null, 2);
+    writeFileSync(codeConfig, before, "utf8");
+    const port = await freePort();
+    const code = await quietMain([...sandboxArgs(dir), "--bridge", path.join(dir, "ない-bridge.mjs"), "--port", String(port)]);
+    assert.equal(code, 1);
+    assert.equal(readFileSync(codeConfig, "utf8"), before);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 最後に: 本物の設定ファイルとフォルダに触れていない（この試験の前後で更新時刻を比べる）
+// ---------------------------------------------------------------------------
+
+test("Node は 22.6 以上だけを受け付ける（橋渡しは --experimental-strip-types で動く）", () => {
+  for (const v of ["22.6.0", "22.19.0", "v22.6.0", "23.0.0", "24.1.2"]) assert.equal(nodeVersionOk(v), true, v);
+  for (const v of ["22.5.1", "22.0.0", "20.18.0", "18.20.4", ""]) assert.equal(nodeVersionOk(v), false, v);
+});
+
+test("更新のあとは、依存を入れ直し・画面をビルドし直す（もとの方が新しいときだけ）", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-fresh-"));
+  try {
+    const at = (rel, seconds) => {
+      const file = path.join(dir, rel);
+      mkdirSync(path.dirname(file), { recursive: true });
+      writeFileSync(file, "x", "utf8");
+      const t = new Date(Date.UTC(2026, 0, 1, 0, 0, seconds));
+      utimesSync(file, t, t);
+    };
+    // 何も無い
+    assert.match(needsInstall(dir) ?? "", /node_modules/);
+    assert.match(needsBuild(dir) ?? "", /dist\/app/);
+
+    // 入れてビルドした直後（もとの方が古い）
+    at("package-lock.json", 10);
+    at("src/app/main.tsx", 10);
+    at("skills/a/SKILL.md", 10);
+    at("node_modules/.package-lock.json", 20);
+    at("dist/app/index.html", 30);
+    assert.equal(needsInstall(dir), null);
+    assert.equal(needsBuild(dir), null);
+
+    // git pull で画面のもとと既定の Skill が新しくなった
+    at("src/app/main.tsx", 40);
+    at("skills/a/SKILL.md", 40);
+    assert.match(needsBuild(dir) ?? "", /src\/app/);
+    assert.match(needsBuild(dir) ?? "", /skills/);
+    assert.equal(needsInstall(dir), null);
+
+    // 依存の一覧が新しくなった
+    at("package-lock.json", 50);
+    assert.match(needsInstall(dir) ?? "", /package-lock\.json/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("本物の ~/.claude.json・Claude Desktop・Antigravity・スタートアップ・デスクトップ・~/.config/mxstudio に触れていない（更新時刻を比べる）", (t) => {
+  const after = snapshotReal(REAL_TARGETS);
+  const problems = [];
+  const notes = [];
+  for (const before of REAL_BEFORE) {
+    const now = after.find((a) => a.path === before.path);
+    if (before.exists !== now.exists) {
+      problems.push(`${before.path}: ${before.exists ? "あった" : "無かった"} → ${now.exists ? "ある" : "無い"}`);
+      continue;
+    }
+    if (!before.exists) continue;
+    if (before.type === "json" && (before.entry !== now.entry || now.tmp)) {
+      problems.push(`${before.path}: mcpServers.mxstudio が変わった、または書きかけの一時ファイルがある`);
+      continue;
+    }
+    if (before.names !== undefined && JSON.stringify(before.names) !== JSON.stringify(now.names)) {
+      problems.push(`${before.path}: 名前に mxstudio を含むファイルが増減した（${JSON.stringify(before.names)} → ${JSON.stringify(now.names)}）`);
+      continue;
+    }
+    if (before.mtimeMs === now.mtimeMs) continue;
+    if (before.type === "strict") {
+      problems.push(`${before.path}: 更新時刻が変わった（ほかに書くプログラムの無い場所）`);
+      continue;
+    }
+    // 更新時刻は変わったが、mxstudio に関わる中身は同じ。持ち主（試験の外で動いているプログラム）の書き込みと見なして知らせる
+    notes.push(`${before.path}: 更新時刻が変わりました（${new Date(before.mtimeMs).toISOString()} → ${new Date(now.mtimeMs).toISOString()}）。mxstudio に関わる中身は同じなので、${before.owner} 自身の書き込みと見なします。`);
+  }
+  for (const note of notes) t.diagnostic(note);
+  t.diagnostic(`比べた場所: ${REAL_BEFORE.length} 件（うち存在 ${REAL_BEFORE.filter((b) => b.exists).length} 件）・更新時刻が同じ: ${REAL_BEFORE.filter((b) => b.exists && after.find((a) => a.path === b.path).mtimeMs === b.mtimeMs).length} 件`);
+  assert.deepEqual(problems, [], problems.join("\n"));
+});

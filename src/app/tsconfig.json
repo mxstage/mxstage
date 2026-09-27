@@ -1,0 +1,5 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "lib": ["ES2022", "DOM", "DOM.Iterable", "WebWorker.ImportScripts"], "jsx": "react-jsx", "types": ["vite/client"] },
+  "include": ["./**/*.ts", "./**/*.tsx", "../shared/**/*.ts", "../../tests/app/**/*.ts"]
+}

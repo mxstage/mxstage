@@ -1,0 +1,450 @@
+// API 設定画面 /settings（トップレベルのページ。iframe に入れない）。
+// Maximo への接続は、パスワードマネージャーが保存を検知できる標準のログインフォームの形にする。
+// API キーの入力欄は React の state に持たない（非制御の入力欄から読んで Web Worker に渡し、すぐ空にする）。
+
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
+import type { ConnectInput, VaultView } from "../keyvault/client";
+import type { MaximoVia } from "../maximo/client";
+import { hostOf } from "../pages/status";
+import type { MaximoConnectionInfo } from "../runtime/contracts";
+import { Corners } from "../ui/Corners";
+import { Link } from "../ui/Link";
+import { APP_PATH } from "../ui/routes";
+import {
+  connectErrorMessage,
+  fetchSkillList,
+  isVia,
+  loadSavedSettings,
+  localClientStatus,
+  normalizeBaseUrl,
+  saveSettings,
+  validateSettingsForm,
+  viaOptionLabel,
+  type SettingsFormErrors,
+  type SkillList,
+  type StorageLike,
+} from "./logic";
+
+export interface SettingsVault {
+  connect(input: ConnectInput): Promise<MaximoConnectionInfo>;
+  getView(): VaultView;
+  subscribe(listener: () => void): () => void;
+  disconnect(): void;
+}
+
+export interface PasswordCredentialSupport {
+  /** PasswordCredential を作る。作れなければ null */
+  create(id: string, password: string): unknown;
+  store(credential: unknown): Promise<unknown>;
+}
+
+export interface ClipboardLike {
+  writeText(text: string): Promise<void>;
+}
+
+export interface SettingsPageProps {
+  vault: SettingsVault;
+  /** 省略時は localStorage */
+  storage?: StorageLike | null;
+  /** 省略時はブラウザの PasswordCredential（使えなければ null） */
+  passwordCredential?: PasswordCredentialSupport | null;
+  /** 接続に成功したときの history.replaceState */
+  replaceUrl?: (url: string) => void;
+  clipboard?: ClipboardLike | null;
+  /** Skill の一覧を読む（省略時は橋渡しの /_mxstudio/skills） */
+  loadSkills?: () => Promise<SkillList>;
+}
+
+/** 接続に成功したら、この URL に replaceState する（パスワードマネージャーの保存検知のため URL を変える） */
+export const CONNECTED_URL = "/settings?connected=1";
+
+export function browserStorage(): StorageLike | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+export function browserPasswordCredential(): PasswordCredentialSupport | null {
+  const g = globalThis as unknown as {
+    PasswordCredential?: new (data: { id: string; password: string; name?: string }) => unknown;
+    navigator?: { credentials?: { store?: (c: unknown) => Promise<unknown> } };
+  };
+  const Ctor = g.PasswordCredential;
+  const credentials = g.navigator?.credentials;
+  if (typeof Ctor !== "function" || !credentials || typeof credentials.store !== "function") return null;
+  const store = credentials.store.bind(credentials);
+  return {
+    create: (id, password) => {
+      try {
+        return new Ctor({ id, password, name: id });
+      } catch {
+        return null;
+      }
+    },
+    store: (c) => store(c),
+  };
+}
+
+function browserClipboard(): ClipboardLike | null {
+  try {
+    const c = navigator.clipboard;
+    return c && typeof c.writeText === "function" ? c : null;
+  } catch {
+    return null;
+  }
+}
+
+function errorText(e: unknown): string {
+  return e instanceof Error && e.message ? e.message : "処理に失敗しました。";
+}
+
+export function SettingsPage(props: SettingsPageProps) {
+  const { vault } = props;
+  const storage = props.storage === undefined ? browserStorage() : props.storage;
+  const passwordCredential = props.passwordCredential === undefined ? browserPasswordCredential() : props.passwordCredential;
+  const replaceUrl = props.replaceUrl ?? ((url: string) => window.history.replaceState(window.history.state, "", url));
+  const clipboard = props.clipboard === undefined ? browserClipboard() : props.clipboard;
+
+  const subscribe = useCallback((l: () => void) => vault.subscribe(l), [vault]);
+  const getView = useCallback(() => vault.getView(), [vault]);
+  const view = useSyncExternalStore(subscribe, getView);
+  // 描画のたびに作り直すと、一覧の読み込みが繰り返されるので固定する
+  const loadSkills = useMemo(() => props.loadSkills ?? (() => fetchSkillList()), [props.loadSkills]);
+
+  return (
+    <main className="page settings">
+      <header className="page-head">
+        <h1>設定</h1>
+        <Link to={APP_PATH} className="button">
+          作業画面に戻る
+        </Link>
+      </header>
+      <MaximoSection
+        vault={vault}
+        view={view}
+        storage={storage}
+        passwordCredential={passwordCredential}
+        replaceUrl={replaceUrl}
+      />
+      <LlmSection clipboard={clipboard} />
+      <SkillsSection load={loadSkills} />
+    </main>
+  );
+}
+
+/**
+ * Skill（作業手順書）の一覧。アプリ既定と利用者の Skill を分けて出す。
+ * - アプリ既定: mxstudio と一緒に入り、更新で置き換わる。書き換えない。
+ * - 利用者の Skill: 業務や客先ごとの手順。利用者のフォルダに置き、mxstudio を更新しても残る。
+ */
+function SkillsSection({ load }: { load: () => Promise<SkillList> }) {
+  const [state, setState] = useState<{ kind: "loading" } | { kind: "ok"; list: SkillList } | { kind: "error"; message: string }>({ kind: "loading" });
+  useEffect(() => {
+    let alive = true;
+    load().then(
+      (list) => {
+        if (alive) setState({ kind: "ok", list });
+      },
+      (e: unknown) => {
+        if (alive) setState({ kind: "error", message: errorText(e) });
+      },
+    );
+    return () => {
+      alive = false;
+    };
+  }, [load]);
+
+  const defaults = state.kind === "ok" ? state.list.skills.filter((s) => s.origin === "default") : [];
+  const users = state.kind === "ok" ? state.list.skills.filter((s) => s.origin === "user") : [];
+  const problems = state.kind === "ok" ? state.list.problems : [];
+  return (
+    <section className="card blueprint skills">
+      <Corners />
+      <h2>Skill（作業手順書）</h2>
+      <p className="muted">LLM に mxstudio の作業手順と禁止事項を教えるファイルです。Claude Code は新しいセッションから読みます。</p>
+      {state.kind === "loading" && <p className="muted">一覧を読んでいます…</p>}
+      {state.kind === "error" && <p className="notice warn">{state.message}</p>}
+      {state.kind === "ok" && (
+        <>
+          <h3>アプリ既定</h3>
+          <p className="muted small">mxstudio と一緒に入り、mxstudio を更新すると置き換わります。書き換えないでください。</p>
+          <SkillItems items={defaults} empty="ありません。" />
+          <h3>利用者の Skill</h3>
+          <p className="muted small">
+            業務や客先ごとの手順です。
+            {state.list.userSkillsDir !== null ? (
+              <>
+                {" "}
+                <code className="mono">{state.list.userSkillsDir}</code> の下に <code className="mono">&lt;名前&gt;/SKILL.md</code> で置きます。
+              </>
+            ) : null}
+            mxstudio を更新しても消えず、公開もされません。置いたあと導入をやり直すと Claude Code に入ります。
+          </p>
+          <SkillItems items={users} empty="まだありません。" />
+          {problems.length > 0 && (
+            <ul className="plain skill-problems">
+              {problems.map((p, i) => (
+                <li key={i} className={p.level === "error" ? "notice error" : "notice warn"}>
+                  {p.name !== "" && <code className="mono">{p.name}</code>} {p.level === "error" ? "読み込めません: " : "注意: "}
+                  {p.message}
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+function SkillItems({ items, empty }: { items: SkillList["skills"]; empty: string }) {
+  if (items.length === 0) return <p className="muted small">{empty}</p>;
+  return (
+    <ul className="plain skill-list">
+      {items.map((s) => (
+        <li key={s.name}>
+          <code className="mono">{s.name}</code>
+          {s.version && <span className="muted small"> 版 {s.version}</span>}
+          <p className="muted small">{s.description}</p>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+interface MaximoSectionProps {
+  vault: SettingsVault;
+  view: VaultView;
+  storage: StorageLike | null;
+  passwordCredential: PasswordCredentialSupport | null;
+  replaceUrl: (url: string) => void;
+}
+
+function MaximoSection({ vault, view, storage, passwordCredential, replaceUrl }: MaximoSectionProps) {
+  const saved = useMemo(() => loadSavedSettings(storage), [storage]);
+  const [baseUrl, setBaseUrl] = useState(view.kind === "disconnected" ? saved.baseUrl : view.info.baseUrl);
+  const [via, setVia] = useState<MaximoVia>(view.kind === "disconnected" ? saved.via : view.info.via);
+  const [connectionName, setConnectionName] = useState(view.kind === "disconnected" ? "" : view.info.connectionName);
+  const [errors, setErrors] = useState<SettingsFormErrors>({});
+  const [failure, setFailure] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [showForm, setShowForm] = useState(view.kind !== "connected");
+  const keyRef = useRef<HTMLInputElement>(null);
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  // ロック・切断されたらフォームに戻す
+  useEffect(() => {
+    if (view.kind !== "connected") setShowForm(true);
+  }, [view.kind]);
+
+  const onSubmit = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (busy) return;
+    const keyInput = keyRef.current;
+    if (!keyInput) return;
+    const name = connectionName.trim();
+    const url = normalizeBaseUrl(baseUrl);
+    const found = validateSettingsForm({ baseUrl: url, via, connectionName: name, apiKey: keyInput.value });
+    setErrors(found);
+    setFailure(null);
+    if (Object.keys(found).length > 0) return;
+
+    // パスワードマネージャーへの保存（Chromium 系）は whoami の成功後に行うため、資格情報のオブジェクトだけ先に作る。
+    // 【これが無いと成功後に保存できない。PasswordCredential が無いブラウザではキーはここで手放す】
+    const credential = passwordCredential ? passwordCredential.create(name, keyInput.value) : null;
+    // キーは入力欄から直接 Worker へ渡し、すぐ入力欄を空にする（変数に残さない）
+    const pending = vault.connect({ baseUrl: url, via, connectionName: name, apiKey: keyInput.value });
+    keyInput.value = "";
+    setBusy(true);
+    try {
+      await pending;
+      saveSettings(storage, { baseUrl: url, via });
+      if (credential !== null && credential !== undefined && passwordCredential) {
+        passwordCredential.store(credential).catch(() => undefined);
+      }
+      replaceUrl(CONNECTED_URL);
+      if (mounted.current) setShowForm(false);
+    } catch (err) {
+      if (mounted.current) {
+        setFailure(connectErrorMessage(err, via));
+        keyRef.current?.focus();
+      }
+    } finally {
+      if (mounted.current) setBusy(false);
+    }
+  };
+
+  if (!showForm && view.kind === "connected") {
+    return (
+      <section className="card blueprint">
+        <Corners />
+        <h2>Maximo への接続</h2>
+        <ConnectedInfo info={view.info} onReconnect={() => setShowForm(true)} onDisconnect={() => vault.disconnect()} />
+      </section>
+    );
+  }
+
+  return (
+    <section className="card blueprint">
+      <Corners />
+      <h2>Maximo への接続</h2>
+      {view.kind === "locked" && (
+        <p className="notice warn">
+          {view.reason === "idle" ? "無操作が 30 分続いたため、API キーをメモリから消しました（ロック中）。もう一度接続してください。" : "接続を切りました。"}
+        </p>
+      )}
+      <p className="muted">
+        API キーはこのタブのメモリ（専用の Web Worker）にだけ置き、サーバやブラウザのストレージには保存しません。記憶はブラウザのパスワードマネージャーに任せてください。
+      </p>
+      <form className="connect-form" onSubmit={onSubmit} noValidate>
+        <div className="field">
+          <label htmlFor="mx-url">Maximo URL</label>
+          <input
+            id="mx-url"
+            type="url"
+            name="maximo-url"
+            autoComplete="url"
+            inputMode="url"
+            placeholder="https://maximo.example.com"
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+            aria-invalid={errors.baseUrl ? true : undefined}
+            required
+          />
+          {errors.baseUrl && <p className="field-error">{errors.baseUrl}</p>}
+        </div>
+        <div className="field">
+          <label htmlFor="mx-via">接続方式</label>
+          <select
+            id="mx-via"
+            name="via"
+            value={via}
+            onChange={(e) => {
+              if (isVia(e.target.value)) setVia(e.target.value);
+            }}
+          >
+            <option value="proxy">{viaOptionLabel("proxy")}</option>
+            <option value="direct">{viaOptionLabel("direct")}</option>
+          </select>
+          {errors.via && <p className="field-error">{errors.via}</p>}
+        </div>
+        <div className="field">
+          <label htmlFor="mx-name">接続名</label>
+          <input
+            id="mx-name"
+            type="text"
+            name="username"
+            autoComplete="username"
+            placeholder="MAXADMIN@mas-dev"
+            value={connectionName}
+            onChange={(e) => setConnectionName(e.target.value)}
+            aria-invalid={errors.connectionName ? true : undefined}
+            required
+          />
+          {errors.connectionName && <p className="field-error">{errors.connectionName}</p>}
+        </div>
+        <div className="field">
+          <label htmlFor="mx-key">API キー</label>
+          <input id="mx-key" type="password" name="password" autoComplete="current-password" ref={keyRef} aria-invalid={errors.apiKey ? true : undefined} required />
+          {errors.apiKey && <p className="field-error">{errors.apiKey}</p>}
+        </div>
+        {failure && (
+          <p className="notice error" role="alert">
+            {failure}
+          </p>
+        )}
+        <div className="actions">
+          <button type="submit" className="primary" disabled={busy}>
+            接続
+          </button>
+          {busy && <span className="muted">確認しています…</span>}
+        </div>
+      </form>
+    </section>
+  );
+}
+
+function ConnectedInfo({ info, onReconnect, onDisconnect }: { info: MaximoConnectionInfo; onReconnect: () => void; onDisconnect: () => void }) {
+  return (
+    <div className="connected">
+      <p className="notice ok" role="status">
+        接続しました。
+      </p>
+      <dl className="kv">
+        <dt>接続名</dt>
+        <dd>{info.connectionName}</dd>
+        <dt>Maximo</dt>
+        <dd>
+          {hostOf(info.baseUrl)}（{info.via === "proxy" ? "proxy" : "直結"}）
+        </dd>
+        <dt>Maximo の利用者</dt>
+        <dd>{info.userName ?? "（不明）"}</dd>
+      </dl>
+      <div className="actions">
+        <Link to={APP_PATH} className="button primary">
+          作業画面に戻る
+        </Link>
+        <button type="button" onClick={onReconnect}>
+          別の接続にする
+        </button>
+        <button type="button" onClick={onDisconnect}>
+          接続を切る
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function CopyButton({ text, clipboard }: { text: string; clipboard: ClipboardLike | null }) {
+  const [copied, setCopied] = useState(false);
+  if (!clipboard) return null;
+  return (
+    <button
+      type="button"
+      className="small"
+      onClick={() => {
+        clipboard.writeText(text).then(
+          () => setCopied(true),
+          () => setCopied(false),
+        );
+      }}
+    >
+      {copied ? "コピーしました" : "コピー"}
+    </button>
+  );
+}
+
+/** LLM クライアントの接続。橋渡しは stdio の MCP なので URL もトークンも無く、現状を示すだけにする */
+function LlmSection({ clipboard }: { clipboard: ClipboardLike | null }) {
+  const status = localClientStatus();
+  return (
+    <section className="card blueprint">
+      <Corners />
+      <h2>LLM クライアントの接続</h2>
+      <p className="notice ok" role="status">
+        {status.summary}
+      </p>
+      {status.notes.map((n, i) => (
+        <p key={i} className="muted">
+          {n}
+        </p>
+      ))}
+      <div className="field">
+        <span className="label">登録を確かめる</span>
+        <div className="copy-row">
+          <code className="mono">{status.checkCommand}</code>
+          <CopyButton text={status.checkCommand} clipboard={clipboard} />
+        </div>
+      </div>
+    </section>
+  );
+}

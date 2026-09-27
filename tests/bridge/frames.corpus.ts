@@ -1,0 +1,41 @@
+// フレーム解釈の試験に使う入力。期待値は frames.golden.json（旧 Hub Durable Object の実装と一致していた時点の出力）。
+
+export const CORPUS: unknown[] = [
+  { type: "hello", tabId: "t1", protocol: 1, appVersion: "0.1.0", tools: ["get_status", 3], revision: 5, workspace: "w", focused: true },
+  { type: "hello" },
+  { type: "hello", tabId: 5, protocol: "1", focused: "yes" },
+  { type: "tab.focus", tabId: "t1" },
+  { type: "tab.focus" },
+  { type: "tool.ack", id: "c1" },
+  { type: "tool.ack" },
+  { type: "tool.progress", id: "c1", progress: 3 },
+  { type: "tool.progress", id: "c1", progress: 3, total: 10, message: "x".repeat(5000) },
+  { type: "tool.progress", id: "c1", progress: "3" },
+  { type: "tool.chunk", id: "c1", seq: 0, data: "ab", last: false },
+  { type: "tool.chunk", id: "c1", seq: 1, data: "cd", last: true, revision: 7 },
+  { type: "tool.chunk", id: "c1", seq: 0, data: 1, last: true },
+  { type: "tool.result", id: "c1", result: { content: [{ type: "text", text: "ok" }] }, revision: 2 },
+  { type: "tool.result", id: "c1" },
+  { type: "tool.error", id: "c1", code: -32011, message: "だめ", retryable: true },
+  { type: "tool.error", id: "c1", code: 12345 },
+  { type: "sheet.ops", tabId: "t1", revision: 1, ops: [1, 2] },
+  { type: "sheet.ops", tabId: "t1", revision: 1 },
+  { type: "unknown" },
+  { noType: 1 },
+  [1, 2, 3],
+  "text",
+  null,
+];
+
+export const RESULTS: unknown[] = [
+  { content: [{ type: "text", text: "ok" }] },
+  { content: [{ type: "text", text: "ok" }], structuredContent: { a: 1 }, isError: true },
+  { content: [{ type: "image", data: "x" }] },
+  { content: [{ type: "text", text: 1 }] },
+  { content: "ok" },
+  { content: [], structuredContent: [1] },
+  { content: [], isError: "yes" },
+  { content: [], _meta: { secret: 1 } },
+  null,
+  42,
+];

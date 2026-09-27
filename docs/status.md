@@ -140,9 +140,16 @@
   （結果の `childFilterNote` に出します）。oslc.where に渡せるか確かめます。
 - **`load_sheet` で読んだマスタは画面で連動しません。** 連動するのは `load_master` で読んだシートだけです。
   記述から拾ったタグのように参照元の列が無い突き合わせでは、マスタが別のタブのままになります。
-- **Claude Desktop のチャットは対象外です。** 導入は Claude Desktop にも MCP サーバを登録しますが、Skill はチャットには入りません
-  （使うのは Claude Code か、Claude Desktop の Code タブ）。
+- **Claude Desktop のチャットの Skill は、mxstudio のツールを通して届けています。** チャットには Skill のファイルが入らないので、
+  会話で最初のツール呼び出しの結果に基本手順を添えています（Skill の節）。チャットでの実際の動きは、まだ確かめきれていません。
 - **Windows だけで確かめています。** Mac・Linux は試していません（自動起動とショートカットは Windows だけ）。
+
+## 公開
+
+- まだ GitHub へは送っていません。最初のコミットに客先の情報が入っていたため、2026-09-27 に履歴を作り直しました
+  （古い履歴はローカルのブランチ `private/before-publish-2026-09-27` だけ）。
+- 送る前に `scripts/check-publish.mjs` が、送るコミットに客先の語（リポジトリの外の `~/.config/mxstudio/publish-terms.txt`）が
+  無いかを調べ、当たれば送りません（`.githooks/pre-push`。`git config core.hooksPath .githooks` で有効にする）。手順は [publish.md](publish.md)。
 
 ## 試験
 
@@ -157,4 +164,6 @@ npm run test:setup     # 導入スクリプト（node --test。一時フォル�
 - 橋渡し: HTTP・WebSocket・MCP の往復、中継と引き継ぎ、静的配信、Skill の一覧、フレームの解釈（以前の実装と一致していた時点の出力を期待値に固定）。
 - 導入: 導入 → もう一度 → 状態 → 取り消しのひと通り、利用者の Skill の配置と片付け、Node の版、更新時の入れ直しとビルドし直しの判定。
   最後に本物の書き先の更新時刻が変わっていないことを確かめます。
+- 公開の前の検査: 一時フォルダに作った試験用のリポジトリで、履歴・送る範囲・パス・説明文・作業中のファイルを調べ、
+  語の一覧が無いときに通さないことを確かめます（`tests/setup/check-publish.test.mjs`）。
 - 画面は開発サーバ（`npm run dev:app`）の `http://localhost:5173/app?demo=1` で、架空のサンプル（作業指示・機器台帳・ロケーション）を出して確かめられます。

@@ -1,0 +1,5 @@
+#!/bin/sh
+# 公開（git push）の前に、送るコミットに客先の情報が無いかを調べる（scripts/check-publish.mjs）。
+# 当たりがあるか、客先の語の一覧（~/.config/mxstudio/publish-terms.txt）が無ければ送らない。
+# 有効にする（リポジトリごとに 1 回）: git config core.hooksPath .githooks
+exec node "$(git rev-parse --show-toplevel)/scripts/check-publish.mjs" --pre-push "$1"

@@ -183,7 +183,7 @@ const USAGE = `mxstudio をこの PC に入れる（1 ステップ導入）
   --startup-dir <パス>        スタートアップフォルダ
   --desktop-dir <パス>        デスクトップフォルダ
   --claude-skills-dir <パス>  Claude Code の Skill の置き場所（既定: ~/.claude/skills）
-  --antigravity-dir <パス>    Antigravity の設定フォルダ（既定: ~/.gemini。MCP は config/mcp_config.json、Skill は skills/）
+  --antigravity-dir <パス>    Antigravity の設定フォルダ（既定: ~/.gemini。MCP は config/mcp_config.json、Skill は config/skills/）
   --codex-dir <パス>          Codex の設定フォルダ（既定: CODEX_HOME か ~/.codex。MCP は config.toml）
   --agents-skills-dir <パス>  Codex が読む個人の Skill の置き場所（既定: ~/.agents/skills）
   --claude-cli <パス>         claude コマンドの場所（環境変数 ${CLAUDE_CLI_ENV} でも指定できる）。
@@ -917,12 +917,17 @@ function makePaths(opts) {
   };
 }
 
-/** Antigravity の設定フォルダ（~/.gemini）から、MCP の設定と Skill の置き場所を決める */
+/**
+ * Antigravity の設定フォルダ（~/.gemini）から、MCP の設定と Skill の置き場所を決める。
+ * Skill は 2.0・IDE が読む config/skills（https://antigravity.google/docs/skills）。
+ * 以前の導入は skills/（Gemini CLI の置き場所で、Antigravity は読まない）に写していたので、そこは片付ける先として持つ。
+ */
 export function antigravityPaths(dir) {
   return {
     antigravityDir: dir,
     antigravityConfig: path.join(dir, "config", "mcp_config.json"),
-    antigravitySkillsDir: path.join(dir, "skills"),
+    antigravitySkillsDir: path.join(dir, "config", "skills"),
+    antigravityLegacySkillsDir: path.join(dir, "skills"),
   };
 }
 
@@ -1693,7 +1698,7 @@ async function install(opts, paths, out) {
   if (codex.ok) registerCodex(opts, paths, nodePath, found.entry, port, lastWritten, result, out);
   else out.push(step("skip", "codex", `${codex.reason}、Codex には登録していません。`));
 
-  // --- Skill（アプリ既定と利用者の Skill を Claude Code の ~/.claude/skills、Antigravity の ~/.gemini/skills、Codex の ~/.agents/skills へ）---
+  // --- Skill（アプリ既定と利用者の Skill を Claude Code の ~/.claude/skills、Antigravity の ~/.gemini/config/skills、Codex の ~/.agents/skills へ）---
   installSkills(opts, paths, state, result, out);
 
   // --- ログイン時の自動起動 ---
@@ -2160,9 +2165,11 @@ function installSkills(opts, paths, state, result, out) {
 }
 
 /**
- * Skill を写す先。Claude Code（~/.claude/skills）と、Antigravity に登録するなら ~/.gemini/skills
- * （Antigravity の 2.0・IDE・agy CLI のどれからも読める場所）、Codex に登録するなら ~/.agents/skills（Codex が読む個人の Skill）。
+ * Skill を写す先。Claude Code（~/.claude/skills）と、Antigravity に登録するなら ~/.gemini/config/skills
+ * （Antigravity の 2.0・IDE が読む場所。agy CLI は別の場所を読むので、ツールの結果で届く基本手順だけになる）、
+ * Codex に登録するなら ~/.agents/skills（Codex が読む個人の Skill）。
  * record は setup.json の installed の下の名前。step の id と控えの名前も先ごとに分ける。
+ * legacyDir は、写した先を記録していなかった頃（setup.json に skillDirs が無い）の導入が写していた場所。
  */
 export function skillTargets(opts, paths, dirExists = isDir) {
   const targets = [
@@ -2180,9 +2187,10 @@ export function skillTargets(opts, paths, dirExists = isDir) {
       id: "antigravity_skills",
       label: "Antigravity",
       dir: paths.antigravitySkillsDir,
+      legacyDir: paths.antigravityLegacySkillsDir,
       record: "antigravitySkills",
       backupPrefix: "antigravity-skill",
-      readyHint: "Antigravity（2.0・IDE・agy CLI）は新しい会話から使えます。",
+      readyHint: "Antigravity（2.0・IDE）は新しい会話から使えます。",
     });
   }
   if (codexWanted(opts, paths, dirExists).ok) {
@@ -2204,6 +2212,46 @@ function recordedSkills(state, record) {
   return Array.isArray(list) ? list.filter((sk) => sk && SKILL_NAME_PATTERN.test(sk.name)) : [];
 }
 
+/**
+ * 前回の導入が、その先の Skill を実際に写した場所。記録（skillDirs）があればそれ、
+ * 無ければ（記録する前の導入）legacyDir、それも無ければ今の写す先。
+ */
+export function previousSkillDir(state, target) {
+  const recorded = state?.skillDirs?.[target.record];
+  if (typeof recorded === "string" && recorded !== "") return recorded;
+  return target.legacyDir ?? target.dir;
+}
+
+/**
+ * 写す先が変わったとき（Antigravity の ~/.gemini/skills → ~/.gemini/config/skills など）、前の場所の写しを片付ける。
+ * この導入が入れた中身のまま（記録のハッシュと一致）のものだけ消し、書き換えられたものは残して知らせる。
+ */
+function retireMovedSkills(target, oldDir, recordedList, out) {
+  const removed = [];
+  const kept = [];
+  const failed = [];
+  for (const sk of recordedList) {
+    const dir = path.join(oldDir, sk.name);
+    const file = path.join(dir, SKILL_FILE);
+    const plan = planSkillRemoval(readTextIfFile(file), sk.sha256);
+    if (plan === "absent") continue;
+    if (plan === "keep") {
+      kept.push(sk.name);
+      continue;
+    }
+    try {
+      rmSync(file, { force: true });
+      if (isDir(dir) && readdirSync(dir).length === 0) rmSync(dir, { recursive: true, force: true });
+      removed.push(sk.name);
+    } catch (err) {
+      failed.push(`${sk.name}（${err instanceof Error ? err.message : String(err)}）`);
+    }
+  }
+  if (removed.length > 0) out.push(step("ok", `${target.id}_moved`, `${target.label} の Skill の置き場所が変わったので、前の場所の写しを消しました（${oldDir}: ${removed.join(", ")}）。`));
+  if (kept.length > 0) out.push(step("warn", `${target.id}_moved`, `前の置き場所の Skill は書き換えられているので残しました（${oldDir}: ${kept.join(", ")}）。`, `${target.label} は ${target.dir} から読みます。要らなければ手で消してください。`));
+  if (failed.length > 0) out.push(step("warn", `${target.id}_moved`, `前の置き場所の Skill を消せませんでした: ${failed.join(" / ")}`));
+}
+
 function copySkillsTo(target, skills, paths, state, result, out) {
   const userDir = path.join(paths.stateDir, USER_SKILLS_DIR_NAME);
   const recordedList = recordedSkills(state, target.record);
@@ -2211,6 +2259,8 @@ function copySkillsTo(target, skills, paths, state, result, out) {
   const installed = result.installed[target.record];
   const backups = [];
   const failed = [];
+  const oldDir = previousSkillDir(state, target);
+  if (recordedList.length > 0 && path.resolve(oldDir) !== path.resolve(target.dir)) retireMovedSkills(target, oldDir, recordedList, out);
   for (const skill of skills) {
     const dir = path.join(target.dir, skill.name);
     const file = path.join(dir, SKILL_FILE);
@@ -2277,12 +2327,13 @@ function uninstallSkills(opts, paths, state, out) {
     { id: "skills", label: "Claude Code", dir: paths.claudeSkillsDir, record: "skills" },
     // Antigravity の分は、記録があるときだけ（入れていなければ行を出さない）。--no-antigravity なら触らない
     ...(opts.antigravity && recordedSkills(state, "antigravitySkills").length > 0
-      ? [{ id: "antigravity_skills", label: "Antigravity", dir: paths.antigravitySkillsDir, record: "antigravitySkills" }]
+      ? [{ id: "antigravity_skills", label: "Antigravity", dir: paths.antigravitySkillsDir, legacyDir: paths.antigravityLegacySkillsDir, record: "antigravitySkills" }]
       : []),
     // Codex の分も、記録があるときだけ。--no-codex なら触らない
     ...(opts.codex && recordedSkills(state, "codexSkills").length > 0 ? [{ id: "codex_skills", label: "Codex", dir: paths.codexSkillsDir, record: "codexSkills" }] : []),
   ];
-  for (const t of targets) uninstallSkillsFrom(t, opts, paths, state, out);
+  // 消すのは、前回の導入が実際に写した場所（写す先が変わる前の導入なら、前の場所）
+  for (const t of targets) uninstallSkillsFrom({ ...t, dir: previousSkillDir(state, t) }, opts, paths, state, out);
 }
 
 function uninstallSkillsFrom(target, opts, paths, state, out) {

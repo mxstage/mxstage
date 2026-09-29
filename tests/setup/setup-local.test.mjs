@@ -15,7 +15,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { createServer as createHttpServer } from "node:http";
 import { createServer } from "node:net";
 import os from "node:os";
@@ -129,7 +129,9 @@ function realTargets() {
     { path: path.join(home, "OneDrive", "Desktop"), type: "dir", owner: "Windows / OneDrive" },
     shell.desktop ? { path: shell.desktop, type: "dir", owner: "Windows / OneDrive" } : null,
     { path: path.join(home, ".gemini", "config", "mcp_config.json"), type: "json", owner: "Antigravity" },
-    { path: path.join(home, ".gemini", "skills"), type: "dir", owner: "Antigravity" },
+    { path: path.join(home, ".gemini", "config", "skills"), type: "dir", owner: "Antigravity" },
+    // 以前の導入が Skill を写していた場所（Gemini CLI の置き場所）
+    { path: path.join(home, ".gemini", "skills"), type: "dir", owner: "Gemini CLI" },
     { path: path.join(process.env.CODEX_HOME || path.join(home, ".codex"), "config.toml"), type: "toml", owner: "Codex" },
     { path: path.join(home, ".agents", "skills"), type: "dir", owner: "Codex などのエージェント" },
     // ほかに書くプログラムが無い場所。更新時刻が変わったらそれだけで失敗にする
@@ -299,7 +301,9 @@ test("antigravityPaths / antigravityWanted / skillTargets: ~/.gemini がある�
   const dir = path.join(os.tmpdir(), "mxs-ag-paths", ".gemini");
   const ag = antigravityPaths(dir);
   assert.equal(ag.antigravityConfig, path.join(dir, "config", "mcp_config.json"));
-  assert.equal(ag.antigravitySkillsDir, path.join(dir, "skills"));
+  // Skill は 2.0・IDE が読む config/skills。skills/ は Gemini CLI の置き場所で、以前の導入が写していた（片付ける先）
+  assert.equal(ag.antigravitySkillsDir, path.join(dir, "config", "skills"));
+  assert.equal(ag.antigravityLegacySkillsDir, path.join(dir, "skills"));
   const paths = { ...ag, claudeSkillsDir: path.join(dir, "..", "claude-skills") };
   const on = parseArgs([]);
   assert.equal(antigravityWanted(on, paths, () => true).ok, true);
@@ -351,7 +355,7 @@ test("Antigravity: 入っていれば登録し Skill も写す（ほかのサー
     const common = [...sandboxArgs(dir), "--no-start", "--no-autostart", "--no-shortcut", "--port", String(port), "--bridge", bridge];
     const geminiDir = path.join(dir, "gemini");
     const agConfig = path.join(geminiDir, "config", "mcp_config.json");
-    const agSkills = path.join(geminiDir, "skills");
+    const agSkills = path.join(geminiDir, "config", "skills");
     const repoSkills = readRepoSkills(path.resolve(import.meta.dirname, "..", ".."));
 
     // --- Antigravity が入っていない（~/.gemini が無い）: 何も作らない ---
@@ -424,6 +428,68 @@ test("Antigravity: 入っていれば登録し Skill も写す（ほかのサー
     assert.deepEqual(after.mcpServers["chrome-devtools-mcp"], other);
     for (const skill of repoSkills) assert.equal(existsSync(path.join(agSkills, skill.name)), false, `${skill.name} は消す`);
     assert.equal(existsSync(path.join(agSkills, "cloudflare", "SKILL.md")), true, "利用者の Skill は消さない");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("Antigravity の Skill の置き場所が変わった: 前の場所（~/.gemini/skills）の写しを片付けて config/skills に写す。取り消しは前回写した場所から消す", { timeout: 120_000 }, async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-agmove-"));
+  try {
+    const bridge = path.join(dir, "fake-bridge.mjs");
+    writeFileSync(bridge, FAKE_BRIDGE, "utf8");
+    const port = await freePort();
+    const common = [...sandboxArgs(dir), "--no-start", "--no-autostart", "--no-shortcut", "--port", String(port), "--bridge", bridge];
+    const geminiDir = path.join(dir, "gemini");
+    const newDir = path.join(geminiDir, "config", "skills");
+    const oldDir = path.join(geminiDir, "skills");
+    const repoSkills = readRepoSkills(path.resolve(import.meta.dirname, "..", ".."));
+    const name = repoSkills[0].name;
+    const statePath = path.join(dir, "state", "setup.json");
+    mkdirSync(geminiDir, { recursive: true });
+    assert.equal(await quietMain(common), 0);
+
+    // 以前の導入の跡にする: 写しは前の場所にあり、記録に写した先（skillDirs）が無い
+    const asBefore = () => {
+      for (const sk of repoSkills) {
+        mkdirSync(path.join(oldDir, sk.name), { recursive: true });
+        renameSync(path.join(newDir, sk.name, "SKILL.md"), path.join(oldDir, sk.name, "SKILL.md"));
+        rmSync(path.join(newDir, sk.name), { recursive: true, force: true });
+      }
+      const state = JSON.parse(readFileSync(statePath, "utf8"));
+      delete state.skillDirs;
+      writeFileSync(statePath, JSON.stringify(state, null, 2), "utf8");
+    };
+    asBefore();
+    mkdirSync(path.join(oldDir, "gemini-own"), { recursive: true });
+    writeFileSync(path.join(oldDir, "gemini-own", "SKILL.md"), "---\nname: gemini-own\n---\n", "utf8");
+
+    // 状態を見ると、新しい場所にはまだ無いと出る
+    assert.match(stepOf((await runJson([...common, "--status"])).json, "antigravity_skills")[0].message, new RegExp(`まだ配っていない: .*${name}`));
+
+    const moved = await runJson(common);
+    assert.equal(moved.code, 0, moved.stdout);
+    assert.equal(readFileSync(path.join(newDir, name, "SKILL.md"), "utf8"), repoSkills[0].text, "新しい場所に写す");
+    assert.equal(existsSync(path.join(oldDir, name)), false, "前の場所の写しは消す");
+    assert.equal(existsSync(path.join(oldDir, "gemini-own", "SKILL.md")), true, "この導入が入れていない Skill には触らない");
+    assert.match(stepOf(moved.json, "antigravity_skills_moved")[0].message, /前の場所の写しを消しました/);
+    assert.equal(JSON.parse(readFileSync(statePath, "utf8")).skillDirs.antigravitySkills, newDir);
+
+    // 前の場所で書き換えられていた写しは残して知らせる
+    asBefore();
+    writeFileSync(path.join(oldDir, name, "SKILL.md"), `${repoSkills[0].text}\n手で直した\n`, "utf8");
+    const kept = await runJson(common);
+    assert.equal(kept.code, 0, kept.stdout);
+    assert.equal(stepOf(kept.json, "antigravity_skills_moved")[0].level, "warn");
+    assert.equal(existsSync(path.join(oldDir, name, "SKILL.md")), true);
+    assert.equal(readFileSync(path.join(newDir, name, "SKILL.md"), "utf8"), repoSkills[0].text);
+    rmSync(path.join(oldDir, name), { recursive: true, force: true });
+
+    // 取り消しは、前回の導入が写した場所から消す（写す先が変わる前の記録なら、前の場所）
+    asBefore();
+    assert.equal(await quietMain([...common, "--uninstall"]), 0);
+    assert.equal(existsSync(path.join(oldDir, name)), false, "前の場所の写しを消す");
+    assert.equal(existsSync(path.join(oldDir, "gemini-own", "SKILL.md")), true);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

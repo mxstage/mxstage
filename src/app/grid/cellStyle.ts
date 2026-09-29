@@ -26,19 +26,24 @@ export function cellTone(i: CellToneInput): CellTone {
   return i.protectedColumn ? "readonly" : "normal";
 }
 
-/** Industry の段の色（鋼青 1 色と中間色）。削除行はこれに加えて取り消し線を引く（SheetGrid の drawCell） */
+/**
+ * Carbon の色の段（IBM Design Language の palette）。文字と地のコントラストはどれも 4.5:1 以上（docs/design.md）。
+ * 変更したセルは 20 の段（数が少なく、目立たせる）、行ごとの色は 10 の段（行全体が騒がしくならないように）。
+ * 削除行はこれに加えて取り消し線を引く（SheetGrid の drawCell）
+ */
 export const TONE_STYLE: Record<CellTone, { bg: string; fg: string }> = {
-  normal: { bg: "#ffffff", fg: "#1d1f20" },
-  // 背景は塗らず、文字だけ薄くする（neutral-600）
-  readonly: { bg: "#ffffff", fg: "#7a7a7d" },
-  // accent-200 / accent-800
-  llm: { bg: "#d6ebff", fg: "#2c455d" },
-  // accent-400 / accent-900
-  user: { bg: "#94bce3", fg: "#1d2d3d" },
-  // neutral-200 / text
-  added: { bg: "#e7e7ea", fg: "#1d1f20" },
-  // neutral-300 / neutral-700
-  deleted: { bg: "#d4d4d7", fg: "#5d5d60" },
+  // background / text-primary
+  normal: { bg: "#ffffff", fg: "#161616" },
+  // 背景は塗らず、文字だけ薄くする（text-helper）
+  readonly: { bg: "#ffffff", fg: "#6f6f6f" },
+  // purple 20 / purple 70（LLM の変更）
+  llm: { bg: "#e8daff", fg: "#6929c4" },
+  // blue 20 / blue 70（利用者の変更）
+  user: { bg: "#d0e2ff", fg: "#0043ce" },
+  // green 10 / text-primary
+  added: { bg: "#defbe6", fg: "#161616" },
+  // red 10 / red 70
+  deleted: { bg: "#fff1f1", fg: "#a2191f" },
 };
 
 /** 凡例に出す色（読み取り専用は色ではなく文字の薄さで分かるので出さない） */

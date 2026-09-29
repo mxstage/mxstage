@@ -1,6 +1,7 @@
 // 作業画面 /app: 上部バー（シートタブを含む）、グリッド、サイドパネル（表示の切替・反映・変更履歴）。
 // 保存・確定ボタンは置かない（グリッドの変更はその場で作業状態に入る）。
 
+import { ContentSwitcher, Switch } from "@carbon/react";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { Runtime } from "../boot/runtime";
 import type { ObjectStructureCatalog } from "../catalog/catalog";
@@ -8,8 +9,8 @@ import { formatCellValue } from "../grid/cellStyle";
 import { SheetGrid, type LinkFilter } from "../grid/SheetGrid";
 import type { VaultView } from "../keyvault/client";
 import type { ViewKind } from "../store";
-import { Corners } from "../ui/Corners";
 import { Link } from "../ui/Link";
+import { Notice } from "../ui/Notice";
 import { SETTINGS_PATH } from "../ui/routes";
 import { Toasts, type ToastStore } from "../ui/toast";
 import { CommitPanel } from "./CommitPanel";
@@ -242,7 +243,11 @@ export function AppPage({ runtime, vault, toasts, catalog, onEndWork, confirm, r
             </div>
           ) : (
             <>
-              {busy && <div className="busy-banner">Maximo に反映中のため、このシートは編集できません。</div>}
+              {busy && (
+                <Notice kind="warning" className="busy-banner">
+                  Maximo に反映中のため、このシートは編集できません。
+                </Notice>
+              )}
               {(arranged.all.length > 1 || addable.length > 0) && (
                 <PaneBar
                   panes={arranged.all}
@@ -252,10 +257,9 @@ export function AppPage({ runtime, vault, toasts, catalog, onEndWork, confirm, r
                 />
               )}
               <div
-                className={`panes blueprint count-${shownPanes.length}`}
+                className={`panes count-${shownPanes.length}`}
                 style={{ gridTemplateColumns: gridTemplate.columns, gridTemplateRows: gridTemplate.rows }}
               >
-                <Corners />
                 <PaneSplitters count={shownPanes.length} split={split} onChange={(next) => setSplits((all) => ({ ...all, [groupKey]: next }))} />
                 {shownPanes.length === 0 && <div className="empty">表をすべて隠しています。上の「表示する表」から出してください。</div>}
                 {shownPanes.map((pane) => (
@@ -330,14 +334,20 @@ export function AppPage({ runtime, vault, toasts, catalog, onEndWork, confirm, r
         </div>
         {focusSheet !== null && (
           <aside className="side">
-            <div className="seg" role="radiogroup" aria-label="表示">
+            <ContentSwitcher
+              className="view-switch"
+              size="sm"
+              aria-label="表示"
+              selectedIndex={Math.max(0, VIEWS.findIndex((v) => v.kind === view))}
+              onChange={({ index }) => {
+                const next = VIEWS[index ?? 0];
+                if (next) setView(next.kind);
+              }}
+            >
               {VIEWS.map((v) => (
-                <label key={v.kind} className={`seg-opt${view === v.kind ? " on" : ""}`}>
-                  <input type="radio" name="view" value={v.kind} checked={view === v.kind} onChange={() => setView(v.kind)} />
-                  {v.label}
-                </label>
+                <Switch key={v.kind} name={v.kind} text={v.label} />
               ))}
-            </div>
+            </ContentSwitcher>
             <CommitPanel
               commits={commits}
               sheet={focusSheet}

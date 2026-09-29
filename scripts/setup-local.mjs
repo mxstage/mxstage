@@ -995,17 +995,26 @@ export function runPowerShell(script, env) {
 }
 
 /**
+ * npm に渡す環境変数。IBM のテレメトリ（@carbon/react などが入れるときに動く @ibm/telemetry-js）を止める。
+ * 客先の Maximo の環境で動かすので、依存の使い方の情報を外へ送らせない。
+ */
+export function npmEnv(env = process.env) {
+  return { ...env, IBM_TELEMETRY_DISABLED: "true" };
+}
+
+/**
  * npm を呼ぶ。シェルを経由せずに node から npm-cli.js を直接動かす。
  * npm の標準出力はこちらの標準エラーへ回す（--json の結果に npm の出力が混ざって読めなくならないように。画面にはどちらも出る）。
  */
 function runNpm(args, cwd) {
   const cli = path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js");
   const stdio = ["inherit", 2, "inherit"];
+  const env = npmEnv();
   if (isFile(cli)) {
-    const run = spawnSync(process.execPath, [cli, ...args], { cwd, encoding: "utf8", stdio, timeout: 600_000, windowsHide: true });
+    const run = spawnSync(process.execPath, [cli, ...args], { cwd, env, encoding: "utf8", stdio, timeout: 600_000, windowsHide: true });
     return { ok: run.status === 0 && !run.error, error: run.error ? String(run.error.message ?? run.error) : "" };
   }
-  const run = spawnSync(IS_WINDOWS ? "npm.cmd" : "npm", args, { cwd, encoding: "utf8", stdio, shell: IS_WINDOWS, timeout: 600_000, windowsHide: true });
+  const run = spawnSync(IS_WINDOWS ? "npm.cmd" : "npm", args, { cwd, env, encoding: "utf8", stdio, shell: IS_WINDOWS, timeout: 600_000, windowsHide: true });
   return { ok: run.status === 0 && !run.error, error: run.error ? String(run.error.message ?? run.error) : "" };
 }
 
@@ -1484,8 +1493,51 @@ export function buildInternetShortcut(url) {
   return `[InternetShortcut]\r\nURL=${url}\r\n`;
 }
 
+/**
+ * PNG を詰めた .ico を作る（Windows Vista 以降は PNG のままの項目を読める）。
+ * デスクトップのショートカットは chrome.exe / msedge.exe を指すので、アイコンを渡さないとブラウザのアイコンになる。
+ * 1 辺が 256px を超える画像は .ico に入れられないので渡さない。
+ */
+export function buildIco(pngs) {
+  const header = Buffer.alloc(6);
+  header.writeUInt16LE(0, 0);
+  header.writeUInt16LE(1, 2); // 1 = アイコン
+  header.writeUInt16LE(pngs.length, 4);
+  const dir = Buffer.alloc(16 * pngs.length);
+  let offset = 6 + dir.length;
+  pngs.forEach((png, i) => {
+    const width = png.readUInt32BE(16);
+    const height = png.readUInt32BE(20);
+    if (width > 256 || height > 256) throw new Error(`.ico に入れられない大きさです（${width}×${height}）`);
+    const at = i * 16;
+    dir.writeUInt8(width === 256 ? 0 : width, at);
+    dir.writeUInt8(height === 256 ? 0 : height, at + 1);
+    dir.writeUInt8(0, at + 2); // 色数（パレット無し）
+    dir.writeUInt8(0, at + 3);
+    dir.writeUInt16LE(1, at + 4); // 面の数
+    dir.writeUInt16LE(32, at + 6); // 色の深さ
+    dir.writeUInt32LE(png.length, at + 8);
+    dir.writeUInt32LE(offset, at + 12);
+    offset += png.length;
+  });
+  return Buffer.concat([header, dir, ...pngs]);
+}
+
+/** ショートカットに付ける mxstudio のアイコン（public/ の PNG から作る）。作れなければ null（ブラウザのアイコンのまま） */
+function writeAppIcon(stateDir) {
+  try {
+    const pngs = ["favicon-32.png", "icon-192.png"].map((f) => readFileSync(path.join(REPO_ROOT, "public", f)));
+    mkdirSync(stateDir, { recursive: true });
+    const icoPath = path.join(stateDir, "mxstudio.ico");
+    writeFileSync(icoPath, buildIco(pngs));
+    return icoPath;
+  } catch {
+    return null;
+  }
+}
+
 /** .lnk を作る（WScript.Shell。値は環境変数で渡す） */
-function createLnk({ lnkPath, target, args, workDir, description, windowStyle }) {
+function createLnk({ lnkPath, target, args, workDir, description, windowStyle, icon }) {
   const script = [
     "$ErrorActionPreference = 'Stop'",
     "$shell = New-Object -ComObject WScript.Shell",
@@ -1495,6 +1547,7 @@ function createLnk({ lnkPath, target, args, workDir, description, windowStyle })
     "$sc.WorkingDirectory = $env:MXS_WORKDIR",
     "$sc.Description = $env:MXS_DESC",
     "$sc.WindowStyle = [int]$env:MXS_STYLE",
+    "if ($env:MXS_ICON) { $sc.IconLocation = \"$($env:MXS_ICON),0\" }",
     "$sc.Save()",
     "'saved'",
   ].join("\n");
@@ -1505,6 +1558,7 @@ function createLnk({ lnkPath, target, args, workDir, description, windowStyle })
     MXS_WORKDIR: workDir ?? "",
     MXS_DESC: description ?? "",
     MXS_STYLE: String(windowStyle ?? 1),
+    MXS_ICON: icon ?? "",
   });
   if (!ran.ok || !existsSync(lnkPath)) {
     const detail = (ran.stderr || ran.stdout).split(/\r?\n/).filter((l) => l.trim()).slice(0, 3).join(" / ");
@@ -1747,6 +1801,8 @@ async function install(opts, paths, out) {
         workDir: paths.repoRoot,
         description: "mxstudio の作業画面",
         windowStyle: 1,
+        // ブラウザを指すショートカットなので、mxstudio のアイコンを付ける（無いとブラウザのアイコンになる）
+        icon: writeAppIcon(paths.stateDir),
       });
       if (made.ok) {
         result.installed.desktopShortcut = lnkPath;

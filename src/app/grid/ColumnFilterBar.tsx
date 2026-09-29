@@ -1,8 +1,9 @@
 // 列の絞り込みの操作（札の一覧と、列ごとのメニュー）。
 // canvas のグリッドとは別の DOM にしてあるので、ここだけで表示と操作を試験できる。
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Icon } from "../ui/Icon";
+import { Pin, PinFilled } from "@carbon/icons-react";
+import { Button, Checkbox, DismissibleTag, FormGroup, Layer, TextInput } from "@carbon/react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { TONE_STYLE } from "./cellStyle";
 import { CHANGE_LABEL, distinctValues, filterLabel, type ChangeKind, type GridFilter } from "./filters";
 
@@ -29,16 +30,22 @@ export function ColumnFilterBar({ filters, shown, total, titleOf, onRemove, onCl
     <div className="filter-bar" role="status">
       <strong className="filter-count">{shown !== undefined && total !== undefined ? `絞り込み中 ${fmt(shown)} / ${fmt(total)} 行` : "絞り込み中"}</strong>
       {filters.map((f) => (
-        <span key={f.col} className="chip" title="全角半角・大文字小文字は区別しません">
-          {filterLabel(f, titleOf?.(f.col))}
-          <button type="button" aria-label={`${f.col} の絞り込みを外す`} onClick={() => onRemove(f.col)}>
-            ×
-          </button>
-        </span>
+        <DismissibleTag
+          key={f.col}
+          className="chip"
+          type="blue"
+          size="md"
+          text={filterLabel(f, titleOf?.(f.col))}
+          tagTitle="全角半角・大文字小文字は区別しません"
+          // 外すボタンの読み上げとツールチップ（文字が切れているときも同じ文言にする）
+          title={`${f.col} の絞り込みを外す`}
+          dismissTooltipLabel={`${f.col} の絞り込みを外す`}
+          onClose={() => onRemove(f.col)}
+        />
       ))}
-      <button type="button" className="btn-ghost" onClick={onClearAll}>
+      <Button kind="ghost" size="sm" onClick={onClearAll}>
         すべて外す
-      </button>
+      </Button>
     </div>
   );
 }
@@ -72,6 +79,7 @@ export function ColumnFilterMenu({ col, options, changes = [], current, position
   // 変更のある列だけ、変更の状態で絞れるようにする（変更が 1 つも無い列では選ぶ意味が無い）
   const changeOptions = changes.some((c) => c.kind !== "none" && c.count > 0) ? changes.filter((c) => c.count > 0 || pickedChanges.includes(c.kind)) : [];
   const ref = useRef<HTMLDivElement>(null);
+  const id = useId();
 
   // メニューの外を押したら閉じる
   useEffect(() => {
@@ -94,73 +102,99 @@ export function ColumnFilterMenu({ col, options, changes = [], current, position
 
   return (
     <div className="column-filter" ref={ref} style={{ left: position.x, top: position.y }} role="dialog" aria-label={`${col} の絞り込み`}>
-      <div className="head">
-        <span className="mono">{col}</span>
-        {onTogglePin && (
-          <button type="button" className="btn-ghost pin" aria-pressed={pinned} title={pinned ? "この列の固定を外す" : "この列を左端に固定する（横に動かしても見える）"} onClick={onTogglePin}>
-            <Icon name={pinned ? "pin-off" : "pin"} size={12} />
-            {pinned ? "固定を外す" : "左に固定"}
-          </button>
+      {/* メニューは layer-01 の面。中の入力欄は一段上の面の色で描く */}
+      <Layer className="column-filter-body">
+        <div className="head">
+          <span className="mono">{col}</span>
+          {onTogglePin && (
+            <Button
+              kind="ghost"
+              size="sm"
+              className="pin"
+              renderIcon={pinned ? PinFilled : Pin}
+              iconDescription={pinned ? "固定を外す" : "左に固定"}
+              aria-pressed={pinned}
+              title={pinned ? "この列の固定を外す" : "この列を左端に固定する（横に動かしても見える）"}
+              onClick={onTogglePin}
+            >
+              {pinned ? "固定を外す" : "左に固定"}
+            </Button>
+          )}
+        </div>
+        {changeOptions.length > 0 && (
+          <FormGroup className="changes" legendText="変更の状態">
+            <ul className="plain values">
+              {changeOptions.map((c) => {
+                const swatch = changeSwatch(c.kind);
+                return (
+                  <li key={c.kind}>
+                    <Checkbox
+                      id={`${id}-change-${c.kind}`}
+                      checked={pickedChanges.includes(c.kind)}
+                      onChange={() => toggleChange(c.kind)}
+                      labelText={
+                        <>
+                          {swatch !== null && <span className="swatch" style={{ background: swatch }} aria-hidden="true" />}
+                          <span className="value">{CHANGE_LABEL[c.kind]}</span>
+                          <span className="count">{c.count}</span>
+                        </>
+                      }
+                    />
+                  </li>
+                );
+              })}
+            </ul>
+          </FormGroup>
         )}
-      </div>
-      {changeOptions.length > 0 && (
-        <fieldset className="changes">
-          <legend className="muted small">変更の状態</legend>
-          <ul className="plain values">
-            {changeOptions.map((c) => {
-              const swatch = changeSwatch(c.kind);
-              return (
-                <li key={c.kind}>
-                  <label>
-                    <input type="checkbox" checked={pickedChanges.includes(c.kind)} onChange={() => toggleChange(c.kind)} />
-                    {swatch !== null && <span className="swatch" style={{ background: swatch }} aria-hidden="true" />}
-                    <span className="value">{CHANGE_LABEL[c.kind]}</span>
-                    <span className="muted small">{c.count}</span>
-                  </label>
-                </li>
-              );
-            })}
-          </ul>
-        </fieldset>
-      )}
-      <input
-        type="text"
-        aria-label="文字を含む"
-        placeholder="文字を含む"
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") apply();
-          if (e.key === "Escape") onClose();
-        }}
-        spellCheck={false}
-      />
-      <ul className="plain values">
-        {options.map((o) => (
-          <li key={o.value}>
-            <label>
-              <input type="checkbox" checked={picked.includes(o.value)} onChange={() => toggle(o.value)} />
-              <span className="value">{o.value === "" ? "（空）" : o.value}</span>
-              <span className="muted small">{o.count}</span>
-            </label>
-          </li>
-        ))}
-        {options.length === 0 && <li className="muted small">値がありません</li>}
-      </ul>
-      <div className="actions">
-        <button type="button" onClick={() => onApply({ col, kind: "notEmpty" })}>
-          空でない
-        </button>
-        <button type="button" onClick={() => onApply({ col, kind: "empty" })}>
-          空
-        </button>
-        <button type="button" onClick={() => onApply(null)}>
-          外す
-        </button>
-        <button type="button" className="primary" onClick={apply}>
-          絞り込む
-        </button>
-      </div>
+        <TextInput
+          id={`${id}-contains`}
+          size="sm"
+          labelText="文字を含む"
+          hideLabel
+          aria-label="文字を含む"
+          placeholder="文字を含む"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") apply();
+            if (e.key === "Escape") onClose();
+          }}
+          spellCheck={false}
+          autoComplete="off"
+        />
+        <ul className="plain values">
+          {options.map((o, i) => (
+            <li key={o.value}>
+              <Checkbox
+                id={`${id}-value-${i}`}
+                checked={picked.includes(o.value)}
+                onChange={() => toggle(o.value)}
+                labelText={
+                  <>
+                    <span className="value">{o.value === "" ? "（空）" : o.value}</span>
+                    <span className="count">{o.count}</span>
+                  </>
+                }
+              />
+            </li>
+          ))}
+          {options.length === 0 && <li className="muted small">値がありません</li>}
+        </ul>
+        <div className="actions">
+          <Button kind="ghost" size="sm" onClick={() => onApply({ col, kind: "notEmpty" })}>
+            空でない
+          </Button>
+          <Button kind="ghost" size="sm" onClick={() => onApply({ col, kind: "empty" })}>
+            空
+          </Button>
+          <Button kind="ghost" size="sm" onClick={() => onApply(null)}>
+            外す
+          </Button>
+          <Button kind="primary" size="sm" onClick={apply}>
+            絞り込む
+          </Button>
+        </div>
+      </Layer>
     </div>
   );
 }

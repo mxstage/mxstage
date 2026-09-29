@@ -1,7 +1,10 @@
 // 上部バーのシートタブ（選ぶ・閉じる）と、シートを閉じるときの確かめ。
+// Carbon の Tabs は使わない（閉じるボタンに英語の説明が付き、Delete キーで閉じてしまい、中身の無いタブパネルを指す）。
+// 見た目だけ Carbon の line タブに合わせる（app.css）。
 
+import { Close } from "@carbon/icons-react";
+import { IconButton } from "@carbon/react";
 import type { Workspace } from "../store";
-import { Icon } from "../ui/Icon";
 
 export interface SheetTabInfo {
   name: string;
@@ -31,9 +34,18 @@ export function SheetTabs({ tabs, current, onSelect, onClose }: SheetTabsProps) 
               </span>
             )}
           </button>
-          <button type="button" className="sheet-tab-close" aria-label={`シート ${t.name} を閉じる`} title="シートを閉じる" onClick={() => onClose(t.name)}>
-            <Icon name="x" size={12} />
-          </button>
+          <IconButton
+            kind="ghost"
+            size="xs"
+            align="bottom"
+            className="sheet-tab-close"
+            wrapperClasses="sheet-tab-close-wrap"
+            label="シートを閉じる"
+            aria-label={`シート ${t.name} を閉じる`}
+            onClick={() => onClose(t.name)}
+          >
+            <Close />
+          </IconButton>
         </span>
       ))}
     </div>

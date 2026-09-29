@@ -1,11 +1,14 @@
 // 画面のエントリ。作業画面 /app と API 設定画面 /settings を 1 つの SPA として描く。
 import "@glideapps/glide-data-grid/dist/index.css";
-// 書体は同梱する（外部 CDN を使わない）。日本語は Barlow に無いので OS の字体で出る
-import "@fontsource/barlow/latin-400.css";
-import "@fontsource/barlow/latin-500.css";
-import "@fontsource/barlow/latin-700.css";
-import "@fontsource/barlow-condensed/latin-400.css";
-import "@fontsource/barlow-condensed/latin-600.css";
+// 書体は同梱する（外部 CDN を使わない）。Carbon の生産的な文字（productive type）は 400 と 600 だけを使う。
+// 日本語は IBM Plex Sans JP を分割しない 1 ファイルで読む（分割版は 1 つの太さで 123 ファイルになる）。
+// 日本語の書体は大きいので Service Worker の先読みから外し、初めて使ったときに保存する（pwa/cacheRules.ts）
+import "@fontsource/ibm-plex-sans/latin-400.css";
+import "@fontsource/ibm-plex-sans/latin-600.css";
+import "@fontsource/ibm-plex-sans-jp/japanese-400.css";
+import "@fontsource/ibm-plex-sans-jp/japanese-600.css";
+import "@fontsource/ibm-plex-mono/latin-400.css";
+import "./styles/carbon.scss";
 import "./styles/app.css";
 
 import { createRoot } from "react-dom/client";

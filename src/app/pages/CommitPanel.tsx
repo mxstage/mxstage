@@ -1,9 +1,10 @@
 // 反映パネル。Maximo への書き込みは、利用者がここで [Maximo に反映] を押して確認したときだけ行う。
 
-import { useEffect, useMemo, useState } from "react";
+import { Accordion, AccordionItem, Button, Checkbox, ListItem, Table, TableBody, TableCell, TableRow, UnorderedList } from "@carbon/react";
+import { useEffect, useId, useMemo, useState } from "react";
 import type { CommitController, CommitPanelState } from "../runtime/contracts";
-import { Corners } from "../ui/Corners";
 import { Dialog } from "../ui/Dialog";
+import { Notice } from "../ui/Notice";
 import { hostOf } from "./status";
 import {
   COMMIT_STATE_LABEL,
@@ -55,6 +56,7 @@ function downloadText(text: string, fileName: string): void {
 export function CommitPanel({ commits, sheet, version, connected, locked, onMessage }: CommitPanelProps) {
   const [confirming, setConfirming] = useState(false);
   const [checks, setChecks] = useState<ConfirmChecks>({ deletes: false, nulls: false });
+  const checkId = useId();
   const panel = safePanel(commits, sheet);
 
   // シートを切り替えたら確認をやり直す（別のシートの件数で確認したまま、このシートを反映しないため）
@@ -116,14 +118,17 @@ export function CommitPanel({ commits, sheet, version, connected, locked, onMess
         )}
       </div>
       {panel.state === "requested" && (
-        <div className="request-note" role="status">
-          <div className="request-head" title="差分を確認してから反映してください。">
-            LLM から反映の依頼があります
-          </div>
-          {panel.note && <p className="note">{panel.note}</p>}
-          <button type="button" className="btn-ghost" onClick={() => commits.dismiss(sheet)}>
+        <div className="request-note">
+          {/* 知らせの中にはボタンを置けない（Carbon が拒む）ので、「依頼を閉じる」は知らせの下に置く */}
+          <Notice kind="info">
+            <div className="request-head" title="差分を確認してから反映してください。">
+              LLM から反映の依頼があります
+            </div>
+            {panel.note && <p className="note">{panel.note}</p>}
+          </Notice>
+          <Button kind="ghost" size="sm" onClick={() => commits.dismiss(sheet)}>
             依頼を閉じる
-          </button>
+          </Button>
         </div>
       )}
       {/* 数字を上に出す（dt を先に置いたまま CSS で並びを逆にする） */}
@@ -146,36 +151,37 @@ export function CommitPanel({ commits, sheet, version, connected, locked, onMess
         </div>
       </dl>
       {panel.blockers.length > 0 && (
-        <ul className="blockers">
+        <UnorderedList className="blockers">
           {panel.blockers.map((b, i) => (
-            <li key={i}>{b}</li>
+            <ListItem key={i}>{b}</ListItem>
           ))}
-        </ul>
+        </UnorderedList>
       )}
-      <button
-        type="button"
-        className="primary commit-button blueprint"
+      {/* 作業画面で常に出ている primary のボタンはこれ 1 つだけ */}
+      <Button
+        kind="primary"
+        size="lg"
+        className="commit-button"
         disabled={!button.enabled}
         onClick={() => {
           setChecks({ deletes: false, nulls: false });
           setConfirming(true);
         }}
       >
-        <Corners />
         Maximo に反映
-      </button>
+      </Button>
       <div className="commit-status">
         <span>状態: {COMMIT_STATE_LABEL[panel.state]}</span>
         {hasLog && (
-          <button type="button" className="link" onClick={() => downloadText(withBom(commits.writeLogCsv()), writeLogFileName(new Date()))}>
+          <Button kind="ghost" size="sm" className="log-link" onClick={() => downloadText(withBom(commits.writeLogCsv()), writeLogFileName(new Date()))}>
             書き込みログ（CSV）
-          </button>
+          </Button>
         )}
       </div>
       {canCancelCommit(panel) && (
-        <button type="button" className="wide cancel" onClick={cancel}>
+        <Button kind="secondary" size="md" className="cancel" onClick={cancel}>
           反映を中止
-        </button>
+        </Button>
       )}
       {button.reason && <p className="muted small">{button.reason}</p>}
       {panel.message && (
@@ -185,27 +191,28 @@ export function CommitPanel({ commits, sheet, version, connected, locked, onMess
       )}
 
       {panel.results.length > 0 && (
-        <details className="results" open>
-          <summary>行ごとの結果（{resultSummary(panel.results)}）</summary>
-          <div className="table-wrap">
-            <table className="table">
-              <tbody>
-                {panel.results.slice(0, MAX_RESULT_ROWS).map((r, i) => (
-                  <tr key={`${r.rowKey}-${i}`} className={`result-${r.status}`}>
-                    <td className="mono">{displayRowKey(r.rowKey)}</td>
-                    <td>{RESULT_STATUS_LABEL[r.status]}</td>
-                    <td className="muted">
-                      {r.httpStatus ? `HTTP ${r.httpStatus}` : ""}
-                      {r.reasonCode ? ` ${r.reasonCode}` : ""}
-                      {r.message ? ` ${r.message}` : ""}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {panel.results.length > MAX_RESULT_ROWS && <p className="muted small">先頭の {MAX_RESULT_ROWS} 件だけ表示しています。全件は書き込みログにあります。</p>}
-        </details>
+        <Accordion size="sm" align="start">
+          <AccordionItem className="results" open title={`行ごとの結果（${resultSummary(panel.results)}）`}>
+            <div className="table-wrap">
+              <Table size="xs">
+                <TableBody>
+                  {panel.results.slice(0, MAX_RESULT_ROWS).map((r, i) => (
+                    <TableRow key={`${r.rowKey}-${i}`} className={`result-${r.status}`}>
+                      <TableCell className="mono">{displayRowKey(r.rowKey)}</TableCell>
+                      <TableCell>{RESULT_STATUS_LABEL[r.status]}</TableCell>
+                      <TableCell className="muted">
+                        {r.httpStatus ? `HTTP ${r.httpStatus}` : ""}
+                        {r.reasonCode ? ` ${r.reasonCode}` : ""}
+                        {r.message ? ` ${r.message}` : ""}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            {panel.results.length > MAX_RESULT_ROWS && <p className="muted small">先頭の {MAX_RESULT_ROWS} 件だけ表示しています。全件は書き込みログにあります。</p>}
+          </AccordionItem>
+        </Accordion>
       )}
 
       {confirming && (
@@ -214,12 +221,12 @@ export function CommitPanel({ commits, sheet, version, connected, locked, onMess
           onClose={() => setConfirming(false)}
           actions={
             <>
-              <button type="button" onClick={() => setConfirming(false)}>
+              <Button kind="secondary" onClick={() => setConfirming(false)}>
                 やめる
-              </button>
-              <button type="button" className="primary" disabled={!canConfirmCommit(panel, checks)} onClick={() => void start()}>
+              </Button>
+              <Button kind="primary" disabled={!canConfirmCommit(panel, checks)} onClick={() => void start()}>
                 反映する
-              </button>
+              </Button>
             </>
           }
         >
@@ -230,16 +237,20 @@ export function CommitPanel({ commits, sheet, version, connected, locked, onMess
           </ul>
           <p className="muted small">最初の 1 件を送ったところで結果を確認してから、残りを送ります。自動では再試行しません。</p>
           {panel.needsDeleteConfirm && (
-            <label className="check">
-              <input type="checkbox" checked={checks.deletes} onChange={(e) => setChecks((s) => ({ ...s, deletes: e.target.checked }))} />
-              削除 {c.deletedRows} 件を含むことを確認しました
-            </label>
+            <Checkbox
+              id={`${checkId}-deletes`}
+              labelText={`削除 ${c.deletedRows} 件を含むことを確認しました`}
+              checked={checks.deletes}
+              onChange={(_, { checked }) => setChecks((s) => ({ ...s, deletes: checked }))}
+            />
           )}
           {panel.needsNullConfirm && (
-            <label className="check">
-              <input type="checkbox" checked={checks.nulls} onChange={(e) => setChecks((s) => ({ ...s, nulls: e.target.checked }))} />
-              空（null）への変更を含むことを確認しました
-            </label>
+            <Checkbox
+              id={`${checkId}-nulls`}
+              labelText="空（null）への変更を含むことを確認しました"
+              checked={checks.nulls}
+              onChange={(_, { checked }) => setChecks((s) => ({ ...s, nulls: checked }))}
+            />
           )}
         </Dialog>
       )}
@@ -249,12 +260,12 @@ export function CommitPanel({ commits, sheet, version, connected, locked, onMess
           title="最初の 1 件の結果"
           actions={
             <>
-              <button type="button" onClick={cancel}>
+              <Button kind="secondary" onClick={cancel}>
                 中止
-              </button>
-              <button type="button" className="primary" onClick={() => commits.continueCanary(sheet, true)}>
+              </Button>
+              <Button kind="primary" onClick={() => commits.continueCanary(sheet, true)}>
                 続行
-              </button>
+              </Button>
             </>
           }
         >

@@ -65,40 +65,90 @@ export interface GridHeaderInfo {
 /** 連動の条件: 同じ親の行だけ、またはある列がこの値の行だけ */
 export type LinkFilter = { kind: "parent"; parentKey: string } | { kind: "value"; col: string; value: string };
 
-// Industry の色（app.css の変数と同じ値。canvas には CSS の変数が届かないので値で持つ）
+// Carbon（White テーマ）の色。canvas には CSS の変数が届かないので値で持つ（docs/design.md に対応表がある）
+/** 書体の並び（styles/carbon.scss の --mx-font-sans と同じ） */
+const FONT_SANS = "'IBM Plex Sans', 'IBM Plex Sans JP', system-ui, -apple-system, 'Segoe UI', sans-serif";
 const GRID_THEME: Partial<Theme> = {
-  accentColor: "#5980a6",
-  accentLight: "rgba(89, 128, 166, 0.07)",
+  // interactive（blue 60）
+  accentColor: "#0f62fe",
+  accentLight: "rgba(15, 98, 254, 0.10)",
   accentFg: "#ffffff",
-  fontFamily: '"Barlow", "Hiragino Sans", "Yu Gothic UI", Meiryo, system-ui, sans-serif',
-  baseFontStyle: "13px",
-  headerFontStyle: "500 11.5px",
-  editorFontSize: "13px",
+  fontFamily: FONT_SANS,
+  // body-compact-01 / heading-compact-01 / label-01（行番号）
+  baseFontStyle: "14px",
+  headerFontStyle: "600 14px",
+  markerFontStyle: "12px",
+  editorFontSize: "14px",
   cellHorizontalPadding: 8,
+  // 選んだ範囲の枠も角を四角にする
+  roundingRadius: 0,
   bgCell: "#ffffff",
-  bgHeader: "#ffffff",
-  bgHeaderHovered: "#f5f5f8",
-  bgHeaderHasFocus: "#f5f5f8",
-  // 行の間の罫線（縦の罫線は引かない。DataEditor の verticalBorder）
-  borderColor: "rgba(29, 31, 32, 0.07)",
-  horizontalBorderColor: "rgba(29, 31, 32, 0.07)",
-  headerBottomBorderColor: "rgba(29, 31, 32, 0.16)",
-  textDark: "#1d1f20",
-  textMedium: "#7a7a7d",
-  textHeader: "#424244",
-  textLight: "#98989b",
+  // DataTable の見出しと同じ（layer-accent-01 / hover / gray 30）
+  bgHeader: "#e0e0e0",
+  bgHeaderHovered: "#d1d1d1",
+  bgHeaderHasFocus: "#c6c6c6",
+  // 行の間の罫線（border-subtle-00。縦の罫線は引かない。DataEditor の verticalBorder）
+  borderColor: "#e0e0e0",
+  horizontalBorderColor: "#e0e0e0",
+  headerBottomBorderColor: "#c6c6c6",
+  // text-primary / text-secondary / text-helper
+  textDark: "#161616",
+  textMedium: "#525252",
+  textHeader: "#161616",
+  textLight: "#6f6f6f",
+  textHeaderSelected: "#ffffff",
+  linkColor: "#0f62fe",
+  resizeIndicatorColor: "#0f62fe",
 };
 
-/** 列の見出しの 2 段目（属性名）と ▾ の色 */
-const HEADER_SUB_COLOR = "#98989b";
-/** 絞り込み中の列の見出し（地・文字・漏斗の印。accent-100 / accent-800 / accent） */
-const FILTERED_HEADER_BG = "#eef6ff";
-const FILTERED_HEADER_FG = "#2c455d";
-const FILTERED_MARK = "#5980a6";
-/** 「文字を含む」で当たった部分の印（accent を薄く重ね、下線を引く） */
-const MATCH_FILL = "rgba(89, 128, 166, 0.28)";
-const MATCH_LINE = "#416180";
-const ROW_HEIGHT = 30;
+/** 列の見出しの 2 段目（属性名）と ▾ の色（text-secondary） */
+const HEADER_SUB_COLOR = "#525252";
+/** 絞り込み中の列の見出し（地・文字・漏斗の印。blue 20 / blue 80 / blue 60） */
+const FILTERED_HEADER_BG = "#d0e2ff";
+const FILTERED_HEADER_FG = "#002d9c";
+const FILTERED_MARK = "#0f62fe";
+/** 「文字を含む」で当たった部分の印（blue 60 を薄く重ね、blue 70 の下線を引く） */
+const MATCH_FILL = "rgba(15, 98, 254, 0.20)";
+const MATCH_LINE = "#0043ce";
+/** 選んだセルと同じ行の塗り（DataTable の選んだ行と同じ灰色。利用者の変更の青と紛れないように） */
+const ROW_HIGHLIGHT = "rgba(141, 141, 141, 0.20)";
+/** 行の高さ（Carbon の DataTable の sm） */
+const ROW_HEIGHT = 32;
+
+/** 見出しの印（Carbon の chevron--down 16px と filter 32px のパス）。Path2D が無い環境（試験）では作らない */
+const CHEVRON_DOWN_16 = "M8 11 3 6 3.7 5.3 8 9.6 12.3 5.3 13 6z";
+const FILTER_32 =
+  "M18,28H14a2,2,0,0,1-2-2V18.41L4.59,11A2,2,0,0,1,4,9.59V6A2,2,0,0,1,6,4H26a2,2,0,0,1,2,2V9.59A2,2,0,0,1,27.41,11L20,18.41V26A2,2,0,0,1,18,28ZM6,6V9.59l8,8V26h4V17.59l8-8V6Z";
+let headerIcons: { chevron: Path2D; filter: Path2D } | null = null;
+function headerIconPaths(): { chevron: Path2D; filter: Path2D } | null {
+  if (headerIcons === null && typeof Path2D !== "undefined") headerIcons = { chevron: new Path2D(CHEVRON_DOWN_16), filter: new Path2D(FILTER_32) };
+  return headerIcons;
+}
+/** 見出しの印の大きさ（px） */
+const HEADER_ICON = 16;
+
+/**
+ * canvas は書体を読み終えても描き直さないので、読み終えたら数を増やして描き直させる（最初の描画は OS の字体になりうる）。
+ * document.fonts が無い環境（試験）では何もしない
+ */
+function useFontsReady(): number {
+  const [epoch, setEpoch] = useState(0);
+  useEffect(() => {
+    const fonts = (typeof document === "undefined" ? undefined : (document as { fonts?: FontFaceSet }).fonts) ?? undefined;
+    if (!fonts || typeof fonts.load !== "function") return undefined;
+    let alive = true;
+    const sample = "あA";
+    void Promise.all([fonts.load(`400 14px ${FONT_SANS}`, sample), fonts.load(`600 14px ${FONT_SANS}`, sample), fonts.load(`400 12px ${FONT_SANS}`, sample)])
+      .catch(() => undefined)
+      .then(() => {
+        if (alive) setEpoch((n) => n + 1);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return epoch;
+}
 /**
  * 選んでいたセルをもう一度押してから選択を外すまでの待ち。この間に 2 回目が来ればダブルクリック（編集を開く）として扱う
  * （Glide は 500ms 以内の 2 回目をダブルクリックとみなすが、それだけ待つと外れるのが遅く感じる）
@@ -143,6 +193,9 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
   const [paneWidth, setPaneWidth] = useState(0);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const busy = isBusy();
+  // 書体を読み終えたら theme を作り直す（Glide は theme が変わると描き直す）
+  const fontEpoch = useFontsReady();
+  const theme = useMemo(() => ({ ...GRID_THEME }), [fontEpoch]);
 
   useEffect(() => {
     const el = wrapRef.current;
@@ -287,7 +340,6 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
       const filtered = filterByCol.has(args.column.id);
       const { ctx, rect, theme, column } = args;
       const pad = theme.cellHorizontalPadding;
-      const chevron = 10;
       const midY = rect.y + rect.height / 2;
       const x = rect.x + pad;
       if (filtered) {
@@ -298,45 +350,32 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
       }
       ctx.save();
       ctx.beginPath();
-      ctx.rect(rect.x, rect.y, Math.max(0, rect.width - pad - chevron - 4), rect.height);
+      ctx.rect(rect.x, rect.y, Math.max(0, rect.width - pad - HEADER_ICON - 4), rect.height);
       ctx.clip();
       ctx.textBaseline = "middle";
       ctx.fillStyle = filtered ? FILTERED_HEADER_FG : args.isSelected ? theme.textHeaderSelected : theme.textHeader;
       ctx.font = `${theme.headerFontStyle} ${theme.fontFamily}`;
-      ctx.fillText(column.title, x, sub === undefined ? midY : midY - 7);
+      ctx.fillText(column.title, x, sub === undefined ? midY : midY - 8);
       if (sub !== undefined) {
+        // label-01（12px・字間 0.32px）
         ctx.fillStyle = HEADER_SUB_COLOR;
-        ctx.font = `10px ${theme.fontFamily}`;
-        if ("letterSpacing" in ctx) (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = "0.4px";
-        ctx.fillText(sub, x, midY + 8);
+        ctx.font = `400 12px ${theme.fontFamily}`;
+        if ("letterSpacing" in ctx) (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = "0.32px";
+        ctx.fillText(sub, x, midY + 9);
       }
       ctx.restore();
-      const s = chevron / 24;
-      const cx = rect.x + rect.width - pad - chevron;
-      const cy = midY - chevron / 2;
+      // ▾（chevron--down）か、絞り込み中なら漏斗（filter）。どちらも Carbon のアイコンの形を 16px で塗る
+      const icons = headerIconPaths();
+      if (icons === null) return;
       ctx.save();
-      ctx.lineWidth = 1;
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-      ctx.beginPath();
+      ctx.translate(rect.x + rect.width - pad - HEADER_ICON, midY - HEADER_ICON / 2);
       if (filtered) {
-        // 漏斗（Lucide の funnel を 10px で。塗る）
         ctx.fillStyle = FILTERED_MARK;
-        ctx.moveTo(cx + 3 * s, cy + 3 * s);
-        ctx.lineTo(cx + 21 * s, cy + 3 * s);
-        ctx.lineTo(cx + 14 * s, cy + 12 * s);
-        ctx.lineTo(cx + 14 * s, cy + 20 * s);
-        ctx.lineTo(cx + 10 * s, cy + 18 * s);
-        ctx.lineTo(cx + 10 * s, cy + 12 * s);
-        ctx.closePath();
-        ctx.fill();
+        ctx.scale(HEADER_ICON / 32, HEADER_ICON / 32);
+        ctx.fill(icons.filter);
       } else {
-        // ▾（Lucide の chevron-down を 10px で）
-        ctx.strokeStyle = HEADER_SUB_COLOR;
-        ctx.moveTo(cx + 6 * s, cy + 9 * s);
-        ctx.lineTo(cx + 12 * s, cy + 15 * s);
-        ctx.lineTo(cx + 18 * s, cy + 9 * s);
-        ctx.stroke();
+        ctx.fillStyle = HEADER_SUB_COLOR;
+        ctx.fill(icons.chevron);
       }
       ctx.restore();
     },
@@ -362,7 +401,7 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
           const x0 = rect.x + pad + ctx.measureText(text.slice(0, hit.start)).width;
           const x1 = Math.min(maxX, x0 + ctx.measureText(text.slice(hit.start, hit.end)).width);
           if (x0 < maxX) {
-            const h = 18;
+            const h = 20;
             const top = Math.round(rect.y + (rect.height - h) / 2);
             ctx.fillStyle = MATCH_FILL;
             ctx.fillRect(x0, top, x1 - x0, h);
@@ -530,7 +569,7 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
     () =>
       selectedRowIndex === undefined || columns.length === 0
         ? undefined
-        : [{ color: GRID_THEME.accentLight ?? "transparent", range: { x: 0, y: selectedRowIndex, width: columns.length, height: 1 }, style: "no-outline" }],
+        : [{ color: ROW_HIGHLIGHT, range: { x: 0, y: selectedRowIndex, width: columns.length, height: 1 }, style: "no-outline" }],
     [selectedRowIndex, columns.length],
   );
 
@@ -615,7 +654,7 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
         rowMarkers="number"
         smoothScrollX={true}
         smoothScrollY={true}
-        theme={GRID_THEME}
+        theme={theme}
         width="100%"
         height="100%"
       />

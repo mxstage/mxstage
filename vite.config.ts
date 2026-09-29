@@ -40,6 +40,8 @@ export default defineConfig({
   // manifest とアイコンはリポジトリ直下の public/ に置き、そのまま dist/app に写す
   publicDir: path("./public"),
   plugins: [react(), swPrecachePlugin()],
+  // Carbon の Sass（styles/carbon.scss）。Carbon の中から出る非推奨の警告は出さない
+  css: { preprocessorOptions: { scss: { quietDeps: true } } },
   build: {
     outDir: "../../dist/app",
     emptyOutDir: true,

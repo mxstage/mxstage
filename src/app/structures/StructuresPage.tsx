@@ -4,6 +4,23 @@
 // キー列・子オブジェクト・属性、その構造を使って読み込んだシートを見る。
 // LLM は利用者の業務の言葉からここの構造を見繕ってシートを読み込み、Maximo への反映もその構造に対して行う。
 
+import {
+  Accordion,
+  AccordionItem,
+  Button,
+  Layer,
+  ProgressBar,
+  Select,
+  SelectItem,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  Tag,
+  TextInput,
+} from "@carbon/react";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { CHILD_ID_NOTE, resolveKeyColumns } from "../tools/loadSheet";
 import { foldText, normalizeScope, type CatalogSnapshot, type ObjectStructureCatalog, type StoredApiList, type StoredObjectStructure } from "../catalog/catalog";
@@ -12,8 +29,8 @@ import type { VaultView } from "../keyvault/client";
 import type { MaximoConnection } from "../runtime/contracts";
 import { loadSavedSettings, type StorageLike } from "../settings/logic";
 import type { Workspace } from "../store";
-import { Corners } from "../ui/Corners";
-import { Link } from "../ui/Link";
+import { Link, spaClick } from "../ui/Link";
+import { Notice } from "../ui/Notice";
 import { APP_PATH, SETTINGS_PATH } from "../ui/routes";
 import type { ToastStore } from "../ui/toast";
 import { childSummaries, filterColumns, formatDateTime, groupByUseWith, loadErrorMessage, parentColumnCount, parseScopeKey, scopeKey, sheetsByStructure, type ColumnScope } from "./logic";
@@ -149,35 +166,41 @@ export function StructuresPage(props: StructuresPageProps) {
       <header className="page-head">
         <h1>オブジェクト構造</h1>
         <div className="actions">
-          <Link to={SETTINGS_PATH} className="button">
+          <Button kind="tertiary" size="md" href={SETTINGS_PATH} onClick={spaClick(SETTINGS_PATH)}>
             設定
-          </Link>
-          <Link to={APP_PATH} className="button">
+          </Button>
+          <Button kind="tertiary" size="md" href={APP_PATH} onClick={spaClick(APP_PATH)}>
             作業画面に戻る
-          </Link>
+          </Button>
         </div>
       </header>
 
       {!baseUrl || snapshot === null ? (
-        <section className="card blueprint">
-          <Corners />
-          <p className="notice warn">
-            Maximo の接続先がまだありません。<Link to={SETTINGS_PATH}>設定</Link>で接続すると、すべてのオブジェクト構造を自動で読み込みます。
+        <section className="card">
+          {/* 知らせの中にはリンクを置けない（Carbon が拒む）ので、設定へのリンクは知らせの下に置く */}
+          <Notice kind="warning">Maximo の接続先がまだありません。</Notice>
+          <p>
+            <Link to={SETTINGS_PATH}>設定</Link>で接続すると、すべてのオブジェクト構造を自動で読み込みます。
           </p>
         </section>
       ) : (
         <>
           <SyncSection baseUrl={baseUrl} connected={connected} locked={view.kind === "locked"} snapshot={snapshot} onRefreshAll={() => void refreshAll()} />
           <div className="structures-body">
-            <section className="card blueprint os-list" aria-label="保存したオブジェクト構造">
-              <Corners />
-              <input
-                aria-label="オブジェクト構造を探す"
-                placeholder="業務の言葉や名前で探す（例 許可申請、タグ番号、MXAPIWO）"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                spellCheck={false}
-              />
+            <section className="card os-list" aria-label="保存したオブジェクト構造">
+              <Layer>
+                <TextInput
+                  id="os-search"
+                  labelText="オブジェクト構造を探す"
+                  hideLabel
+                  aria-label="オブジェクト構造を探す"
+                  placeholder="業務の言葉や名前で探す（例 許可申請、タグ番号、MXAPIWO）"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  spellCheck={false}
+                  autoComplete="off"
+                />
+              </Layer>
               <p className="muted small count" role="status">
                 {found === null ? `保存済み ${entries.length} 件` : `当たった構造 ${found.totalHits} 件${found.partial ? "（一部の言葉だけに当たる）" : ""}`}
               </p>
@@ -197,7 +220,11 @@ export function StructuresPage(props: StructuresPageProps) {
                       >
                         <span className="os-item-head">
                           <span className="mono">{e.os}</span>
-                          {sheets.length > 0 && <span className="badge">シート {sheets.length}</span>}
+                          {sheets.length > 0 && (
+                            <Tag as="span" type="blue" size="sm" className="badge">
+                              シート {sheets.length}
+                            </Tag>
+                          )}
                         </span>
                         <span className="muted small">
                           {hit && hit.columns.length > 0 ? hit.columns.map((c) => c.title ?? c.name).join("・") : `${parentColumnCount(e)} 列${Object.keys(e.info.childIdAttrs).length > 0 ? `・子 ${Object.keys(e.info.childIdAttrs).length}` : ""}`}
@@ -209,8 +236,7 @@ export function StructuresPage(props: StructuresPageProps) {
               </ul>
             </section>
             {current === null ? (
-              <section className="card blueprint">
-                <Corners />
+              <section className="card">
                 <p className="muted">読み込むと、ここにキー列・子オブジェクト・属性が出ます。</p>
               </section>
             ) : (
@@ -244,21 +270,15 @@ function SyncSection({ baseUrl, connected, locked, snapshot, onRefreshAll }: Syn
   const sync = snapshot.sync;
   let status: ReactNode;
   if (sync.state === "running") {
-    status = (
-      <>
-        <p className="notice ok" role="status">
-          Maximo から{sync.refresh ? "取り直しています" : "読み込んでいます"}（{sync.done} / {sync.total}）
-        </p>
-        <progress max={Math.max(1, sync.total)} value={sync.done} />
-      </>
-    );
+    const label = `Maximo から${sync.refresh ? "取り直しています" : "読み込んでいます"}（${sync.done} / ${sync.total}）`;
+    status = <ProgressBar className="sync-progress" label={label} max={Math.max(1, sync.total)} value={sync.done} />;
   } else if (sync.state === "failed") {
-    status = <p className="notice error">{sync.error ?? "オブジェクト構造の一覧を読めませんでした。"}</p>;
+    status = <Notice kind="error">{sync.error ?? "オブジェクト構造の一覧を読めませんでした。"}</Notice>;
   } else if (sync.state === "stopped") {
     status = (
-      <p className="notice warn">
+      <Notice kind="warning">
         接続が切れたため、読み込みを途中で止めました（{sync.done} / {sync.total}）。接続すると続きを読み込みます。
-      </p>
+      </Notice>
     );
   } else if (sync.state === "done") {
     status = (
@@ -270,13 +290,12 @@ function SyncSection({ baseUrl, connected, locked, snapshot, onRefreshAll }: Syn
     status = <p className="muted">{connected ? "読み込みを始めます…" : `保存済み ${snapshot.entries.length} 件。Maximo に接続すると、足りない定義を自動で読み込みます。`}</p>;
   }
   return (
-    <section className="card blueprint">
-      <Corners />
+    <section className="card">
       <div className="detail-head">
         <h2>Maximo から読み込んだ定義</h2>
-        <button type="button" className="small" onClick={onRefreshAll} disabled={!connected || sync.state === "running"}>
+        <Button kind="tertiary" size="sm" onClick={onRefreshAll} disabled={!connected || sync.state === "running"}>
           すべて取り直す
-        </button>
+        </Button>
       </div>
       <p className="muted">
         接続先: <span className="mono">{baseUrl}</span>
@@ -284,25 +303,30 @@ function SyncSection({ baseUrl, connected, locked, snapshot, onRefreshAll }: Syn
       {status}
       {snapshot.apiList !== null && <ListSummary list={snapshot.apiList} />}
       {!connected && (
-        <p className="notice warn">
-          {locked ? "API キーがロックされているため" : "Maximo に接続していないため"}、読み込みと取り直しはできません。保存済みの定義は見られます。
-          <Link to={SETTINGS_PATH}>設定</Link>
-        </p>
+        <>
+          <Notice kind="warning">
+            {locked ? "API キーがロックされているため" : "Maximo に接続していないため"}、読み込みと取り直しはできません。保存済みの定義は見られます。
+          </Notice>
+          <p className="small">
+            <Link to={SETTINGS_PATH}>設定</Link>
+          </p>
+        </>
       )}
       {sync.failed.length > 0 && (
-        <details>
-          <summary>読み込めなかった構造（{sync.failed.length} 件）</summary>
-          <ul className="plain small">
-            {sync.failed.map((f) => (
-              <li key={f.os}>
-                <span className="mono">{f.os}</span> <span className="muted">{f.message}</span>
-              </li>
-            ))}
-          </ul>
-        </details>
+        <Accordion size="sm" align="start">
+          <AccordionItem className="sync-failed" title={`読み込めなかった構造（${sync.failed.length} 件）`}>
+            <ul className="plain small">
+              {sync.failed.map((f) => (
+                <li key={f.os}>
+                  <span className="mono">{f.os}</span> <span className="muted">{f.message}</span>
+                </li>
+              ))}
+            </ul>
+          </AccordionItem>
+        </Accordion>
       )}
       {snapshot.storageError ? (
-        <p className="notice warn">{snapshot.storageError}</p>
+        <Notice kind="warning">{snapshot.storageError}</Notice>
       ) : (
         <p className="muted small">
           定義はこのブラウザに保存され、作業を終了しても残ります（API キーと行データは保存しません）。LLM は利用者の業務の言葉からここの構造を見繕ってシートを読み込み、Maximo
@@ -325,23 +349,25 @@ function ListSummary({ list }: { list: StoredApiList }) {
         {added > 0 ? `（apimeta に載らない ${added} 件を含む）` : ""}。
       </p>
       {notApi.length > 0 && (
-        <details>
-          <summary>
-            API で使えないため読み込まない構造（{notApi.length} 件: {groups.map((g) => `${g.usewith} ${g.names.length} 件`).join("、")}）
-          </summary>
-          <ul className="plain small">
-            {groups.map((g) => (
-              <li key={g.usewith}>
-                <span className="muted">{g.usewith}</span> <span className="mono">{g.names.join(", ")}</span>
-              </li>
-            ))}
-          </ul>
-        </details>
+        <Accordion size="sm" align="start">
+          <AccordionItem
+            className="not-api"
+            title={`API で使えないため読み込まない構造（${notApi.length} 件: ${groups.map((g) => `${g.usewith} ${g.names.length} 件`).join("、")}）`}
+          >
+            <ul className="plain small">
+              {groups.map((g) => (
+                <li key={g.usewith}>
+                  <span className="muted">{g.usewith}</span> <span className="mono">{g.names.join(", ")}</span>
+                </li>
+              ))}
+            </ul>
+          </AccordionItem>
+        </Accordion>
       )}
       {list.definedError !== undefined && (
-        <p className="notice warn">
+        <Notice kind="warning">
           Maximo の定義の一覧（MXAPIINTOBJECT）を読めなかったため、apimeta に載る構造だけを読み込みました。apimeta には顧客が作った構造が載らないことがあります（{list.definedError}）。
-        </p>
+        </Notice>
       )}
     </>
   );
@@ -370,15 +396,14 @@ function StructureDetail({ entry, initialQuery, sheets, connected, refreshing, o
 
   const sourceLabel = keys.source === "schema" ? "スキーマの主キー" : keys.source === "inferred" ? "推定" : "キー列なし（href で識別）";
   return (
-    <section className="card blueprint structure-detail" aria-label={`${entry.os} の定義`}>
-      <Corners />
+    <section className="card structure-detail" aria-label={`${entry.os} の定義`}>
       <div className="detail-head">
         <h2 className="mono">{entry.os}</h2>
         <div className="actions">
           <span className="muted small">{formatDateTime(entry.loadedAt)} に読み込み</span>
-          <button type="button" className="small" onClick={onRefresh} disabled={!connected || refreshing}>
+          <Button kind="ghost" size="sm" onClick={onRefresh} disabled={!connected || refreshing}>
             {refreshing ? "読み込み中…" : "再読み込み"}
-          </button>
+          </Button>
         </div>
       </div>
       <dl className="kv">
@@ -401,74 +426,90 @@ function StructureDetail({ entry, initialQuery, sheets, connected, refreshing, o
       ) : (
         <>
           <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>子オブジェクト</th>
-                  <th>子を特定する属性</th>
-                  <th>列数</th>
-                </tr>
-              </thead>
-              <tbody>
+            <Table size="sm" className="child-table">
+              <TableHead>
+                <TableRow>
+                  <TableHeader>子オブジェクト</TableHeader>
+                  <TableHeader>子を特定する属性</TableHeader>
+                  <TableHeader>列数</TableHeader>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {children.map((c) => (
-                  <tr key={c.name}>
-                    <td className="mono">
+                  <TableRow key={c.name}>
+                    <TableCell className="mono">
                       <button type="button" className="link" onClick={() => setScope({ kind: "child", name: c.name })}>
                         {c.name}
                       </button>
-                    </td>
-                    <td className="mono">{c.idAttr ?? <span className="muted">不明（追加だけできる）</span>}</td>
-                    <td>{c.columnCount}</td>
-                  </tr>
+                    </TableCell>
+                    <TableCell className="mono">{c.idAttr ?? <span className="muted">不明（追加だけできる）</span>}</TableCell>
+                    <TableCell>{c.columnCount}</TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
           <p className="muted small">{CHILD_ID_NOTE}</p>
         </>
       )}
 
       <h3>属性</h3>
-      <div className="filter-row">
-        <input aria-label="属性の絞り込み" placeholder="名前や日本語ラベルの一部（例 申請、TAGNO）" value={query} onChange={(e) => setQuery(e.target.value)} />
-        <select aria-label="範囲" value={scopeKey(scope)} onChange={(e) => setScope(parseScopeKey(e.target.value))}>
-          <option value="all">すべて</option>
-          <option value="parent">親だけ</option>
+      <Layer className="filter-row">
+        <TextInput
+          id={`attr-filter-${entry.os}`}
+          size="sm"
+          labelText="属性の絞り込み"
+          hideLabel
+          aria-label="属性の絞り込み"
+          placeholder="名前や日本語ラベルの一部（例 申請、TAGNO）"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          autoComplete="off"
+        />
+        <Select
+          id={`attr-scope-${entry.os}`}
+          size="sm"
+          labelText="範囲"
+          hideLabel
+          aria-label="範囲"
+          value={scopeKey(scope)}
+          onChange={(e) => setScope(parseScopeKey(e.target.value))}
+        >
+          <SelectItem value="all" text="すべて" />
+          <SelectItem value="parent" text="親だけ" />
           {children.map((c) => (
-            <option key={c.name} value={`child:${c.name}`}>
-              子 {c.name}
-            </option>
+            <SelectItem key={c.name} value={`child:${c.name}`} text={`子 ${c.name}`} />
           ))}
-        </select>
+        </Select>
         <span className="muted small count" role="status">
           {columns.length} / {entry.info.columns.length} 列
         </span>
-      </div>
-      <div className="table-wrap attr-scroll">
-        <table className="attr-table">
-          <thead>
-            <tr>
-              <th>属性</th>
-              <th>ラベル</th>
-              <th>型</th>
-              <th>桁</th>
-              <th>必須</th>
-              <th>読み取り専用</th>
-            </tr>
-          </thead>
-          <tbody>
+      </Layer>
+      <div className="attr-scroll">
+        <Table size="sm" className="attr-table">
+          <TableHead>
+            <TableRow>
+              <TableHeader>属性</TableHeader>
+              <TableHeader>ラベル</TableHeader>
+              <TableHeader>型</TableHeader>
+              <TableHeader>桁</TableHeader>
+              <TableHeader>必須</TableHeader>
+              <TableHeader>読み取り専用</TableHeader>
+            </TableRow>
+          </TableHead>
+          <TableBody>
             {columns.map((c) => (
-              <tr key={c.name}>
-                <td className="mono">{c.name}</td>
-                <td>{c.title ?? ""}</td>
-                <td>{TYPE_LABEL[c.type] ?? c.type}</td>
-                <td>{c.maxLength ?? ""}</td>
-                <td>{c.required ? "必須" : ""}</td>
-                <td>{c.readOnly ? "読み取り専用" : ""}</td>
-              </tr>
+              <TableRow key={c.name}>
+                <TableCell className="mono">{c.name}</TableCell>
+                <TableCell>{c.title ?? ""}</TableCell>
+                <TableCell>{TYPE_LABEL[c.type] ?? c.type}</TableCell>
+                <TableCell>{c.maxLength ?? ""}</TableCell>
+                <TableCell>{c.required ? "必須" : ""}</TableCell>
+                <TableCell>{c.readOnly ? "読み取り専用" : ""}</TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
     </section>
   );

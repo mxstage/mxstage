@@ -148,7 +148,7 @@ describe("オブジェクト構造の画面", () => {
     });
     await flush();
     expect(text()).toContain(`Maximo から読み込んでいます（0 / ${osCount}）`);
-    expect(q("progress")).not.toBeNull();
+    expect(q('[role="progressbar"]')).not.toBeNull();
 
     await act(async () => {
       release();
@@ -283,8 +283,9 @@ describe("オブジェクト構造の画面", () => {
 
     expect(q(".list-summary")?.textContent).toBe("Maximo に定義されたオブジェクト構造 7 件のうち、API で使える 4 件を読み込みます（apimeta に載らない 1 件を含む）。");
     expect(listedNames()).toContain("EXT_WOPERMIT");
-    const notApi = qa<HTMLDetailsElement>("details").find((d) => d.textContent?.includes("API で使えないため"))!;
-    expect(notApi.querySelector("summary")?.textContent).toBe("API で使えないため読み込まない構造（3 件: マイグレーション・マネージャー 2 件、WOS 1 件）");
+    // 開け閉めする欄は Carbon の Accordion（閉じていても中身は DOM にある）
+    const notApi = qa<HTMLElement>(".cds--accordion__item").find((d) => d.textContent?.includes("API で使えないため"))!;
+    expect(notApi.querySelector(".cds--accordion__title")?.textContent).toBe("API で使えないため読み込まない構造（3 件: マイグレーション・マネージャー 2 件、WOS 1 件）");
     expect(notApi.textContent).toContain("DMMAXAPPS, DMMAXMENU");
     expect(text()).not.toContain("MXAPIINTOBJECT）を読めなかった");
   });
@@ -310,7 +311,7 @@ describe("オブジェクト構造の画面", () => {
     await catalog.syncAll(vault.conn!.client, fake.baseUrl);
     await render({ catalog, vault, toasts: new ToastStore(), storage: memoryStorage() });
     expect(text()).toContain("読み込めなかった構造（1 件）");
-    expect(q("details")?.textContent).toContain("MXASSET");
+    expect(q(".sync-failed")?.textContent).toContain("MXASSET");
   });
 });
 

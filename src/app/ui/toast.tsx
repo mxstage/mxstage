@@ -1,7 +1,7 @@
 // 画面下に一時的に出す通知。
 
+import { ToastNotification } from "@carbon/react";
 import { useCallback, useSyncExternalStore } from "react";
-import { Icon } from "./Icon";
 
 export type ToastTone = "info" | "error";
 
@@ -62,6 +62,7 @@ export class ToastStore {
   }
 }
 
+/** 画面の下に重ねる通知（Carbon の ToastNotification）。消す時間は ToastStore が決める */
 export function Toasts({ store }: { store: ToastStore }) {
   const subscribe = useCallback((l: () => void) => store.subscribe(l), [store]);
   const getItems = useCallback(() => store.getItems(), [store]);
@@ -69,12 +70,19 @@ export function Toasts({ store }: { store: ToastStore }) {
   return (
     <div className="toasts" aria-live="polite">
       {items.map((t) => (
-        <div key={t.id} className={`toast ${t.tone}`} role={t.tone === "error" ? "alert" : "status"}>
-          <span>{t.text}</span>
-          <button type="button" className="icon" aria-label="閉じる" onClick={() => store.dismiss(t.id)}>
-            <Icon name="x" size={14} />
-          </button>
-        </div>
+        <ToastNotification
+          key={t.id}
+          className={`toast ${t.tone}`}
+          kind={t.tone === "error" ? "error" : "info"}
+          role={t.tone === "error" ? "alert" : "status"}
+          title={t.text}
+          aria-label="閉じる"
+          statusIconDescription={t.tone === "error" ? "エラー" : "お知らせ"}
+          onClose={() => {
+            store.dismiss(t.id);
+            return false;
+          }}
+        />
       ))}
     </div>
   );

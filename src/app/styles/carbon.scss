@@ -1,0 +1,81 @@
+// IBM Carbon Design System（White テーマ）の変数と、使う部品のスタイル。
+// 書体は main.tsx で @fontsource から同梱したものを読む（Carbon の @font-face と外部 CDN は使わない）。
+// 部品のスタイルは使うものだけを読む（全部を読むと CSS が数百 KB 増える）。部品を足したら、ここにも足す。
+
+@use 'sass:string';
+
+// config は最初に読む（ほかのモジュールが読むより前に設定を渡す）
+@use '@carbon/react/scss/config' with (
+  // IBM Plex の @font-face を出さない（書体は @fontsource で同梱する）
+  $css--font-face: false,
+  // h1〜h6 と p の既定の文字の大きさは出さない（app.css が決める）
+  $css--default-type: false,
+  // --cds-body-compact-01-font-size などを :root に出す（app.css から使う）
+  $css--emit-type-custom-props: true
+);
+
+// 日本語は IBM Plex Sans JP で出す。ほかの書体は Carbon の既定のまま（マップ全体を置き換えるので全部書く）
+@use '@carbon/react/scss/type' with (
+  $font-families: (
+    'mono': string.unquote("'IBM Plex Mono', 'IBM Plex Sans JP', ui-monospace, Consolas, monospace"),
+    'sans': string.unquote("'IBM Plex Sans', 'IBM Plex Sans JP', system-ui, -apple-system, 'Segoe UI', sans-serif"),
+    'sans-condensed': string.unquote("'IBM Plex Sans Condensed', 'IBM Plex Sans JP', system-ui, -apple-system, sans-serif"),
+    'sans-arabic': string.unquote("'IBM Plex Sans Arabic', system-ui, -apple-system, sans-serif"),
+    'sans-devanagari': string.unquote("'IBM Plex Sans Devanagari', system-ui, -apple-system, sans-serif"),
+    'sans-hebrew': string.unquote("'IBM Plex Sans Hebrew', system-ui, -apple-system, sans-serif"),
+    'sans-jp': string.unquote("'IBM Plex Sans JP', system-ui, -apple-system, sans-serif"),
+    'sans-kr': string.unquote("'IBM Plex Sans KR', system-ui, -apple-system, sans-serif"),
+    'sans-thai-looped': string.unquote("'IBM Plex Sans Thai Looped', system-ui, -apple-system, sans-serif"),
+    'sans-thai': string.unquote("'IBM Plex Sans Thai', system-ui, -apple-system, sans-serif"),
+    'serif': string.unquote("'IBM Plex Serif', system-ui, -apple-system, serif"),
+  )
+);
+@use '@carbon/react/scss/theme';
+@use '@carbon/react/scss/colors';
+@use '@carbon/react/scss/spacing';
+@use '@carbon/react/scss/reset';
+@use '@carbon/react/scss/layer';
+@use '@carbon/react/scss/layout';
+
+@use '@carbon/react/scss/components/button';
+@use '@carbon/react/scss/components/modal';
+@use '@carbon/react/scss/components/notification';
+@use '@carbon/react/scss/components/toggletip';
+@use '@carbon/react/scss/components/tooltip';
+@use '@carbon/react/scss/components/popover';
+@use '@carbon/react/scss/components/menu';
+@use '@carbon/styles/scss/components/menu-button';
+@use '@carbon/react/scss/components/content-switcher';
+@use '@carbon/react/scss/components/checkbox';
+@use '@carbon/react/scss/components/form';
+@use '@carbon/react/scss/components/text-input';
+@use '@carbon/react/scss/components/select';
+@use '@carbon/react/scss/components/data-table';
+@use '@carbon/react/scss/components/progress-bar';
+@use '@carbon/react/scss/components/tag';
+@use '@carbon/react/scss/components/accordion';
+@use '@carbon/react/scss/components/list';
+@use '@carbon/react/scss/components/link';
+
+:root {
+  // White テーマの変数（--cds-background・--cds-layer-01・--cds-text-primary など）
+  @include theme.theme();
+
+  // 余白の段（Carbon 自身は :root に出さないので、ここで出す）
+  --cds-spacing-01: #{spacing.$spacing-01};
+  --cds-spacing-02: #{spacing.$spacing-02};
+  --cds-spacing-03: #{spacing.$spacing-03};
+  --cds-spacing-04: #{spacing.$spacing-04};
+  --cds-spacing-05: #{spacing.$spacing-05};
+  --cds-spacing-06: #{spacing.$spacing-06};
+  --cds-spacing-07: #{spacing.$spacing-07};
+  --cds-spacing-08: #{spacing.$spacing-08};
+  --cds-spacing-09: #{spacing.$spacing-09};
+
+  // このアプリの変数（--mx-*）。書体は SheetGrid.tsx の FONT_SANS と同じ並び
+  --mx-font-sans: #{type.font-family('sans')};
+  --mx-font-mono: #{type.font-family('mono')};
+  // シートタブの変更の件数（Tag の blue と同じ色）
+  --mx-count-bg: #{colors.$blue-20};
+  --mx-count-fg: #{colors.$blue-70};
+}

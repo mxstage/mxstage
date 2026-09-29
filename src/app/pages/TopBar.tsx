@@ -1,10 +1,11 @@
 // 作業画面の上部バー（1 段）。接続の ○、シートタブ、色の意味、オブジェクト構造、設定・作業終了・パネルの出し入れ。
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { Information, Logout, OpenPanelRight, Settings } from "@carbon/icons-react";
+import { Button, IconButton, Toggletip, ToggletipButton, ToggletipContent } from "@carbon/react";
+import { useCallback, useSyncExternalStore, type ReactNode } from "react";
 import type { ObjectStructureCatalog } from "../catalog/catalog";
 import { LEGEND_TONES, TONE_LABEL, TONE_STYLE } from "../grid/cellStyle";
-import { Icon } from "../ui/Icon";
-import { Link } from "../ui/Link";
+import { Link, spaClick } from "../ui/Link";
 import { SETTINGS_PATH, STRUCTURES_PATH } from "../ui/routes";
 import { connectionIndicator, type MaximoBadge, type RelayBadge, type ReopenHint } from "./status";
 
@@ -38,58 +39,34 @@ function StructuresLink({ catalog, baseUrl }: { catalog?: ObjectStructureCatalog
     useCallback(() => (catalog && baseUrl ? catalog.snapshot(baseUrl).sync : null), [catalog, baseUrl]),
   );
   return (
-    <Link to={STRUCTURES_PATH} className="text-link" title="Maximo から読み込んだオブジェクト構造（キー列・子オブジェクト・属性）を見る">
+    <Link to={STRUCTURES_PATH} className="topbar-link" title="Maximo から読み込んだオブジェクト構造（キー列・子オブジェクト・属性）を見る">
       オブジェクト構造{sync !== null && sync.state === "running" ? `（読み込み中 ${sync.done}/${sync.total}）` : ""}
     </Link>
   );
 }
 
-/** ⓘ から開く色の意味（セルの色の凡例）。外側を押すか Esc で閉じる */
+/** ⓘ から開く色の意味（セルの色の凡例）。外側を押すか Esc で閉じる（Carbon の Toggletip） */
 function LegendButton() {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLSpanElement>(null);
-  useEffect(() => {
-    if (!open) return undefined;
-    const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
   return (
-    <span className="legend-anchor" ref={ref}>
-      <button
-        type="button"
-        className="btn-ghost icon-btn size-26"
-        aria-label="色の意味"
-        title="色の意味"
-        aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
-      >
-        <Icon name="info" size={15} />
-      </button>
-      {open && (
-        <div className="legend-pop" role="tooltip">
+    <Toggletip align="bottom-end" className="legend-anchor">
+      <ToggletipButton label="色の意味">
+        <Information />
+      </ToggletipButton>
+      <ToggletipContent>
+        <div className="legend">
           <div className="legend-head">セルの色</div>
           <ul className="legend-list">
             {LEGEND_TONES.map((tone) => (
               <li key={tone}>
-                <span className="legend-dot" style={{ background: TONE_STYLE[tone].bg }} />
+                <span className="legend-dot" style={{ background: TONE_STYLE[tone].bg, borderColor: TONE_STYLE[tone].fg }} />
                 {TONE_LABEL[tone]}
               </li>
             ))}
           </ul>
           <p className="legend-note">セルにマウスを置くと作者・根拠・変更前後を表示します</p>
         </div>
-      )}
-    </span>
+      </ToggletipContent>
+    </Toggletip>
   );
 }
 
@@ -99,9 +76,9 @@ export function TopBar(p: TopBarProps) {
     <header className="topbar">
       <span className={`conn-dot tone-${conn.tone}`} role="status" aria-label={conn.label} title={conn.title} />
       {p.relay.showReload && (
-        <button type="button" className="small" onClick={p.onReload}>
+        <Button kind="tertiary" size="sm" onClick={p.onReload}>
           再読み込み
-        </button>
+        </Button>
       )}
       {p.reopen && (
         <span className="conn-note" title={p.reopen.title}>
@@ -109,7 +86,7 @@ export function TopBar(p: TopBarProps) {
         </span>
       )}
       {p.maximo.settingsLink && (
-        <Link to={SETTINGS_PATH} className="text-link">
+        <Link to={SETTINGS_PATH} className="topbar-link">
           {p.maximo.settingsLink}
         </Link>
       )}
@@ -120,28 +97,30 @@ export function TopBar(p: TopBarProps) {
         <StructuresLink catalog={p.catalog} baseUrl={p.baseUrl} />
       </nav>
       <div className="topbar-icons">
-        <Link to={SETTINGS_PATH} className="btn-ghost icon-btn size-30" aria-label="設定" title="設定">
-          <Icon name="settings" />
-        </Link>
-        <button type="button" className="btn-ghost icon-btn size-30" aria-label="作業終了" title="作業終了" onClick={p.onEndWork}>
-          <Icon name="log-out" />
-        </button>
+        <IconButton kind="ghost" size="md" align="bottom" label="設定" aria-label="設定" href={SETTINGS_PATH} onClick={spaClick(SETTINGS_PATH)}>
+          <Settings />
+        </IconButton>
+        <IconButton kind="ghost" size="md" align="bottom" label="作業終了" aria-label="作業終了" onClick={p.onEndWork}>
+          <Logout />
+        </IconButton>
+        {!p.sidePanel && p.viewHint && (
+          <span className="view-hint" title="表示の切替はパネルの中にあります">
+            {p.viewHint}
+          </span>
+        )}
+        <IconButton
+          kind="ghost"
+          size="md"
+          align="bottom-end"
+          isSelected={p.sidePanel}
+          aria-pressed={p.sidePanel}
+          aria-label="反映と変更履歴のパネル"
+          label="反映と変更履歴のパネルを出し入れする"
+          onClick={p.onToggleSide}
+        >
+          <OpenPanelRight />
+        </IconButton>
       </div>
-      {!p.sidePanel && p.viewHint && (
-        <span className="view-hint" title="表示の切替はパネルの中にあります">
-          {p.viewHint}
-        </span>
-      )}
-      <button
-        type="button"
-        className="btn-ghost icon-btn size-30"
-        aria-pressed={p.sidePanel}
-        aria-label="反映と変更履歴のパネル"
-        title="反映と変更履歴のパネルを出し入れする"
-        onClick={p.onToggleSide}
-      >
-        <Icon name="panel-right" />
-      </button>
     </header>
   );
 }

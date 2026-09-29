@@ -2,13 +2,14 @@
 // Maximo への接続は、パスワードマネージャーが保存を検知できる標準のログインフォームの形にする。
 // API キーの入力欄は React の state に持たない（非制御の入力欄から読んで Web Worker に渡し、すぐ空にする）。
 
+import { Button, Form, Layer, Select, SelectItem, TextInput } from "@carbon/react";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import type { ConnectInput, VaultView } from "../keyvault/client";
 import type { MaximoVia } from "../maximo/client";
 import { hostOf } from "../pages/status";
 import type { MaximoConnectionInfo } from "../runtime/contracts";
-import { Corners } from "../ui/Corners";
-import { Link } from "../ui/Link";
+import { spaClick } from "../ui/Link";
+import { Notice } from "../ui/Notice";
 import { APP_PATH } from "../ui/routes";
 import {
   connectErrorMessage,
@@ -117,9 +118,9 @@ export function SettingsPage(props: SettingsPageProps) {
     <main className="page settings">
       <header className="page-head">
         <h1>設定</h1>
-        <Link to={APP_PATH} className="button">
+        <Button kind="tertiary" size="md" href={APP_PATH} onClick={spaClick(APP_PATH)}>
           作業画面に戻る
-        </Link>
+        </Button>
       </header>
       <MaximoSection
         vault={vault}
@@ -160,12 +161,11 @@ function SkillsSection({ load }: { load: () => Promise<SkillList> }) {
   const users = state.kind === "ok" ? state.list.skills.filter((s) => s.origin === "user") : [];
   const problems = state.kind === "ok" ? state.list.problems : [];
   return (
-    <section className="card blueprint skills">
-      <Corners />
+    <section className="card skills">
       <h2>Skill（作業手順書）</h2>
       <p className="muted">LLM に mxstudio の作業手順と禁止事項を教えるファイルです。Claude Code は新しいセッションから読みます。</p>
       {state.kind === "loading" && <p className="muted">一覧を読んでいます…</p>}
-      {state.kind === "error" && <p className="notice warn">{state.message}</p>}
+      {state.kind === "error" && <Notice kind="warning">{state.message}</Notice>}
       {state.kind === "ok" && (
         <>
           <h3>アプリ既定</h3>
@@ -186,9 +186,11 @@ function SkillsSection({ load }: { load: () => Promise<SkillList> }) {
           {problems.length > 0 && (
             <ul className="plain skill-problems">
               {problems.map((p, i) => (
-                <li key={i} className={p.level === "error" ? "notice error" : "notice warn"}>
-                  {p.name !== "" && <code className="mono">{p.name}</code>} {p.level === "error" ? "読み込めません: " : "注意: "}
-                  {p.message}
+                <li key={i}>
+                  <Notice kind={p.level === "error" ? "error" : "warning"}>
+                    {p.name !== "" && <code className="mono">{p.name}</code>} {p.level === "error" ? "読み込めません: " : "注意: "}
+                    {p.message}
+                  </Notice>
                 </li>
               ))}
             </ul>
@@ -285,8 +287,7 @@ function MaximoSection({ vault, view, storage, passwordCredential, replaceUrl }:
 
   if (!showForm && view.kind === "connected") {
     return (
-      <section className="card blueprint">
-        <Corners />
+      <section className="card">
         <h2>Maximo への接続</h2>
         <ConnectedInfo info={view.info} onReconnect={() => setShowForm(true)} onDisconnect={() => vault.disconnect()} />
       </section>
@@ -294,81 +295,85 @@ function MaximoSection({ vault, view, storage, passwordCredential, replaceUrl }:
   }
 
   return (
-    <section className="card blueprint">
-      <Corners />
+    <section className="card">
       <h2>Maximo への接続</h2>
       {view.kind === "locked" && (
-        <p className="notice warn">
+        <Notice kind="warning">
           {view.reason === "idle" ? "無操作が 30 分続いたため、API キーをメモリから消しました（ロック中）。もう一度接続してください。" : "接続を切りました。"}
-        </p>
+        </Notice>
       )}
       <p className="muted">
         API キーはこのタブのメモリ（専用の Web Worker）にだけ置き、サーバやブラウザのストレージには保存しません。記憶はブラウザのパスワードマネージャーに任せてください。
       </p>
-      <form className="connect-form" onSubmit={onSubmit} noValidate>
-        <div className="field">
-          <label htmlFor="mx-url">Maximo URL</label>
-          <input
+      {/* カードは layer-01 の面。入力欄は一段上の面の色で描く */}
+      <Layer>
+        <Form className="connect-form" onSubmit={onSubmit} noValidate>
+          <TextInput
             id="mx-url"
             type="url"
             name="maximo-url"
+            labelText="Maximo URL"
             autoComplete="url"
             inputMode="url"
             placeholder="https://maximo.example.com"
             value={baseUrl}
             onChange={(e) => setBaseUrl(e.target.value)}
-            aria-invalid={errors.baseUrl ? true : undefined}
+            invalid={Boolean(errors.baseUrl)}
+            invalidText={errors.baseUrl}
             required
           />
-          {errors.baseUrl && <p className="field-error">{errors.baseUrl}</p>}
-        </div>
-        <div className="field">
-          <label htmlFor="mx-via">接続方式</label>
-          <select
+          <Select
             id="mx-via"
             name="via"
+            labelText="接続方式"
             value={via}
             onChange={(e) => {
               if (isVia(e.target.value)) setVia(e.target.value);
             }}
+            invalid={Boolean(errors.via)}
+            invalidText={errors.via}
           >
-            <option value="proxy">{viaOptionLabel("proxy")}</option>
-            <option value="direct">{viaOptionLabel("direct")}</option>
-          </select>
-          {errors.via && <p className="field-error">{errors.via}</p>}
-        </div>
-        <div className="field">
-          <label htmlFor="mx-name">接続名</label>
-          <input
+            <SelectItem value="proxy" text={viaOptionLabel("proxy")} />
+            <SelectItem value="direct" text={viaOptionLabel("direct")} />
+          </Select>
+          <TextInput
             id="mx-name"
             type="text"
             name="username"
+            labelText="接続名"
             autoComplete="username"
             placeholder="MAXADMIN@mas-dev"
             value={connectionName}
             onChange={(e) => setConnectionName(e.target.value)}
-            aria-invalid={errors.connectionName ? true : undefined}
+            invalid={Boolean(errors.connectionName)}
+            invalidText={errors.connectionName}
             required
           />
-          {errors.connectionName && <p className="field-error">{errors.connectionName}</p>}
-        </div>
-        <div className="field">
-          <label htmlFor="mx-key">API キー</label>
-          <input id="mx-key" type="password" name="password" autoComplete="current-password" ref={keyRef} aria-invalid={errors.apiKey ? true : undefined} required />
-          {errors.apiKey && <p className="field-error">{errors.apiKey}</p>}
-        </div>
-        {failure && (
-          <p className="notice error" role="alert">
-            {failure}
-          </p>
-        )}
-        <div className="actions">
-          <button type="submit" className="primary" disabled={busy}>
-            接続
-          </button>
-          {busy && <span className="muted">確認しています…</span>}
-        </div>
-      </form>
+          {/* 鍵を見せるボタンは付けない（PasswordInput は使わない）。値は React の state に持たない */}
+          <TextInput
+            id="mx-key"
+            type="password"
+            name="password"
+            labelText="API キー"
+            autoComplete="current-password"
+            ref={keyRef}
+            invalid={Boolean(errors.apiKey)}
+            invalidText={errors.apiKey}
+            required
+          />
+          {failure && (
+            <Notice kind="error" role="alert">
+              {failure}
+            </Notice>
+          )}
+          <div className="actions">
+            <Button type="submit" kind="primary" disabled={busy}>
+              接続
+            </Button>
+            {busy && <span className="muted">確認しています…</span>}
+          </div>
+        </Form>
+      </Layer>
     </section>
   );
 }
@@ -376,9 +381,7 @@ function MaximoSection({ vault, view, storage, passwordCredential, replaceUrl }:
 function ConnectedInfo({ info, onReconnect, onDisconnect }: { info: MaximoConnectionInfo; onReconnect: () => void; onDisconnect: () => void }) {
   return (
     <div className="connected">
-      <p className="notice ok" role="status">
-        接続しました。
-      </p>
+      <Notice kind="success">接続しました。</Notice>
       <dl className="kv">
         <dt>接続名</dt>
         <dd>{info.connectionName}</dd>
@@ -390,15 +393,15 @@ function ConnectedInfo({ info, onReconnect, onDisconnect }: { info: MaximoConnec
         <dd>{info.userName ?? "（不明）"}</dd>
       </dl>
       <div className="actions">
-        <Link to={APP_PATH} className="button primary">
+        <Button kind="primary" href={APP_PATH} onClick={spaClick(APP_PATH)}>
           作業画面に戻る
-        </Link>
-        <button type="button" onClick={onReconnect}>
+        </Button>
+        <Button kind="secondary" onClick={onReconnect}>
           別の接続にする
-        </button>
-        <button type="button" onClick={onDisconnect}>
+        </Button>
+        <Button kind="secondary" onClick={onDisconnect}>
           接続を切る
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -408,9 +411,9 @@ function CopyButton({ text, clipboard }: { text: string; clipboard: ClipboardLik
   const [copied, setCopied] = useState(false);
   if (!clipboard) return null;
   return (
-    <button
-      type="button"
-      className="small"
+    <Button
+      kind="tertiary"
+      size="sm"
       onClick={() => {
         clipboard.writeText(text).then(
           () => setCopied(true),
@@ -419,7 +422,7 @@ function CopyButton({ text, clipboard }: { text: string; clipboard: ClipboardLik
       }}
     >
       {copied ? "コピーしました" : "コピー"}
-    </button>
+    </Button>
   );
 }
 
@@ -427,19 +430,16 @@ function CopyButton({ text, clipboard }: { text: string; clipboard: ClipboardLik
 function LlmSection({ clipboard }: { clipboard: ClipboardLike | null }) {
   const status = localClientStatus();
   return (
-    <section className="card blueprint">
-      <Corners />
+    <section className="card">
       <h2>LLM クライアントの接続</h2>
-      <p className="notice ok" role="status">
-        {status.summary}
-      </p>
+      <Notice kind="info">{status.summary}</Notice>
       {status.notes.map((n, i) => (
         <p key={i} className="muted">
           {n}
         </p>
       ))}
       <div className="field">
-        <span className="label">登録を確かめる</span>
+        <span className="cds--label">登録を確かめる</span>
         <div className="copy-row">
           <code className="mono">{status.checkCommand}</code>
           <CopyButton text={status.checkCommand} clipboard={clipboard} />

@@ -32,8 +32,17 @@ export const STATIC_PRECACHE: readonly string[] = [
  */
 const NEVER_CACHED = ["/mx", "/ws", "/import", "/_mxstudio"] as const;
 
-/** 先読みの対象にする拡張子（.map は入れない。ソースマップはオフラインの動作に要らない） */
-const PRECACHE_EXTENSIONS = [".html", ".js", ".css", ".webmanifest", ".png", ".svg", ".ico", ".webp", ".woff2", ".woff"] as const;
+/**
+ * 先読みの対象にする拡張子（.map は入れない。ソースマップはオフラインの動作に要らない）。
+ * 書体は .woff2 だけ（.woff は、.woff2 を読めない古いブラウザのための控えで、使うブラウザでは読まれない）
+ */
+const PRECACHE_EXTENSIONS = [".html", ".js", ".css", ".webmanifest", ".png", ".svg", ".ico", ".webp", ".woff2"] as const;
+
+/**
+ * 拡張子は対象でも先読みしないファイル。日本語の書体（IBM Plex Sans JP）は 1 つの太さで約 0.9MB あるので、
+ * 立ち上げのたびに全部を取りに行かない。初めて使ったときに cache-first で保存される（planFor・mayStore）
+ */
+const PRECACHE_EXCLUDE: readonly RegExp[] = [/ibm-plex-sans-jp-/i];
 
 export function isNeverCached(pathname: string): boolean {
   const p = pathname.toLowerCase();
@@ -44,6 +53,7 @@ export function isNeverCached(pathname: string): boolean {
 export function shouldPrecache(fileName: string): boolean {
   const name = fileName.toLowerCase();
   if (name === "sw.js" || name.endsWith(".map")) return false;
+  if (PRECACHE_EXCLUDE.some((re) => re.test(name))) return false;
   return PRECACHE_EXTENSIONS.some((ext) => name.endsWith(ext));
 }
 

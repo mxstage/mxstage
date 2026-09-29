@@ -173,4 +173,7 @@ npm run dev:app        # 画面の開発サーバ（http://localhost:5173/app?de
 node scripts/check-publish.mjs --worktree   # 送る前の検査（docs/publish.md）
 ```
 
+依存を入れるときは、IBM のテレメトリ（`@carbon/react` などが入れるときに動く `@ibm/telemetry-js`）を止める（PowerShell なら `$env:IBM_TELEMETRY_DISABLED='true'; npm install`）。導入スクリプト（`scripts/setup-local.mjs`）は自分で止める。画面の見た目の約束は [docs/design.md](docs/design.md)。
+
 **Maximo への反映は、開発環境の Maximo とダミーデータでだけ試すこと。** 書き込みを自動で元に戻す仕組みは無い。
+

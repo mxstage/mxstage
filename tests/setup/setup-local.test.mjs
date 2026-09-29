@@ -84,7 +84,7 @@ import {
   skillTargets,
   testSandboxProblem,
 } from "../../scripts/setup-local.mjs";
-import { needsBuild, needsInstall, nodeVersionOk } from "../../scripts/setup-local.mjs";
+import { buildIco, needsBuild, needsInstall, nodeVersionOk, npmEnv } from "../../scripts/setup-local.mjs";
 
 // 試験中の印（setup-local.mjs の main() が見る）
 process.env.MXSTUDIO_SETUP_TEST = "1";
@@ -2064,6 +2064,25 @@ test("更新のあとは、依存を入れ直し・画面をビルドし直す�
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("buildIco: public の PNG をそのまま詰めた .ico を作る（ショートカットがブラウザのアイコンにならないように）", () => {
+  const pngs = ["favicon-32.png", "icon-192.png"].map((f) => readFileSync(path.join(REPO_ROOT, "public", f)));
+  const ico = buildIco(pngs);
+  assert.equal(ico.readUInt16LE(2), 1);
+  assert.equal(ico.readUInt16LE(4), 2);
+  assert.deepEqual([ico.readUInt8(6), ico.readUInt8(22)], [32, 192]);
+  const offset = ico.readUInt32LE(6 + 12);
+  assert.deepEqual(ico.subarray(offset, offset + pngs[0].length), pngs[0]);
+  assert.equal(ico.length, 6 + 32 + pngs[0].length + pngs[1].length);
+  assert.throws(() => buildIco([readFileSync(path.join(REPO_ROOT, "public", "icon-512.png"))]));
+});
+
+test("npmEnv:npm には IBM のテレメトリを止める変数を渡し、ほかの環境変数はそのまま渡す", () => {
+  const env = npmEnv({ PATH: "x", IBM_TELEMETRY_DISABLED: "false" });
+  assert.equal(env.IBM_TELEMETRY_DISABLED, "true");
+  assert.equal(env.PATH, "x");
+  assert.equal(npmEnv().IBM_TELEMETRY_DISABLED, "true");
 });
 
 test("本物の ~/.claude.json・Claude Desktop・Antigravity・Codex・スタートアップ・デスクトップ・~/.config/mxstudio に触れていない（更新時刻を比べる）", (t) => {

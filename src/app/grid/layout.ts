@@ -59,7 +59,7 @@ export function orderForFreeze<T extends { name: string }>(columns: readonly T[]
 
 /** 2 段見出し（ラベル＋属性名）を出す列があるかで見出しの高さを決める */
 export function headerHeightFor(columns: readonly ColumnSchema[]): number {
-  return columns.some((c) => headerLines(c).sub !== null) ? 42 : 30;
+  return columns.some((c) => headerLines(c).sub !== null) ? 48 : 32;
 }
 
 /** これより狭い画面では、関連する表を並べず今のシートだけを出す（チャットと半々に並べたときなど） */

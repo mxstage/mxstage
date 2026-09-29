@@ -1,9 +1,10 @@
 // 変更履歴（最近のバッチと取り消し）。
 
+import { Undo } from "@carbon/icons-react";
+import { IconButton } from "@carbon/react";
 import type { Workspace } from "../store";
 import { AUTHOR_LABEL, TONE_STYLE } from "../grid/cellStyle";
 import { conflictSummary, storeErrorMessage } from "../grid/edits";
-import { Icon } from "../ui/Icon";
 
 export interface HistoryPanelProps {
   workspace: Workspace;
@@ -54,16 +55,18 @@ export function HistoryPanel({ workspace, sheet, busy, onMessage }: HistoryPanel
                 </div>
                 {b.reason && <div className="reason">{b.reason}</div>}
               </div>
-              <button
-                type="button"
-                className="btn-ghost icon-btn size-24"
+              <IconButton
+                kind="ghost"
+                size="sm"
+                align="left"
+                className="undo"
                 disabled={b.undone || busy}
+                label={b.undone ? "取り消し済み" : "取り消す"}
                 aria-label={b.undone ? "取り消し済み" : "取り消す"}
-                title={b.undone ? "取り消し済み" : "取り消す"}
                 onClick={() => undo(b.batchId)}
               >
-                <Icon name="undo-2" size={13} />
-              </button>
+                <Undo />
+              </IconButton>
             </li>
           ))}
         </ul>

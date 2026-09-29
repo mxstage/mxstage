@@ -169,7 +169,8 @@ describe("設定画面のフォーム", () => {
     await fillForm();
 
     expect(await submit()).toBe("");
-    expect(q('[role="alert"]')?.textContent).toContain("API キーが無効");
+    // Carbon の TextInput は文字数の読み上げ用に空の role="alert" を持つので、知らせ（.notice）に絞って探す
+    expect(q('.notice[role="alert"]')?.textContent).toContain("API キーが無効");
     expect(q("form.connect-form")).not.toBeNull();
     expect(replaceUrl).not.toHaveBeenCalled();
     expect(store).not.toHaveBeenCalled();

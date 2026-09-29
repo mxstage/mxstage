@@ -62,7 +62,8 @@ describe("絞り込みの札（ColumnFilterBar）", () => {
     );
     // 先頭に残りの行数、札は画面表示名で出す
     expect(q(".filter-count")?.textContent).toBe("絞り込み中 12 / 2,494 行");
-    expect(qa(".chip").map((c) => c.textContent)).toEqual(["ステータス: 作成中×", "要約: 「不良」を含む×"]);
+    // 札は Carbon の DismissibleTag（× はアイコンのボタン）
+    expect(qa(".chip .cds--tag__label").map((c) => c.textContent)).toEqual(["ステータス: 作成中", "要約: 「不良」を含む"]);
     await click(q('button[aria-label="STATUS の絞り込みを外す"]'));
     expect(removed).toEqual(["STATUS"]);
     await click(qa<HTMLButtonElement>("button").find((b) => b.textContent === "すべて外す") ?? null);

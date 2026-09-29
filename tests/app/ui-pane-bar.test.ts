@@ -56,13 +56,15 @@ describe("表示する表の帯（PaneBar）", () => {
     await act(async () => chips[1]!.click());
     expect(onToggle).toHaveBeenCalledWith("ロケーション::all");
 
-    expect(q('[role="menu"]')).toBeNull();
-    await act(async () => q<HTMLButtonElement>('.pane-add > button[aria-haspopup="menu"]')!.click());
-    const items = qa<HTMLButtonElement>('[role="menuitem"]');
+    // メニュー（Carbon の Menu）は body に出るので、document から探す
+    const menu = () => document.querySelector('[role="menu"]');
+    expect(menu()).toBeNull();
+    await act(async () => q<HTMLButtonElement>('.pane-add > button[aria-haspopup="true"]')!.click());
+    const items = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'));
     expect(items.map((i) => i.textContent)).toEqual(["点検結果点検.xlsx"]);
     await act(async () => items[0]!.click());
     expect(onAdd).toHaveBeenCalledWith("点検結果::all");
-    expect(q('[role="menu"]')).toBeNull();
+    expect(menu()).toBeNull();
   });
 
   it("足せる表が無ければ「表を足す」を出さない", async () => {

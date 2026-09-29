@@ -1,7 +1,8 @@
 // ペイン（関連する表 1 つ分）の見出し。つかむ所（入れ替え）・表の名前・連動・行数・行の詳細・広げる・隠す。
 // 行数と行の詳細の開閉はグリッド（SheetGrid）の中の状態なので、SheetGrid の renderHeader から描く。
 
-import { Icon } from "../ui/Icon";
+import { Close, Draggable, Maximize, OpenPanelBottom, ViewOff } from "@carbon/icons-react";
+import { Button, IconButton } from "@carbon/react";
 
 /** ペインをドラッグして入れ替えるときの dataTransfer の種類（ファイルのドロップと区別する） */
 export const PANE_DRAG_TYPE = "application/x-mxstudio-pane";
@@ -41,7 +42,7 @@ export function PaneHeader(p: PaneHeaderProps) {
             e.dataTransfer.effectAllowed = "move";
           }}
         >
-          <Icon name="grip-vertical" size={14} />
+          <Draggable />
         </span>
       )}
       <span className={`pane-mark${p.current ? " on" : ""}`} aria-hidden="true" />
@@ -49,9 +50,12 @@ export function PaneHeader(p: PaneHeaderProps) {
         {p.title}
       </span>
       {p.onUnlink && (
-        <button
-          type="button"
-          className="btn-ghost linked"
+        <Button
+          kind="ghost"
+          size="sm"
+          className="linked"
+          renderIcon={Close}
+          iconDescription="連動を外す"
           aria-label="連動を外す"
           title="連動を外す"
           onClick={(e) => {
@@ -60,53 +64,57 @@ export function PaneHeader(p: PaneHeaderProps) {
           }}
         >
           連動中
-          <Icon name="x" size={11} />
-        </button>
+        </Button>
       )}
       <span className="row-count" title={p.rowCountTitle}>
         {p.rowCount}
       </span>
-      <button
-        type="button"
-        className="btn-ghost icon-btn size-26"
+      <IconButton
+        kind="ghost"
+        size="sm"
+        align="bottom"
+        isSelected={p.detailOpen}
         aria-pressed={p.detailOpen}
         aria-label="行の詳細"
-        title="選んだ行の全列を縦に並べて読む"
+        label="選んだ行の全列を縦に並べて読む"
         onClick={(e) => {
           e.stopPropagation();
           p.onToggleDetail();
         }}
       >
-        <Icon name="panel-bottom" size={14} />
-      </button>
+        <OpenPanelBottom />
+      </IconButton>
       {p.maximize && (
-        <button
-          type="button"
-          className="btn-ghost icon-btn size-26"
+        <IconButton
+          kind="ghost"
+          size="sm"
+          align="bottom"
+          isSelected={p.maximize.pressed}
           aria-pressed={p.maximize.pressed}
           aria-label={p.maximize.pressed ? "並べて表示" : "広げる"}
-          title={p.maximize.pressed ? "他の表も出す" : "この表だけを広げる"}
+          label={p.maximize.pressed ? "他の表も出す" : "この表だけを広げる"}
           onClick={(e) => {
             e.stopPropagation();
             p.maximize?.onToggle();
           }}
         >
-          <Icon name="maximize-2" size={14} />
-        </button>
+          <Maximize />
+        </IconButton>
       )}
       {p.onHide && (
-        <button
-          type="button"
-          className="btn-ghost icon-btn size-26"
+        <IconButton
+          kind="ghost"
+          size="sm"
+          align="bottom-end"
           aria-label="隠す"
-          title="この表を隠す（上の帯から戻せます）"
+          label="この表を隠す（上の帯から戻せます）"
           onClick={(e) => {
             e.stopPropagation();
             p.onHide?.();
           }}
         >
-          <Icon name="eye-off" size={14} />
-        </button>
+          <ViewOff />
+        </IconButton>
       )}
     </header>
   );

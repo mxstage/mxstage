@@ -167,6 +167,17 @@ describe("先読みする一覧", () => {
     expect(shouldPrecache("stats.json")).toBe(false);
   });
 
+  it("書体は .woff2 だけを先読みし、日本語の書体（大きい）は先読みせずに初めて使ったときに保存する", () => {
+    expect(shouldPrecache("assets/ibm-plex-sans-latin-400-normal-abc.woff2")).toBe(true);
+    expect(shouldPrecache("assets/ibm-plex-mono-latin-400-normal-abc.woff2")).toBe(true);
+    expect(shouldPrecache("assets/ibm-plex-sans-latin-400-normal-abc.woff")).toBe(false);
+    const jp = "assets/ibm-plex-sans-jp-japanese-400-normal-abc.woff2";
+    expect(shouldPrecache(jp)).toBe(false);
+    const font = req(`${ORIGIN}/${jp}`);
+    expect(planFor(font, ORIGIN)).toBe("cache-first");
+    expect(mayStore(font, ORIGIN, { status: 200, type: "basic", contentType: "font/woff2" })).toBe(true);
+  });
+
   it("先頭に / を付け、manifest とアイコンを足し、並びを固定する", () => {
     const list = precacheList(["index.html", "assets/a-1.js", "assets/a-1.js.map", "sw.js"], ["/manifest.webmanifest"]);
     expect(list).toEqual(["/assets/a-1.js", "/index.html", "/manifest.webmanifest"]);

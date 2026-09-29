@@ -26,8 +26,8 @@
   並べ方はシートの組ごとに覚えます（タブを切り替えて戻ると同じ並び。再読み込みで元に戻ります）。連動は関係のある表同士だけです。
   反映・変更履歴のパネルは、最後に触った表のシートを出します。
 - **シートを閉じられます**（シートタブの ×。`src/app/pages/SheetTabs.tsx`）。未反映の変更があれば件数を示して確かめ、反映中は閉じません。
-- **見た目は Industry デザインシステム**（鋼青 1 色・Barlow・角のない線画）。ハンドオフは `design/design_handoff_mxstudio_industry/`、
-  変数と部品は `src/app/styles/app.css`、グリッドの色は `SheetGrid.tsx` の `GRID_THEME` と `cellStyle.ts` の `TONE_STYLE`。
+- **見た目は IBM Carbon Design System**（White テーマ・IBM Plex・部品は `@carbon/react`）。約束は [design.md](design.md)、
+  変数は `src/app/styles/carbon.scss`、配置は `src/app/styles/app.css`、グリッドの色は `SheetGrid.tsx` の `GRID_THEME` と `cellStyle.ts` の `TONE_STYLE`。
   セルの色の意味は上部バーの ⓘ から開きます。
 - **列の見出しは 2 段**（上に画面表示名、下に属性名。`src/shared/columnLabel.ts`）。ツールの結果にも `columnTitles` でラベルを載せます。
 - **列ごとの絞り込み**（`src/app/grid/filters.ts`）。値の一覧（件数付き）・文字を含む・空／空でない・変更の状態（LLM の変更・利用者の変更・

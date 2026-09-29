@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 
-export type IconName = "info" | "settings" | "log-out" | "panel-right" | "panel-bottom" | "maximize-2" | "x" | "undo-2" | "grip-vertical" | "eye-off" | "plus";
+export type IconName = "info" | "settings" | "log-out" | "panel-right" | "panel-bottom" | "maximize-2" | "x" | "undo-2" | "grip-vertical" | "eye-off" | "plus" | "pin" | "pin-off";
 
 const PATHS: Record<IconName, ReactNode> = {
   info: (
@@ -79,6 +79,20 @@ const PATHS: Record<IconName, ReactNode> = {
     <>
       <path d="M5 12h14" />
       <path d="M12 5v14" />
+    </>
+  ),
+  pin: (
+    <>
+      <path d="M12 17v5" />
+      <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
+    </>
+  ),
+  "pin-off": (
+    <>
+      <path d="M12 17v5" />
+      <path d="M15 9.34V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H7.89" />
+      <path d="m2 2 20 20" />
+      <path d="M9 9v1.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h11" />
     </>
   ),
 };

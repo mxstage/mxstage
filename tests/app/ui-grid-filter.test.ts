@@ -144,6 +144,23 @@ describe("列ごとの絞り込みメニュー（ColumnFilterMenu）", () => {
     expect(q(".changes")).toBeNull();
   });
 
+  it("見出しのメニューから列を左に固定する・固定を外す（onTogglePin が無ければ出さない）", async () => {
+    await open(() => {});
+    expect(q(".head .pin")).toBeNull();
+    let toggled = 0;
+    const show = async (pinned: boolean) => {
+      await act(async () => root.render(null));
+      await render(createElement(ColumnFilterMenu, { col: "STATUS", options, current: null, position: { x: 10, y: 20 }, onApply: () => {}, onClose: () => {}, pinned, onTogglePin: () => toggled++ }));
+    };
+    await show(false);
+    expect(q(".head .pin")?.textContent).toBe("左に固定");
+    await click(q<HTMLButtonElement>(".head .pin"));
+    expect(toggled).toBe(1);
+    await show(true);
+    expect(q(".head .pin")?.textContent).toBe("固定を外す");
+    expect(q(".head .pin")?.getAttribute("aria-pressed")).toBe("true");
+  });
+
   it("いまの絞り込みを開き直したら、その内容が入っている", async () => {
     await open(() => {}, { col: "STATUS", kind: "contains", text: "承認" });
     expect(q<HTMLInputElement>('input[aria-label="文字を含む"]')!.value).toBe("承認");

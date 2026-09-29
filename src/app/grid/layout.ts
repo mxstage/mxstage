@@ -9,12 +9,52 @@ export const NARROW_WIDTH = 520;
 /** これより狭いと固定列は 1 本まで */
 export const MEDIUM_WIDTH = 820;
 
-/** 画面（ペイン）の幅に応じた固定列の本数。keyColumns が 0 本なら固定しない */
-export function freezeCountForWidth(width: number, keyColumns: number): number {
-  if (keyColumns <= 0) return 0;
+/** 画面（ペイン）の幅に応じた固定列の本数。固定したい列（frozen 本）が 0 本なら固定しない */
+export function freezeCountForWidth(width: number, frozen: number): number {
+  if (frozen <= 0) return 0;
   if (width > 0 && width < NARROW_WIDTH) return 0;
-  if (width > 0 && width < MEDIUM_WIDTH) return Math.min(1, keyColumns);
-  return Math.min(2, keyColumns);
+  if (width > 0 && width < MEDIUM_WIDTH) return Math.min(1, frozen);
+  return Math.min(MAX_FROZEN, frozen);
+}
+
+/** 広い画面でも固定は 3 本まで（固定した列が表を埋めると横に動かせなくなる） */
+export const MAX_FROZEN = 3;
+
+/**
+ * キー列のうち、行の見分けに使わない「範囲」の列（サイト・組織・クラスなど）。
+ * キーの一部なので消せないが、1 回の作業ではほぼ同じ値が並ぶので、固定すると表示の幅だけを取る。
+ */
+const QUALIFIER_KEYS = new Set(["SITEID", "ORGID", "CLASS", "WOCLASS", "LANGCODE", "ITEMSETID", "SETID", "TENANTID"]);
+
+/**
+ * 左に固定する列。利用者が選んだ列があればそれを、無ければキー列のうち行を見分ける列（WONUM・ASSETNUM・TICKETID など）。
+ * キー列がすべて「範囲」の列なら、最後のキー列を使う
+ */
+export function frozenColumnsFor(keyColumns: readonly string[], pinned: readonly string[] | null): string[] {
+  if (pinned !== null) return [...pinned];
+  const ids = keyColumns.filter((k) => !QUALIFIER_KEYS.has(k.toUpperCase()));
+  if (ids.length > 0) return ids;
+  const last = keyColumns[keyColumns.length - 1];
+  return last === undefined ? [] : [last];
+}
+
+/** 列の見出しのメニューから、その列を固定する・固定を外す（今の固定の列に足す・から外す） */
+export function togglePinned(frozen: readonly string[], col: string): string[] {
+  return frozen.includes(col) ? frozen.filter((c) => c !== col) : [...frozen, col];
+}
+
+/**
+ * 固定する列を先頭に寄せる（固定は先頭の列からしかできないため）。ほかの列は元の並びのまま。
+ * 並べ替えるのは画面の表示だけで、シートの列の順（読み込み・反映）は変えない
+ */
+export function orderForFreeze<T extends { name: string }>(columns: readonly T[], frozen: readonly string[]): { columns: T[]; freeze: number } {
+  const byName = new Map(columns.map((c) => [c.name, c] as const));
+  const head = frozen.flatMap((n) => {
+    const c = byName.get(n);
+    return c === undefined ? [] : [c];
+  });
+  const headSet = new Set(head);
+  return { columns: [...head, ...columns.filter((c) => !headSet.has(c))], freeze: head.length };
 }
 
 /** 2 段見出し（ラベル＋属性名）を出す列があるかで見出しの高さを決める */

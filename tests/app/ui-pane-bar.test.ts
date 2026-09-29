@@ -5,6 +5,7 @@ import { createRoot, type Root as ReactRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PaneBar } from "../../src/app/pages/PaneBar";
 import { PANE_DRAG_TYPE, PaneHeader } from "../../src/app/pages/PaneHeader";
+import { PaneSplitters } from "../../src/app/pages/PaneSplitters";
 import type { ArrangedPane, PaneSpec } from "../../src/app/pages/panes";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -94,5 +95,34 @@ describe("ペインの見出しの隠す・つかむ所（PaneHeader）", () => 
     await act(async () => root.render(createElement(PaneHeader, { ...base, onSelect: () => {} })));
     expect(q(".pane-grip")).toBeNull();
     expect(q('button[aria-label="隠す"]')).toBeNull();
+  });
+});
+
+describe("窓の間の境目（PaneSplitters）", () => {
+  const split = { col: 0.5, row: 0.5 };
+
+  it("枚数に応じて境目を出す（1 枚は無し、2 枚は左右、3・4 枚は左右と上下）", async () => {
+    const count = async (n: number) => {
+      await act(async () => root.render(createElement(PaneSplitters, { count: n, split, onChange: () => {} })));
+      return qa('[role="separator"]').map((e) => e.getAttribute("aria-orientation"));
+    };
+    expect(await count(1)).toEqual([]);
+    expect(await count(2)).toEqual(["vertical"]);
+    expect(await count(4)).toEqual(["horizontal", "vertical"]);
+  });
+
+  it("矢印キーで動かし、ダブルクリックで半分ずつに戻す", async () => {
+    const onChange = vi.fn();
+    await act(async () => root.render(createElement(PaneSplitters, { count: 4, split: { col: 0.3, row: 0.5 }, onChange })));
+    const col = q<HTMLElement>('[aria-orientation="vertical"]')!;
+    expect(col.getAttribute("aria-valuenow")).toBe("30");
+    await act(async () => col.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
+    expect(onChange.mock.calls[0]?.[0].col).toBeCloseTo(0.35);
+    expect(onChange.mock.calls[0]?.[0].row).toBe(0.5);
+    const row = q<HTMLElement>('[aria-orientation="horizontal"]')!;
+    await act(async () => row.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true })));
+    expect(onChange.mock.calls[1]?.[0].row).toBeCloseTo(0.45);
+    await act(async () => col.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+    expect(onChange.mock.calls[2]?.[0]).toEqual({ col: 0.5, row: 0.5 });
   });
 });

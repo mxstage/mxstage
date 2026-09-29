@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { columnLabel, columnTitleMap, headerLines } from "../../src/shared/columnLabel";
 import { HOVER_MAX_CHARS, HOVER_MAX_LINES, isLongValue, longCellLines, rowDetailItems, sortDetailItems, LONG_VALUE_CHARS } from "../../src/app/grid/detailItems";
-import { freezeCountForWidth, headerHeightFor, MEDIUM_WIDTH, NARROW_WIDTH } from "../../src/app/grid/layout";
+import { freezeCountForWidth, frozenColumnsFor, headerHeightFor, MAX_FROZEN, MEDIUM_WIDTH, NARROW_WIDTH, orderForFreeze, togglePinned } from "../../src/app/grid/layout";
 import type { ColumnSchema } from "../../src/shared/model";
 
 const col = (name: string, title?: string): ColumnSchema => (title === undefined ? { name, type: "string" } : { name, title, type: "string" });
@@ -71,9 +71,10 @@ describe("狭い画面での固定列", () => {
     expect(freezeCountForWidth(MEDIUM_WIDTH - 1, 2)).toBe(1);
   });
 
-  it("広ければキー列を 2 本まで固定する", () => {
+  it("広ければ固定したい列をすべて固定する（3 本まで）", () => {
     expect(freezeCountForWidth(MEDIUM_WIDTH, 2)).toBe(2);
     expect(freezeCountForWidth(1600, 1)).toBe(1);
+    expect(freezeCountForWidth(1600, 5)).toBe(MAX_FROZEN);
   });
 
   it("キー列が無ければ固定しない。幅が未測定（0）なら広いものとして扱う", () => {
@@ -83,6 +84,43 @@ describe("狭い画面での固定列", () => {
 
   it("2 段見出しがある表は見出しを高くする", () => {
     expect(headerHeightFor([col("WONUM"), col("PERSONGROUP", "工事担当部署")])).toBeGreaterThan(headerHeightFor([col("WONUM")]));
+  });
+});
+
+describe("固定する列（行を見分けるキー列）", () => {
+  it("サイト・組織・クラスは固定せず、WONUM・ASSETNUM・TICKETID のような行を見分けるキー列だけを固定する", () => {
+    expect(frozenColumnsFor(["SITEID", "WONUM"], null)).toEqual(["WONUM"]);
+    expect(frozenColumnsFor(["ASSETNUM", "SITEID"], null)).toEqual(["ASSETNUM"]);
+    expect(frozenColumnsFor(["CLASS", "TICKETID"], null)).toEqual(["TICKETID"]);
+    expect(frozenColumnsFor(["orgid", "siteid", "EXT_ID"], null)).toEqual(["EXT_ID"]);
+  });
+
+  it("キー列がすべて範囲の列なら最後のキー列、キー列が無ければ固定しない", () => {
+    expect(frozenColumnsFor(["ORGID", "SITEID"], null)).toEqual(["SITEID"]);
+    expect(frozenColumnsFor([], null)).toEqual([]);
+  });
+
+  it("利用者が選んだ列があればそちらを使う（空なら固定しない）", () => {
+    expect(frozenColumnsFor(["SITEID", "WONUM"], ["DESCRIPTION"])).toEqual(["DESCRIPTION"]);
+    expect(frozenColumnsFor(["SITEID", "WONUM"], [])).toEqual([]);
+  });
+
+  it("固定する列を先頭に寄せ、ほかの列（サイトなど）は元の並びのまま残す", () => {
+    const cols = [col("SITEID"), col("WONUM"), col("STATUS"), col("DESCRIPTION")];
+    const { columns, freeze } = orderForFreeze(cols, ["WONUM"]);
+    expect(columns.map((c) => c.name)).toEqual(["WONUM", "SITEID", "STATUS", "DESCRIPTION"]);
+    expect(freeze).toBe(1);
+  });
+
+  it("表に無い列は数えない。固定が無ければ並びを変えない", () => {
+    const cols = [col("SITEID"), col("WONUM")];
+    expect(orderForFreeze(cols, ["ASSETNUM"]).freeze).toBe(0);
+    expect(orderForFreeze(cols, []).columns.map((c) => c.name)).toEqual(["SITEID", "WONUM"]);
+  });
+
+  it("見出しのメニューから固定する・外す", () => {
+    expect(togglePinned(["WONUM"], "DESCRIPTION")).toEqual(["WONUM", "DESCRIPTION"]);
+    expect(togglePinned(["WONUM", "DESCRIPTION"], "WONUM")).toEqual(["DESCRIPTION"]);
   });
 });
 

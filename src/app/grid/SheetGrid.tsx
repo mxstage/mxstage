@@ -7,6 +7,7 @@ import {
   CompactSelection,
   DataEditor,
   GridCellKind,
+  type CellClickedEventArgs,
   type DrawCellCallback,
   type DrawHeaderCallback,
   type EditListItem,
@@ -28,11 +29,11 @@ import { ColumnFilterBar, ColumnFilterMenu, useColumnOptions } from "./ColumnFil
 import { headerLines } from "../../shared/columnLabel";
 import { conflictSummary, storeErrorMessage } from "./edits";
 import { applyGridFilters, changeCounts, matchRange, rowCountLabel, setFilter, type ChangeKind, type GridFilter } from "./filters";
-import { defaultColumnWidth, freezeCountForWidth, headerHeightFor } from "./layout";
+import { defaultColumnWidth, freezeCountForWidth, frozenColumnsFor, headerHeightFor, orderForFreeze, togglePinned } from "./layout";
 import { scopeColumns, scopeRows, type PaneScope } from "../pages/panes";
 import { RowDetail } from "./RowDetail";
 import { longCellLines, rowDetailItems } from "./detailItems";
-import { clampSelection } from "./selection";
+import { clampSelection, isReclickOnSelected, singleSelectedCell } from "./selection";
 
 export interface SheetGridProps {
   workspace: Workspace;
@@ -98,6 +99,11 @@ const FILTERED_MARK = "#5980a6";
 const MATCH_FILL = "rgba(89, 128, 166, 0.28)";
 const MATCH_LINE = "#416180";
 const ROW_HEIGHT = 30;
+/**
+ * 選んでいたセルをもう一度押してから選択を外すまでの待ち。この間に 2 回目が来ればダブルクリック（編集を開く）として扱う
+ * （Glide は 500ms 以内の 2 回目をダブルクリックとみなすが、それだけ待つと外れるのが遅く感じる）
+ */
+const RECLICK_DELAY_MS = 250;
 
 const EMPTY_ROWS: readonly RowState[] = [];
 const EMPTY_COLUMNS: readonly ColumnSchema[] = [];
@@ -152,13 +158,22 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
   // 列ごとの絞り込み（読み込んだシートの中だけ。Maximo へは問い合わせ直さない）
   const [filters, setFilters] = useState<readonly GridFilter[]>([]);
   const [menu, setMenu] = useState<{ col: string; x: number; y: number } | null>(null);
+  // 利用者が選んだ固定の列（null は自動: キー列のうち行を見分ける列）
+  const [pinned, setPinned] = useState<string[] | null>(null);
   const paneScope: PaneScope = scope ?? { kind: "all" };
   const displayValue = useCallback((row: RowState, col: string) => (sheet ? formatCellValue(sheet.viewValue(row, col, view)) : ""), [sheet, view]);
   const scopedRows = useMemo(() => (sheet ? scopeRows(sheet.viewRows(view), paneScope) : EMPTY_ROWS), [sheet, view, version, paneScope.kind, (paneScope as { name?: string }).name]);
-  const columns = useMemo(
+  // シートの並びのままの列（行の詳細はこの順で出す）
+  const scopedColumns = useMemo(
     () => (sheet ? scopeColumns(sheet.meta.columns, sheet.meta.keyColumns, paneScope) : EMPTY_COLUMNS),
     [sheet, version, paneScope.kind, (paneScope as { name?: string }).name],
   );
+  // 固定する列（WONUM・ASSETNUM・TICKETID など）を先頭に寄せる。サイト・クラスのような範囲のキー列は固定せず、元の並びで残す
+  const frozen = useMemo(() => {
+    const present = new Set(scopedColumns.map((c) => c.name));
+    return frozenColumnsFor(sheet?.meta.keyColumns ?? [], pinned).filter((n) => present.has(n));
+  }, [scopedColumns, sheet, pinned]);
+  const { columns, freeze } = useMemo(() => orderForFreeze(scopedColumns, frozen), [scopedColumns, frozen]);
   // 他のペインで選ばれた行に連動して絞る（連動は絞り込みの札には出さない）
   const allRows = useMemo(() => {
     if (!linkFilter) return scopedRows;
@@ -184,6 +199,7 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
   useEffect(() => {
     setFilters([]);
     setMenu(null);
+    setPinned(null);
   }, [sheetName]);
   // LLM が行を消した直後は、選択が無くなった行を指しうる。今の行数・列数に収めてから使う
   const safeSelection = useMemo(() => clampSelection(selection, rows.length, columns.length), [selection, rows.length, columns.length]);
@@ -195,6 +211,36 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
   const selectionRef = useRef(safeSelection);
   selectionRef.current = safeSelection;
   const editingRef = useRef<EditingTarget | null>(null);
+  // 押す前に 1 マスだけ選んでいたセル（同じセルをもう一度押したら選択を外すため）
+  const pressedOnRef = useRef<readonly [number, number] | null>(null);
+  const deselectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onSelectRowRef = useRef(onSelectRow);
+  onSelectRowRef.current = onSelectRow;
+  const cancelDeselect = useCallback(() => {
+    if (deselectTimerRef.current !== null) clearTimeout(deselectTimerRef.current);
+    deselectTimerRef.current = null;
+  }, []);
+  useEffect(() => cancelDeselect, [cancelDeselect]);
+
+  // 選んでいたセルをもう一度押したら、選択を外す（行の塗りと、他のペインの連動も外れる）。
+  // ダブルクリック（編集を開く）の 1 回目と区別するため、少し待ってから外す
+  const onCellClicked = useCallback(
+    (cell: Item, args: CellClickedEventArgs) => {
+      cancelDeselect();
+      const before = pressedOnRef.current;
+      pressedOnRef.current = null;
+      if (cell[0] < 0 || !isReclickOnSelected({ before, cell, shiftKey: args.shiftKey, ctrlKey: args.ctrlKey, metaKey: args.metaKey, button: args.button, isDoubleClick: args.isDoubleClick === true })) return;
+      deselectTimerRef.current = setTimeout(() => {
+        deselectTimerRef.current = null;
+        // 待っている間に別のセルへ動いていたら外さない
+        const now = singleSelectedCell(selectionRef.current);
+        if (now === null || now[0] !== cell[0] || now[1] !== cell[1]) return;
+        setSelection(EMPTY_SELECTION);
+        onSelectRowRef.current?.(null);
+      }, RECLICK_DELAY_MS);
+    },
+    [cancelDeselect],
+  );
 
   // シートを離れるときは編集中の印を消す
   useEffect(
@@ -500,7 +546,7 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
   const detailItems =
     selectedRow === null
       ? []
-      : rowDetailItems(columns, (col) => {
+      : rowDetailItems(scopedColumns, (col) => {
           const changed = view !== "base" && sheet.isCellChanged(selectedRow, col);
           return { value: displayValue(selectedRow, col), changed, ...(changed ? { author: cellAuthor(selectedRow, col) } : {}) };
         });
@@ -522,11 +568,16 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
         onRemove={(col) => setFilters((f) => setFilter(f, null, col))}
         onClearAll={() => setFilters([])}
       />
-      <div className="grid-body">
+      <div
+        className="grid-body"
+        onPointerDownCapture={() => {
+          pressedOnRef.current = singleSelectedCell(selectionRef.current);
+        }}
+      >
       <DataEditor
         columns={gridColumns}
         rows={rows.length}
-        freezeColumns={freezeCountForWidth(paneWidth, sheet.meta.keyColumns.length)}
+        freezeColumns={freezeCountForWidth(paneWidth, freeze)}
         headerHeight={headerHeightFor(columns)}
         drawHeader={drawHeader}
         drawCell={drawCell}
@@ -544,6 +595,9 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
           setMenu((m) => (m?.col === name ? null : { col: name, x, y: args.bounds.y + args.bounds.height }));
         }}
         getCellContent={getCellContent}
+        onCellClicked={onCellClicked}
+        // 選んでいるセルをもう一度押すと選択を外すので、編集はダブルクリック（または Enter・そのまま入力）で開く
+        cellActivationBehavior="double-click"
         onCellsEdited={onCellsEdited}
         onPaste={true}
         provideEditor={provideEditor}
@@ -580,6 +634,11 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
             changes={menuChanges}
             current={currentFilter}
             position={{ x: menu.x, y: menu.y }}
+            pinned={frozen.includes(menu.col)}
+            onTogglePin={() => {
+              setPinned(togglePinned(frozen, menu.col));
+              setMenu(null);
+            }}
             onApply={(f) => {
               setFilters((cur) => setFilter(cur, f, menu.col));
               setMenu(null);

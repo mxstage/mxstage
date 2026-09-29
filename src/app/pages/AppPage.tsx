@@ -18,7 +18,22 @@ import { useFrameVersion, useWindowWidth } from "./hooks";
 import { HIDE_SIDE_WIDTH, showOnePane } from "../grid/layout";
 import { PaneBar } from "./PaneBar";
 import { PANE_DRAG_TYPE, PaneHeader } from "./PaneHeader";
-import { addPane, arrangePanes, EMPTY_LAYOUT, ownPanes, panesFor, swapPanes, togglePane, type LayoutChange, type PaneLayout, type PaneSpec } from "./panes";
+import {
+  addPane,
+  arrangePanes,
+  EMPTY_LAYOUT,
+  EVEN_SPLIT,
+  ownPanes,
+  paneGridTemplate,
+  panesFor,
+  swapPanes,
+  togglePane,
+  type LayoutChange,
+  type PaneLayout,
+  type PaneSpec,
+  type PaneSplit,
+} from "./panes";
+import { PaneSplitters } from "./PaneSplitters";
 import { closeSheet, SheetTabs, type SheetTabInfo } from "./SheetTabs";
 import { hostOf, maximoBadge, relayBadge, reopenHint, shouldSuggestReopen } from "./status";
 import { TopBar } from "./TopBar";
@@ -120,6 +135,9 @@ export function AppPage({ runtime, vault, toasts, catalog, onEndWork, confirm, r
     }
     setLayouts((all) => ({ ...all, [groupKey]: change.layout }));
   };
+  // 窓の大きさ（境目をつかんで動かした割合）。並べ方と同じく組ごとに覚える
+  const [splits, setSplits] = useState<Record<string, PaneSplit>>({});
+  const split = splits[groupKey] ?? EVEN_SPLIT;
   // ペインをつかんで落とす先（落とせる所を示す）
   const [dropKey, setDropKey] = useState<string | null>(null);
   const focusSheet = focused !== null && panes.some((p) => p.sheet === focused) ? focused : current;
@@ -142,6 +160,7 @@ export function AppPage({ runtime, vault, toasts, catalog, onEndWork, confirm, r
     }
     return panes;
   }, [panes, maximized, narrow, focusSheet]);
+  const gridTemplate = paneGridTemplate(shownPanes.length, split);
   // シートを切り替えたら連動は解く（別の組の行を指したままにしない）
   useEffect(() => setLinked(null), [current]);
   // 広げていた表が無くなったら元に戻す
@@ -232,8 +251,12 @@ export function AppPage({ runtime, vault, toasts, catalog, onEndWork, confirm, r
                   onAdd={(key) => applyLayout(addPane(layout, arranged, key))}
                 />
               )}
-              <div className={`panes blueprint count-${shownPanes.length}`}>
+              <div
+                className={`panes blueprint count-${shownPanes.length}`}
+                style={{ gridTemplateColumns: gridTemplate.columns, gridTemplateRows: gridTemplate.rows }}
+              >
                 <Corners />
+                <PaneSplitters count={shownPanes.length} split={split} onChange={(next) => setSplits((all) => ({ ...all, [groupKey]: next }))} />
                 {shownPanes.length === 0 && <div className="empty">表をすべて隠しています。上の「表示する表」から出してください。</div>}
                 {shownPanes.map((pane) => (
                   <section

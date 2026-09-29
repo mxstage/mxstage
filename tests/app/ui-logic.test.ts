@@ -8,7 +8,7 @@ import type { CommitPanelState } from "../../src/app/runtime/contracts";
 import { CompactSelection, type GridSelection } from "@glideapps/glide-data-grid";
 import { cellTone, formatCellValue, hoverLines, isCellEditable, parseEditedText } from "../../src/app/grid/cellStyle";
 import { conflictSummary } from "../../src/app/grid/edits";
-import { clampSelection } from "../../src/app/grid/selection";
+import { clampSelection, isReclickOnSelected, singleSelectedCell } from "../../src/app/grid/selection";
 import {
   canCancelCommit,
   canConfirmCommit,
@@ -359,6 +359,25 @@ describe("グリッドの選択範囲", () => {
     expect(clamped.current?.range).toEqual({ x: 1, y: 3, width: 2, height: 2 });
     // 範囲外になった 6 行目以降の選択は消える
     expect(clamped.current?.rangeStack).toEqual([]);
+  });
+
+  it("選んでいた 1 マスをもう一度押したら選択を外す（範囲の選択や、Shift・Ctrl・ダブルクリックは除く）", () => {
+    const one = sel({ current: { cell: [2, 4], range: { x: 2, y: 4, width: 1, height: 1 }, rangeStack: [] } });
+    const before = singleSelectedCell(one);
+    expect(before).toEqual([2, 4]);
+    const click = { before, cell: [2, 4] as const, shiftKey: false, ctrlKey: false, metaKey: false, button: 0, isDoubleClick: false };
+    expect(isReclickOnSelected(click)).toBe(true);
+    // 別のセル・範囲を広げる操作・ダブルクリック（編集を開く）・右ボタンでは外さない
+    expect(isReclickOnSelected({ ...click, cell: [2, 5] })).toBe(false);
+    expect(isReclickOnSelected({ ...click, shiftKey: true })).toBe(false);
+    expect(isReclickOnSelected({ ...click, ctrlKey: true })).toBe(false);
+    expect(isReclickOnSelected({ ...click, isDoubleClick: true })).toBe(false);
+    expect(isReclickOnSelected({ ...click, button: 2 })).toBe(false);
+    // 押す前に何も選んでいない・範囲を選んでいたときは、押しても外さない（選ぶだけ）
+    expect(isReclickOnSelected({ ...click, before: null })).toBe(false);
+    expect(singleSelectedCell(sel())).toBeNull();
+    expect(singleSelectedCell(sel({ current: { cell: [2, 4], range: { x: 2, y: 4, width: 2, height: 1 }, rangeStack: [] } }))).toBeNull();
+    expect(singleSelectedCell(sel({ current: { cell: [2, 4], range: { x: 2, y: 4, width: 1, height: 1 }, rangeStack: [{ x: 0, y: 0, width: 1, height: 1 }] } }))).toBeNull();
   });
 
   it("選択中のセルが消えたら選択を外す", () => {

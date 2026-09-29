@@ -192,3 +192,44 @@ export function swapPanes(layout: PaneLayout, arranged: ArrangedPanes, a: string
   [order[i], order[j]] = [order[j] as string, order[i] as string];
   return { ...layout, order };
 }
+
+// ---------------------------------------------------------------------------
+// 窓の大きさ（ペインの間の境目をつかんで動かす）
+//
+// 並べ方は 2 列（count-2/3/4）と 2 段（count-3/4）なので、列の境目と段の境目の 2 つの割合だけを持つ。
+// 4 枚のときは上下の段で列の境目を共有する（境目が揃っていたほうが表を見比べやすい）。
+// ---------------------------------------------------------------------------
+
+export interface PaneSplit {
+  /** 左の列の幅の割合（0〜1） */
+  col: number;
+  /** 上の段の高さの割合（0〜1） */
+  row: number;
+}
+
+export const EVEN_SPLIT: PaneSplit = { col: 0.5, row: 0.5 };
+
+/** 窓がこれより細く・低くならないようにする（表の見出しと数行は見えるように） */
+export const MIN_PANE_PX = 160;
+
+/** 境目の割合を、両側が MIN_PANE_PX 以上残るように収める。大きさが分からない（0）ときは 1 割〜9 割 */
+export function clampSplit(ratio: number, size: number, minPx: number = MIN_PANE_PX): number {
+  const min = size > 0 ? Math.min(0.5, Math.max(0.1, minPx / size)) : 0.1;
+  if (!Number.isFinite(ratio)) return 0.5;
+  return Math.min(1 - min, Math.max(min, ratio));
+}
+
+/** 窓の枚数に応じた、列と段の境目があるか */
+export function splitAxes(count: number): { col: boolean; row: boolean } {
+  return { col: count >= 2, row: count >= 3 };
+}
+
+/** 窓を並べる grid の列と段の大きさ（fr の比で渡す。合計を 1 未満にすると余白が残るので 100 に揃える） */
+export function paneGridTemplate(count: number, split: PaneSplit): { columns?: string; rows?: string } {
+  const axes = splitAxes(count);
+  const fr = (a: number) => `minmax(0, ${(a * 100).toFixed(2)}fr) minmax(0, ${((1 - a) * 100).toFixed(2)}fr)`;
+  return {
+    ...(axes.col ? { columns: fr(split.col) } : {}),
+    ...(axes.row ? { rows: fr(split.row) } : {}),
+  };
+}

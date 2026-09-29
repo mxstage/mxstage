@@ -846,24 +846,110 @@ tbody tr:hover {
   color: var(--color-neutral-700);
 }
 
+/* 札は Industry の .tag に合わせる（角は四角・実線）。出している表は .tag-accent（accent-100 の地に accent-800 の文字）、
+   隠している表は罫線だけの札、組に無いのに足した表は .tag-outline（鋼青の線） */
 .pane-chip {
-  padding: 1px 8px;
+  padding: 3px 10px;
   font-family: var(--font-body);
   font-weight: 400;
   font-size: 12px;
-  border: 1px dashed var(--color-neutral-400);
-  color: var(--color-neutral-700);
+  letter-spacing: 0.02em;
+  border: 1px solid var(--color-divider);
+  color: var(--color-neutral-600);
+}
+
+.pane-chip:hover:not(:disabled) {
+  color: var(--color-text);
 }
 
 .pane-chip[aria-pressed="true"] {
-  border-style: solid;
-  border-color: var(--color-accent-400);
+  border-color: var(--color-accent-100);
   background: var(--color-accent-100);
   color: var(--color-accent-800);
 }
 
+.pane-chip[aria-pressed="true"]:hover:not(:disabled) {
+  border-color: var(--color-accent-200);
+  background: var(--color-accent-200);
+  color: var(--color-accent-800);
+}
+
 .pane-chip.extra[aria-pressed="true"] {
-  background: #ffffff;
+  border-color: var(--color-accent);
+  background: transparent;
+  color: var(--color-accent-700);
+}
+
+.pane-chip.extra[aria-pressed="true"]:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+
+/* 窓の間の境目（つかむ所）。普段は罫線（gap）だけが見え、指す・つかむと鋼青の線になる */
+.pane-split {
+  position: absolute;
+  z-index: 5;
+  touch-action: none;
+}
+
+.pane-split.col {
+  bottom: 0;
+  width: 9px;
+  margin-left: -5px;
+  cursor: col-resize;
+}
+
+/* 上の段の表の横スクロールバーに掛からないよう、下の段（見出しの上の余白）側に広く取る */
+.pane-split.row {
+  left: 0;
+  right: 0;
+  height: 8px;
+  margin-top: -2px;
+  cursor: row-resize;
+}
+
+.pane-split::after {
+  content: "";
+  position: absolute;
+  background: transparent;
+  transition: background-color 120ms ease-out;
+}
+
+.pane-split.col::after {
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 3px;
+}
+
+.pane-split.row::after {
+  left: 0;
+  right: 0;
+  top: 1px;
+  height: 3px;
+}
+
+.pane-split:hover::after,
+.pane-split:focus-visible::after,
+body.resizing-col .pane-split.col::after,
+body.resizing-row .pane-split.row::after {
+  background: var(--color-accent);
+}
+
+.pane-split:focus-visible {
+  outline: none;
+}
+
+/* つかんでいる間は、表の上を通っても矢印の形と文字の選択を変えない */
+body.resizing-col,
+body.resizing-col * {
+  cursor: col-resize !important;
+  user-select: none;
+}
+
+body.resizing-row,
+body.resizing-row * {
+  cursor: row-resize !important;
+  user-select: none;
 }
 
 .pane-add {
@@ -1125,8 +1211,28 @@ tbody tr:hover {
 }
 
 .column-filter .head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
   font-weight: 600;
   font-size: 12px;
+}
+
+.column-filter .head .mono {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.column-filter .head .pin {
+  flex: none;
+  gap: 4px;
+  padding: 1px 4px;
+  font-family: var(--font-body);
+  font-weight: 400;
+  font-size: 11.5px;
 }
 
 .column-filter input[type="text"] {

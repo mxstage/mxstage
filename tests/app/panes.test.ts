@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import { paneLink } from "../../src/app/pages/AppPage";
-import { addPane, arrangePanes, EMPTY_LAYOUT, ownPanes, panesFor, scopeColumns, scopeRows, swapPanes, togglePane, type PaneLayout } from "../../src/app/pages/panes";
+import { addPane, arrangePanes, clampSplit, EMPTY_LAYOUT, EVEN_SPLIT, MIN_PANE_PX, ownPanes, paneGridTemplate, panesFor, scopeColumns, scopeRows, splitAxes, swapPanes, togglePane, type PaneLayout } from "../../src/app/pages/panes";
 import type { ColumnSchema } from "../../src/shared/model";
 import type { SheetLink, SheetMeta } from "../../src/shared/sheet";
 
@@ -184,5 +184,30 @@ describe("並べ方（隠す・戻す・入れ替える・組に無い表を足�
     const layout: PaneLayout = { order: [], hidden: ["ロケーション::all"], extras: ["点検結果::all"] };
     const without = new Map(Array.from(candidates).filter(([k]) => k !== "点検結果::all"));
     expect(arrangePanes(group, without, layout).all.some((p) => p.key === "点検結果::all")).toBe(false);
+  });
+});
+
+describe("窓の大きさ（境目をつかんで動かす）", () => {
+  it("2 枚は列の境目だけ、3・4 枚は列と段の境目。1 枚なら境目は無い", () => {
+    expect(splitAxes(1)).toEqual({ col: false, row: false });
+    expect(splitAxes(2)).toEqual({ col: true, row: false });
+    expect(splitAxes(3)).toEqual({ col: true, row: true });
+    expect(splitAxes(4)).toEqual({ col: true, row: true });
+  });
+
+  it("割合を grid の fr の比にする（合計 100 で、余白を残さない）", () => {
+    expect(paneGridTemplate(1, EVEN_SPLIT)).toEqual({});
+    expect(paneGridTemplate(2, { col: 0.3, row: 0.5 })).toEqual({ columns: "minmax(0, 30.00fr) minmax(0, 70.00fr)" });
+    expect(paneGridTemplate(4, { col: 0.5, row: 0.25 })).toEqual({ columns: "minmax(0, 50.00fr) minmax(0, 50.00fr)", rows: "minmax(0, 25.00fr) minmax(0, 75.00fr)" });
+  });
+
+  it("両側が MIN_PANE_PX 以上残るように収める", () => {
+    expect(clampSplit(0.02, 1000)).toBeCloseTo(MIN_PANE_PX / 1000);
+    expect(clampSplit(0.99, 1000)).toBeCloseTo(1 - MIN_PANE_PX / 1000);
+    expect(clampSplit(0.4, 1000)).toBe(0.4);
+    // 枠が狭くても半分より先へは寄せない。大きさが分からなければ 1 割〜9 割
+    expect(clampSplit(0.1, 200)).toBe(0.5);
+    expect(clampSplit(0.01, 0)).toBe(0.1);
+    expect(clampSplit(Number.NaN, 1000)).toBe(0.5);
   });
 });

@@ -24,6 +24,35 @@ function clampRect(r: Readonly<Rectangle>, rowCount: number, colCount: number): 
   return { x, y, width, height };
 }
 
+/** 押す前に 1 マスだけを選んでいたなら、そのセル（範囲を選んでいたときや、何も選んでいないときは null） */
+export function singleSelectedCell(selection: GridSelection): readonly [number, number] | null {
+  const cur = selection.current;
+  if (cur === undefined || cur.rangeStack.length > 0) return null;
+  if (cur.range.width !== 1 || cur.range.height !== 1) return null;
+  return [cur.cell[0], cur.cell[1]];
+}
+
+export interface ReclickInput {
+  /** 押す前に 1 マスだけ選んでいたセル */
+  before: readonly [number, number] | null;
+  /** 押したセル */
+  cell: readonly [number, number];
+  shiftKey: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  button: number;
+  isDoubleClick: boolean;
+}
+
+/**
+ * 選んでいたセルをもう一度押したか（押したら選択を外す）。
+ * 範囲を広げる操作（Shift・Ctrl）、左ボタン以外、ダブルクリック（編集を開く）の 2 回目は含めない
+ */
+export function isReclickOnSelected(i: ReclickInput): boolean {
+  if (i.before === null || i.isDoubleClick || i.button !== 0 || i.shiftKey || i.ctrlKey || i.metaKey) return false;
+  return i.before[0] === i.cell[0] && i.before[1] === i.cell[1];
+}
+
 /**
  * 行数・列数が減ったときに、範囲外を指す選択を切り詰める。
  * 選択中のセル自体が消えていれば選択を外す（消えた行に書き込ませないため）。

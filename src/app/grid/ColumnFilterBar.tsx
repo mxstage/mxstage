@@ -2,6 +2,7 @@
 // canvas のグリッドとは別の DOM にしてあるので、ここだけで表示と操作を試験できる。
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Icon } from "../ui/Icon";
 import { TONE_STYLE } from "./cellStyle";
 import { CHANGE_LABEL, distinctValues, filterLabel, type ChangeKind, type GridFilter } from "./filters";
 
@@ -53,6 +54,9 @@ export interface ColumnFilterMenuProps {
   position: { x: number; y: number };
   onApply: (filter: GridFilter | null) => void;
   onClose: () => void;
+  /** この列を左に固定しているか（onTogglePin が無ければ固定の操作は出さない） */
+  pinned?: boolean;
+  onTogglePin?: () => void;
 }
 
 /** 変更の状態の色見本（セルの色と同じ）。変更なしは見本を出さない */
@@ -61,7 +65,7 @@ function changeSwatch(kind: ChangeKind): string | null {
 }
 
 /** 列 1 つ分の絞り込みメニュー（変更の状態 / 文字を含む / 値を選ぶ / 空・空でない） */
-export function ColumnFilterMenu({ col, options, changes = [], current, position, onApply, onClose }: ColumnFilterMenuProps) {
+export function ColumnFilterMenu({ col, options, changes = [], current, position, onApply, onClose, pinned = false, onTogglePin }: ColumnFilterMenuProps) {
   const [text, setText] = useState(current?.kind === "contains" ? current.text : "");
   const [picked, setPicked] = useState<string[]>(current?.kind === "values" ? [...current.values] : []);
   const [pickedChanges, setPickedChanges] = useState<ChangeKind[]>(current?.kind === "change" ? [...current.changes] : []);
@@ -90,7 +94,15 @@ export function ColumnFilterMenu({ col, options, changes = [], current, position
 
   return (
     <div className="column-filter" ref={ref} style={{ left: position.x, top: position.y }} role="dialog" aria-label={`${col} の絞り込み`}>
-      <div className="head mono">{col}</div>
+      <div className="head">
+        <span className="mono">{col}</span>
+        {onTogglePin && (
+          <button type="button" className="btn-ghost pin" aria-pressed={pinned} title={pinned ? "この列の固定を外す" : "この列を左端に固定する（横に動かしても見える）"} onClick={onTogglePin}>
+            <Icon name={pinned ? "pin-off" : "pin"} size={12} />
+            {pinned ? "固定を外す" : "左に固定"}
+          </button>
+        )}
+      </div>
       {changeOptions.length > 0 && (
         <fieldset className="changes">
           <legend className="muted small">変更の状態</legend>

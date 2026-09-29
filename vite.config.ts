@@ -53,7 +53,8 @@ export default defineConfig({
     port: 5173,
     proxy: {
       "/mx": BRIDGE,
-      "/import": BRIDGE,
+      // "/import" だけだと画面のソース（/imports/index.ts）まで橋渡しへ渡してしまう
+      "/import/": BRIDGE,
       "/_mxstudio": BRIDGE,
       "/ws": { target: BRIDGE, ws: true },
     },

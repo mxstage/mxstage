@@ -44,6 +44,11 @@ export interface HealthBody {
   name: string;
   version: string;
   protocol: number;
+  /**
+   * 起動したあとにリポジトリのコードが変わったか（src/bridge/freshness.ts）。古い版の橋渡しは載せない。
+   * client はこれで「中継している primary が古い」を知り、導入の --status も同じ値を出す。
+   */
+  stale?: boolean;
 }
 
 /** 発行だけできればよいチケットの窓口（primary では ImportTickets、client では primary への中継） */
@@ -61,6 +66,8 @@ export interface PeerServerDeps {
   /** null なら鍵付きの経路はすべて 403 */
   keyStore: BridgeKeyStore | null;
   version: string;
+  /** 起動したあとにコードが変わったか。省くと health に stale を載せない */
+  codeStale?: () => boolean;
 }
 
 function sendJson(res: ServerResponse, status: number, body: unknown, headers?: Record<string, string>): void {
@@ -129,6 +136,7 @@ export async function handlePeerRequest(req: IncomingMessage, res: ServerRespons
       return;
     }
     const body: HealthBody = { name: BRIDGE_NAME, version: deps.version, protocol: BRIDGE_PEER_PROTOCOL };
+    if (deps.codeStale !== undefined) body.stale = deps.codeStale();
     sendJson(res, 200, body);
     return;
   }
@@ -333,7 +341,9 @@ export async function probeBridgeHealth(port: number, timeoutMs = 3_000): Promis
     if (isHealthBody(body)) {
       // 版は相手が決める文字列。ログ（stderr）に載せるので、表示できる ASCII だけを短く残す（端末の制御文字を流さない）
       const version = body.version.replace(/[^\x20-\x7e]/g, "").slice(0, 40);
-      return { kind: "bridge", health: { name: body.name, version, protocol: body.protocol } };
+      const health: HealthBody = { name: body.name, version, protocol: body.protocol };
+      if (typeof body.stale === "boolean") health.stale = body.stale;
+      return { kind: "bridge", health };
     }
   }
   // 古い版の橋渡しは /ws に 426 と upgrade_required を返す（src/bridge/server.ts）

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // mxstudio をこの PC に入れる（1 ステップ導入）と、その取り消し。
 // 橋渡し（ローカルで動く Node のプロセス）を起動し、Claude Code と Claude Desktop と
-// Antigravity（2.0・IDE・agy CLI。入っているときだけ）に MCP サーバとして登録し、
+// Antigravity（2.0・IDE・agy CLI。入っているときだけ）と Codex（デスクトップ・CLI・IDE 拡張。入っているときだけ）に
+// MCP サーバとして登録し、
 // ログイン時の自動起動とアプリのショートカットを作る。
 // Node の標準機能だけで動く（依存を足さない）。何度実行しても壊れない（冪等）。
 //
@@ -9,7 +10,7 @@
 //   node scripts/setup-local.mjs --uninstall         取り消す
 //   node scripts/setup-local.mjs --status            今の状態を見るだけ（何も書き換えない）
 //
-// 利用者の設定ファイル（~/.claude.json、Claude Desktop の設定、~/.gemini/config/mcp_config.json）を書き換えるので、
+// 利用者の設定ファイル（~/.claude.json、Claude Desktop の設定、~/.gemini/config/mcp_config.json、~/.codex/config.toml）を書き換えるので、
 // **書き換える前に必ずバックアップを取る**。既存の設定は消さない。取り消し方は画面と docs/local.md に出す。
 // 秘密（個人トークン・API キー）は画面にも自分の記録（setup.json）にも書かない。
 // 置き換えた古い MCP 設定は、値を伏せた要約だけを記録し、戻すときはバックアップから読み直す。
@@ -169,8 +170,9 @@ const USAGE = `mxstudio をこの PC に入れる（1 ステップ導入）
   --no-autostart           ログイン時の自動起動を作らない
   --no-shortcut            デスクトップのショートカットを作らない
   --no-open                最後にアプリを開かない
-  --no-skills              Claude Code と Antigravity に Skill（作業手順書）を入れない
+  --no-skills              Claude Code・Antigravity・Codex に Skill（作業手順書）を入れない
   --no-antigravity         Antigravity（2.0・IDE・agy CLI）に登録しない（~/.gemini が無ければ、指定しなくても登録しない）
+  --no-codex               Codex（デスクトップ・CLI・IDE 拡張）に登録しない（~/.codex が無ければ、指定しなくても登録しない）
   --json                   機械可読な JSON で結果を出す
   --help                   この説明を出す
 
@@ -182,11 +184,14 @@ const USAGE = `mxstudio をこの PC に入れる（1 ステップ導入）
   --desktop-dir <パス>        デスクトップフォルダ
   --claude-skills-dir <パス>  Claude Code の Skill の置き場所（既定: ~/.claude/skills）
   --antigravity-dir <パス>    Antigravity の設定フォルダ（既定: ~/.gemini。MCP は config/mcp_config.json、Skill は skills/）
+  --codex-dir <パス>          Codex の設定フォルダ（既定: CODEX_HOME か ~/.codex。MCP は config.toml）
+  --agents-skills-dir <パス>  Codex が読む個人の Skill の置き場所（既定: ~/.agents/skills）
   --claude-cli <パス>         claude コマンドの場所（環境変数 ${CLAUDE_CLI_ENV} でも指定できる）。
                               使うのは Claude Code の設定が既定の場所のときだけ（試験中は一時フォルダの偽物だけ）
   環境変数 ${TEST_GUARD_ENV}=1  試験中の印。書き先（一時フォルダの中で、本物の書き先でないこと）・--port・--bridge・
                               --no-open・--no-install・--no-build（Skill を入れるなら --claude-skills-dir、
-                              Antigravity に登録するなら --antigravity-dir も）がそろっていなければ止まり、
+                              Antigravity に登録するなら --antigravity-dir、Codex に登録するなら --codex-dir と
+                              --agents-skills-dir も）がそろっていなければ止まり、
                               本物の claude コマンドを探さない
 
 終了コード: 0 = 終わった、1 = 失敗した手順がある、2 = 引数が不正`;
@@ -205,6 +210,7 @@ export function parseArgs(argv) {
     open: true,
     skills: true,
     antigravity: true,
+    codex: true,
     json: false,
     help: false,
     stateDir: null,
@@ -214,6 +220,8 @@ export function parseArgs(argv) {
     desktopDir: null,
     claudeSkillsDir: null,
     antigravityDir: null,
+    codexDir: null,
+    agentsSkillsDir: null,
     claudeCli: null,
   };
   const withValue = {
@@ -226,6 +234,8 @@ export function parseArgs(argv) {
     "--desktop-dir": "desktopDir",
     "--claude-skills-dir": "claudeSkillsDir",
     "--antigravity-dir": "antigravityDir",
+    "--codex-dir": "codexDir",
+    "--agents-skills-dir": "agentsSkillsDir",
     "--claude-cli": "claudeCli",
   };
   for (let i = 0; i < argv.length; i++) {
@@ -241,6 +251,7 @@ export function parseArgs(argv) {
     else if (arg === "--no-open") opts.open = false;
     else if (arg === "--no-skills") opts.skills = false;
     else if (arg === "--no-antigravity") opts.antigravity = false;
+    else if (arg === "--no-codex") opts.codex = false;
     else if (arg === "--json") opts.json = true;
     else if (arg === "--help" || arg === "-h") opts.help = true;
     else {
@@ -581,6 +592,244 @@ export function entryFromBackup(backupPath, name) {
 }
 
 // ---------------------------------------------------------------------------
+// Codex の設定（~/.codex/config.toml の [mcp_servers.mxstudio]）
+// デスクトップ版・CLI・IDE 拡張が同じファイルを読む。TOML なので、依存を足さずに mxstudio の表 1 つだけを読み書きし、
+// ほかの行（コメントや並びも）には触らない。
+// ---------------------------------------------------------------------------
+
+/** Codex が橋渡しの起動を待つ秒数（既定の 10 秒では、初回の起動や引き継ぎで足りないことがある） */
+export const CODEX_STARTUP_TIMEOUT_SEC = 30;
+
+/** Codex に入れる設定（比べる・分類するための形。書くのは buildCodexBlock） */
+export function buildCodexEntry(nodePath, bridgeEntry, port) {
+  return { command: nodePath, args: [...bridgeArgs(bridgeEntry, port)] };
+}
+
+/** Codex の config.toml に書く表。文字列は JSON と同じ書き方（TOML の基本文字列としてそのまま読める） */
+export function buildCodexBlock(nodePath, bridgeEntry, port) {
+  const entry = buildCodexEntry(nodePath, bridgeEntry, port);
+  return [
+    `[mcp_servers.${MCP_NAME}]`,
+    `command = ${JSON.stringify(entry.command)}`,
+    `args = [${entry.args.map((a) => JSON.stringify(a)).join(", ")}]`,
+    `startup_timeout_sec = ${CODEX_STARTUP_TIMEOUT_SEC}`,
+  ].join("\n");
+}
+
+/** TOML の文字列 1 つ（"基本" か 'リテラル'）を s[i] から読む。読めなければ投げる */
+function tomlString(s, i) {
+  if (s[i] === '"') {
+    let j = i + 1;
+    while (j < s.length && s[j] !== '"') j += s[j] === "\\" ? 2 : 1;
+    if (j >= s.length) throw new Error("二重引用符が閉じていない");
+    return { value: JSON.parse(s.slice(i, j + 1)), next: j + 1 };
+  }
+  if (s[i] === "'") {
+    const j = s.indexOf("'", i + 1);
+    if (j < 0) throw new Error("単一引用符が閉じていない");
+    return { value: s.slice(i + 1, j), next: j + 1 };
+  }
+  throw new Error("文字列ではない");
+}
+
+/** 表の見出し（[a.b."c"]）を名前の並びにする。見出しでなければ null（[[配列の表]] も null） */
+export function tomlTableKey(line) {
+  const m = /^\s*\[(?!\[)(.*)\]\s*(?:#.*)?$/.exec(line);
+  if (!m) return null;
+  const inner = m[1];
+  const parts = [];
+  let i = 0;
+  const skip = () => {
+    while (inner[i] === " " || inner[i] === "\t") i++;
+  };
+  try {
+    skip();
+    while (i < inner.length) {
+      if (inner[i] === '"' || inner[i] === "'") {
+        const r = tomlString(inner, i);
+        parts.push(r.value);
+        i = r.next;
+      } else {
+        const bare = /^[A-Za-z0-9_-]+/.exec(inner.slice(i));
+        if (!bare) return null;
+        parts.push(bare[0]);
+        i += bare[0].length;
+      }
+      skip();
+      if (i < inner.length) {
+        if (inner[i] !== ".") return null;
+        i++;
+        skip();
+      }
+    }
+  } catch {
+    return null;
+  }
+  return parts.length > 0 ? parts : null;
+}
+
+/** TOML の値（文字列・数・真偽値と、それらの配列）を読む。読めなければ undefined */
+export function tomlValue(text) {
+  let i = 0;
+  const skip = () => {
+    while (i < text.length && /\s/.test(text[i])) i++;
+  };
+  const value = () => {
+    skip();
+    if (text[i] === "[") {
+      i++;
+      const list = [];
+      skip();
+      while (text[i] !== "]") {
+        if (i >= text.length) throw new Error("配列が閉じていない");
+        list.push(value());
+        skip();
+        if (text[i] === ",") {
+          i++;
+          skip();
+        } else if (text[i] !== "]") throw new Error("配列の区切りが不正");
+      }
+      i++;
+      return list;
+    }
+    if (text[i] === '"' || text[i] === "'") {
+      const r = tomlString(text, i);
+      i = r.next;
+      return r.value;
+    }
+    const m = /^(true|false|[-+]?\d+(?:\.\d+)?)/.exec(text.slice(i));
+    if (!m) throw new Error("値を読めない");
+    i += m[0].length;
+    return m[0] === "true" ? true : m[0] === "false" ? false : Number(m[0]);
+  };
+  try {
+    const v = value();
+    skip();
+    return i >= text.length || text[i] === "#" ? v : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** 表の中の「キー = 値」を読む（複数行の配列はつなげて読む）。読めない値は undefined のまま入れる */
+function tomlPairs(lines) {
+  const pairs = new Map();
+  for (let i = 0; i < lines.length; i++) {
+    const m = /^\s*([A-Za-z0-9_-]+|"[^"]*"|'[^']*')\s*=\s*(.*)$/.exec(lines[i]);
+    if (!m) continue;
+    let raw = m[2];
+    // 複数行の配列（[ で始まり、閉じていない）は ] が来るまでつなげる
+    while (raw.trim().startsWith("[") && (raw.match(/\[/g) ?? []).length > (raw.match(/\]/g) ?? []).length && i + 1 < lines.length) raw += `\n${lines[++i]}`;
+    pairs.set(m[1].replace(/^["']|["']$/g, ""), tomlValue(raw.trim()));
+  }
+  return pairs;
+}
+
+const CODEX_TABLE_KEY = ["mcp_servers", MCP_NAME];
+
+function isCodexTableKey(key, sub) {
+  if (key === null || key.length < 2 || key[0] !== CODEX_TABLE_KEY[0] || key[1] !== CODEX_TABLE_KEY[1]) return false;
+  return sub ? key.length > 2 : key.length === 2;
+}
+
+/**
+ * config.toml から [mcp_servers.mxstudio] の表（と、その下の [mcp_servers.mxstudio.env] などの小さな表）を探す。
+ * - start / end: 表の行の範囲（end は含まない。後ろの空行は含めない）。無ければ start は -1
+ * - entry: 読めた設定（command / args / env のキー）。表が無ければ null、読めなければ { unreadable: true }
+ * - otherForm: 表の見出し以外の書き方（mcp_servers.mxstudio.command = … や mxstudio = { … }）で書かれている。触らない
+ */
+export function findCodexTable(text) {
+  const eol = text.includes("\r\n") ? "\r\n" : "\n";
+  const lines = text.split(/\r?\n/);
+  let start = -1;
+  let end = lines.length;
+  let orphanSubtable = false;
+  for (let i = 0; i < lines.length; i++) {
+    const isHeader = /^\s*\[/.test(lines[i]);
+    if (!isHeader) continue;
+    const key = tomlTableKey(lines[i]);
+    if (start < 0) {
+      if (isCodexTableKey(key, false)) start = i;
+      else if (isCodexTableKey(key, true)) orphanSubtable = true;
+    } else if (!isCodexTableKey(key, true)) {
+      end = i;
+      break;
+    }
+  }
+  if (start >= 0) while (end > start + 1 && lines[end - 1].trim() === "") end--;
+  const block = start >= 0 ? lines.slice(start, end) : null;
+  const outside = start >= 0 ? [...lines.slice(0, start), ...lines.slice(end)] : lines;
+  const otherForm =
+    orphanSubtable ||
+    outside.some((l) => new RegExp(`^\\s*(?:mcp_servers\\s*\\.\\s*)?["']?${MCP_NAME}["']?\\s*(?:\\.|=)`).test(l));
+  let entry = null;
+  if (block !== null) {
+    const firstSub = block.findIndex((l, i) => i > 0 && /^\s*\[/.test(l));
+    const main = tomlPairs(block.slice(1, firstSub < 0 ? block.length : firstSub));
+    const command = main.get("command");
+    const args = main.get("args");
+    if (typeof command !== "string" || (args !== undefined && !(Array.isArray(args) && args.every((a) => typeof a === "string")))) {
+      entry = { unreadable: true };
+    } else {
+      entry = { command, args: args ?? [] };
+      const envAt = block.findIndex((l) => {
+        const key = tomlTableKey(l);
+        return key !== null && key.length === 3 && isCodexTableKey(key, true) && key[2] === "env";
+      });
+      if (envAt >= 0) {
+        const envEnd = block.findIndex((l, i) => i > envAt && /^\s*\[/.test(l));
+        entry.env = Object.fromEntries(Array.from(tomlPairs(block.slice(envAt + 1, envEnd < 0 ? block.length : envEnd)).keys()).map((k) => [k, ""]));
+      }
+    }
+  }
+  return { eol, lines, start, end, block, entry, otherForm };
+}
+
+/** [mcp_servers.mxstudio] の表を書く（あれば置き換え、無ければ末尾に足す）。ほかの行には触らない */
+export function upsertCodexTable(text, block) {
+  const found = findCodexTable(text);
+  const blockLines = block.split("\n");
+  let lines;
+  if (found.start >= 0) {
+    lines = [...found.lines.slice(0, found.start), ...blockLines, ...found.lines.slice(found.end)];
+  } else {
+    lines = [...found.lines];
+    while (lines.length > 0 && lines[lines.length - 1].trim() === "") lines.pop();
+    if (lines.length > 0) lines.push("");
+    lines.push(...blockLines, "");
+  }
+  return lines.join(found.eol);
+}
+
+/** [mcp_servers.mxstudio] の表を外す（restore があればその表に戻す） */
+export function removeCodexTable(text, restore = null) {
+  const found = findCodexTable(text);
+  if (found.start < 0) return { next: text, changed: false };
+  const before = found.lines.slice(0, found.start);
+  const after = found.lines.slice(found.end);
+  if (restore) return { next: [...before, ...restore.split("\n"), ...after].join(found.eol), changed: true };
+  // 表の前に置いた空行も 1 つ詰める
+  if (before.length > 0 && before[before.length - 1].trim() === "") before.pop();
+  return { next: [...before, ...after].join(found.eol), changed: true };
+}
+
+function writeTextFileAtomic(filePath, text) {
+  mkdirSync(path.dirname(filePath), { recursive: true });
+  const tmp = `${filePath}.mxstudio.tmp`;
+  try {
+    writeFileSync(tmp, text, "utf8");
+    renameSync(tmp, filePath);
+  } catch (err) {
+    try {
+      rmSync(tmp, { force: true });
+    } catch {
+      // 一時ファイルが残っても、元のファイルは書き換わっていない
+    }
+    throw err;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 場所を決める
 // ---------------------------------------------------------------------------
 
@@ -661,6 +910,10 @@ function makePaths(opts) {
     claudeSkillsDir: opts.claudeSkillsDir ? path.resolve(opts.claudeSkillsDir) : path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude"), "skills"),
     // Antigravity（2.0・IDE・agy CLI が共有する設定。MCP は config/mcp_config.json、どの面からも読める Skill は skills/）
     ...antigravityPaths(opts.antigravityDir ? path.resolve(opts.antigravityDir) : path.join(os.homedir(), ".gemini")),
+    // Codex（デスクトップ・CLI・IDE 拡張が共有する設定。Codex と同じ決め方: CODEX_HOME があればそこ、無ければ ~/.codex）
+    ...codexPaths(opts.codexDir ? path.resolve(opts.codexDir) : process.env.CODEX_HOME || path.join(os.homedir(), ".codex")),
+    // Codex が読む個人の Skill（~/.agents/skills。ほかのエージェントも読むことがある共通の置き場所）
+    codexSkillsDir: opts.agentsSkillsDir ? path.resolve(opts.agentsSkillsDir) : path.join(os.homedir(), ".agents", "skills"),
   };
 }
 
@@ -680,6 +933,21 @@ export function antigravityPaths(dir) {
 export function antigravityWanted(opts, paths, dirExists = isDir) {
   if (!opts.antigravity) return { ok: false, reason: "--no-antigravity なので" };
   if (!dirExists(paths.antigravityDir)) return { ok: false, reason: `Antigravity の設定フォルダ（${paths.antigravityDir}）が無いので` };
+  return { ok: true };
+}
+
+/** Codex の設定フォルダ（~/.codex）から、MCP の設定の場所を決める */
+export function codexPaths(dir) {
+  return { codexDir: dir, codexConfig: path.join(dir, "config.toml") };
+}
+
+/**
+ * Codex に登録するか。--no-codex か、設定フォルダ（~/.codex）が無い（Codex を入れていない）なら登録しない。
+ * 入れていない PC に ~/.codex や ~/.agents/skills を作らないため。
+ */
+export function codexWanted(opts, paths, dirExists = isDir) {
+  if (!opts.codex) return { ok: false, reason: "--no-codex なので" };
+  if (!dirExists(paths.codexDir)) return { ok: false, reason: `Codex の設定フォルダ（${paths.codexDir}）が無いので` };
   return { ok: true };
 }
 
@@ -814,12 +1082,16 @@ export function realWriteLocations(env = process.env, home = os.homedir(), tmpDi
     path.join(home, "Desktop"),
     path.join(home, "OneDrive", "Desktop"),
     path.join(home, ".gemini"),
+    path.join(home, ".codex"),
+    path.join(home, ".agents"),
     mxstudioHome(home),
     // 以前の版の置き場所（残っている PC があるので、試験ではここも拒む）
     path.join(localDir, "mxstudio"),
   ];
   const configDir = typeof env.CLAUDE_CONFIG_DIR === "string" ? env.CLAUDE_CONFIG_DIR.trim() : "";
   if (configDir !== "" && !isInside(tmpDir, configDir)) list.push(path.join(configDir, ".claude.json"));
+  const codexHome = typeof env.CODEX_HOME === "string" ? env.CODEX_HOME.trim() : "";
+  if (codexHome !== "" && !isInside(tmpDir, codexHome)) list.push(codexHome);
   return list;
 }
 
@@ -840,8 +1112,15 @@ export function testSandboxProblem(opts, tmpDir = os.tmpdir(), realLocations = r
     ["desktopDir", "--desktop-dir"],
     ...(opts.skills ? [["claudeSkillsDir", "--claude-skills-dir"]] : []),
     ...(opts.antigravity ? [["antigravityDir", "--antigravity-dir"]] : []),
+    ...(opts.codex ? [["codexDir", "--codex-dir"], ...(opts.skills ? [["agentsSkillsDir", "--agents-skills-dir"]] : [])] : []),
   ]) {
-    const unless = { claudeSkillsDir: "（Skill を入れないなら --no-skills）", antigravityDir: "（Antigravity に登録しないなら --no-antigravity）" }[key] ?? "";
+    const unless =
+      {
+        claudeSkillsDir: "（Skill を入れないなら --no-skills）",
+        antigravityDir: "（Antigravity に登録しないなら --no-antigravity）",
+        codexDir: "（Codex に登録しないなら --no-codex）",
+        agentsSkillsDir: "（Codex に Skill を入れないなら --no-codex か --no-skills）",
+      }[key] ?? "";
     if (!opts[key]) problems.push(`${flag} がありません${unless}`);
     else if (!isInside(tmpDir, opts[key])) problems.push(`${flag} が一時フォルダ（${tmpDir}）の外です: ${opts[key]}`);
     else if (realLocations.some((real) => isSameOrInside(real, opts[key]))) problems.push(`${flag} が本物の書き先です: ${opts[key]}`);
@@ -1249,7 +1528,7 @@ async function install(opts, paths, out) {
     bridgeEntry: null,
     port: null,
     appUrl: null,
-    installed: { claudeCode: false, claudeDesktop: false, antigravity: false, startup: null, desktopShortcut: null, skills: [], antigravitySkills: [] },
+    installed: { claudeCode: false, claudeDesktop: false, antigravity: false, codex: false, startup: null, desktopShortcut: null, skills: [], antigravitySkills: [], codexSkills: [] },
     previous: state.previous ?? {},
     backups: Array.isArray(state.backups) ? state.backups : [],
   };
@@ -1409,7 +1688,12 @@ async function install(opts, paths, out) {
   if (antigravity.ok) registerAntigravity(opts, paths, buildAntigravityEntry(nodePath, found.entry, port), found.entry, lastWritten, result, out);
   else out.push(step("skip", "antigravity", `${antigravity.reason}、Antigravity には登録していません。`));
 
-  // --- Skill（アプリ既定と利用者の Skill を Claude Code の ~/.claude/skills と Antigravity の ~/.gemini/skills へ）---
+  // --- Codex（入っているときだけ）---
+  const codex = codexWanted(opts, paths);
+  if (codex.ok) registerCodex(opts, paths, nodePath, found.entry, port, lastWritten, result, out);
+  else out.push(step("skip", "codex", `${codex.reason}、Codex には登録していません。`));
+
+  // --- Skill（アプリ既定と利用者の Skill を Claude Code の ~/.claude/skills、Antigravity の ~/.gemini/skills、Codex の ~/.agents/skills へ）---
   installSkills(opts, paths, state, result, out);
 
   // --- ログイン時の自動起動 ---
@@ -1652,6 +1936,67 @@ function registerAntigravity(opts, paths, entry, bridgeEntry, lastWritten, resul
 }
 
 /**
+ * Codex（~/.codex/config.toml の [mcp_servers.mxstudio]。デスクトップ版・CLI・IDE 拡張が共有する）に登録する。
+ * JSON の設定と同じく、読めないものには触らず、書き換える前に控えを取り、置き換えた前の設定は取り消しで戻せるように覚える。
+ */
+function registerCodex(opts, paths, nodePath, bridgeEntry, port, lastWritten, result, out) {
+  const id = "codex";
+  const configPath = paths.codexConfig;
+  let text = "";
+  if (existsSync(configPath)) {
+    try {
+      text = readFileSync(configPath, "utf8");
+    } catch (err) {
+      out.push(step("error", id, `${configPath} を読めないので触りません（${err instanceof Error ? err.message : String(err)}）。`));
+      return false;
+    }
+  }
+  const found = findCodexTable(text);
+  if (found.otherForm) {
+    out.push(
+      step("warn", id, `Codex の設定（${configPath}）に、[mcp_servers.${MCP_NAME}] の表ではない書き方の ${MCP_NAME} があるので触りません。`, `表の形に書き直すか消してから、この導入をもう一度実行してください。`),
+    );
+    return false;
+  }
+  if (found.entry?.unreadable) {
+    out.push(step("warn", id, `Codex の設定の [mcp_servers.${MCP_NAME}] を読めないので触りません（${configPath}）。`, "中身を直すか消してから、この導入をもう一度実行してください。"));
+    return false;
+  }
+  const block = buildCodexBlock(nodePath, bridgeEntry, port);
+  if (found.block !== null && found.block.map((l) => l.trimEnd()).join("\n") === block) {
+    result.installed.codex = true;
+    out.push(step("ok", id, `Codex には既に同じ設定が入っています（${configPath}）。`));
+    return false;
+  }
+  if (opts.dryRun) {
+    out.push(step("skip", id, `Codex に ${MCP_NAME} を登録します（${configPath}）。--dry-run なので書いていません。`));
+    return false;
+  }
+  let backup = null;
+  try {
+    backup = backupFile(configPath, paths.backupDir);
+  } catch (err) {
+    out.push(step("error", id, `控えを取れないので書き換えません: ${err instanceof Error ? err.message : String(err)}`));
+    return false;
+  }
+  if (backup) result.backups.push(backup);
+  const previousEntry = found.entry;
+  const classification = classifyPrevious(previousEntry, { bridgeEntry, lastWritten });
+  result.previous = rememberPrevious(result.previous, "codex", previousEntry, backup, bridgeEntry, classification);
+  try {
+    writeTextFileAtomic(configPath, upsertCodexTable(text, block));
+  } catch (err) {
+    out.push(step("error", id, `Codex の設定を書けませんでした: ${err instanceof Error ? err.message : String(err)}`, backup ? `控え: ${backup}` : undefined));
+    return false;
+  }
+  result.installed.codex = true;
+  const hints = [backup ? `書き換える前の控え: ${backup}` : null, "デスクトップ版・CLI・IDE 拡張が同じ設定を読みます。新しい会話から mxstudio のツールが使えます（出てこなければ Codex を開き直してください）。"].filter(Boolean);
+  out.push(step("ok", id, `Codex に ${MCP_NAME} を登録しました${replacedNote(classification.kind)}（${configPath}）。`, hints.join(" ")));
+  out.push(...previousEntrySteps(id, previousEntry, classification, backup));
+  return true;
+}
+
+/**
  * mcpServers を持つ JSON の設定ファイルに mxstudio を 1 ブロックだけ書く（Claude Desktop・Antigravity）。
  * 読めないファイルには触らず、書き換える前に控えを取り、置き換えた前の設定は取り消しで戻せるように覚える。
  * 書いた（書くことになった）ときだけ true を返す。
@@ -1786,14 +2131,6 @@ function readTextIfFile(file) {
   return isFile(file) ? readFileSync(file, "utf8") : null;
 }
 
-function readdirSafe(dir) {
-  try {
-    return readdirSync(dir);
-  } catch {
-    return [];
-  }
-}
-
 function installSkills(opts, paths, state, result, out) {
   if (!opts.skills) {
     out.push(step("skip", "skills", "--no-skills なので Claude Code に Skill を入れていません。"));
@@ -1818,11 +2155,13 @@ function installSkills(opts, paths, state, result, out) {
     return;
   }
   for (const t of targets) copySkillsTo(t, skills, paths, state, result, out);
+  // 写した先を記録する。橋渡しが「写しが元と揃っているか」を見るのに使う（src/bridge/freshness.ts の skillCopyProblems）
+  result.skillDirs = Object.fromEntries(targets.map((t) => [t.record, t.dir]));
 }
 
 /**
  * Skill を写す先。Claude Code（~/.claude/skills）と、Antigravity に登録するなら ~/.gemini/skills
- * （Antigravity の 2.0・IDE・agy CLI のどれからも読める場所）。
+ * （Antigravity の 2.0・IDE・agy CLI のどれからも読める場所）、Codex に登録するなら ~/.agents/skills（Codex が読む個人の Skill）。
  * record は setup.json の installed の下の名前。step の id と控えの名前も先ごとに分ける。
  */
 export function skillTargets(opts, paths, dirExists = isDir) {
@@ -1844,6 +2183,16 @@ export function skillTargets(opts, paths, dirExists = isDir) {
       record: "antigravitySkills",
       backupPrefix: "antigravity-skill",
       readyHint: "Antigravity（2.0・IDE・agy CLI）は新しい会話から使えます。",
+    });
+  }
+  if (codexWanted(opts, paths, dirExists).ok) {
+    targets.push({
+      id: "codex_skills",
+      label: "Codex",
+      dir: paths.codexSkillsDir,
+      record: "codexSkills",
+      backupPrefix: "codex-skill",
+      readyHint: "Codex（デスクトップ・CLI・IDE 拡張）は新しい会話から使えます（~/.agents/skills はほかのエージェントも読むことがあります）。",
     });
   }
   return targets;
@@ -1930,6 +2279,8 @@ function uninstallSkills(opts, paths, state, out) {
     ...(opts.antigravity && recordedSkills(state, "antigravitySkills").length > 0
       ? [{ id: "antigravity_skills", label: "Antigravity", dir: paths.antigravitySkillsDir, record: "antigravitySkills" }]
       : []),
+    // Codex の分も、記録があるときだけ。--no-codex なら触らない
+    ...(opts.codex && recordedSkills(state, "codexSkills").length > 0 ? [{ id: "codex_skills", label: "Codex", dir: paths.codexSkillsDir, record: "codexSkills" }] : []),
   ];
   for (const t of targets) uninstallSkillsFrom(t, opts, paths, state, out);
 }
@@ -1977,15 +2328,59 @@ function uninstallSkillsFrom(target, opts, paths, state, out) {
   if (failed.length > 0) out.push(step("warn", target.id, `Skill を消せませんでした: ${failed.join(" / ")}`));
 }
 
-/** Skill が記録どおりに入っているか。target を省くと Claude Code の分 */
+/**
+ * 写す元の Skill（アプリ既定と、導入が写す利用者の Skill）と、写し（dir）の中身を比べる。
+ * changed: 中身が違う / missing: 写しが無い（新しく足した・save_skill で保存した Skill など）。
+ * 比べ方は橋渡しの src/bridge/freshness.ts の skillCopyProblems と同じ。
+ */
+export function compareSkillCopies(repoRoot, stateDir, dir) {
+  const defaults = readRepoSkills(repoRoot);
+  const user = readUserSkills(stateDir, new Set(defaults.map((sk) => sk.name))).skills;
+  const changed = [];
+  const missing = [];
+  const same = [];
+  for (const skill of [...defaults, ...user]) {
+    const copy = readTextIfFile(path.join(dir, skill.name, SKILL_FILE));
+    if (copy === null) missing.push(skill.name);
+    else if (normalizeSkillText(copy) !== skill.text) changed.push(skill.name);
+    else same.push(skill.name);
+  }
+  return { changed, missing, same };
+}
+
+/** Skill の写しが今の元と揃っているか。target を省くと Claude Code の分 */
 export function skillsStatusStep(paths, state, target = { id: "skills", label: "Skill", dir: paths.claudeSkillsDir, record: "skills" }) {
   const { id, label, dir, record } = target;
   const recorded = Array.isArray(state?.installed?.[record]) ? state.installed[record].map((sk) => sk.name) : [];
   if (recorded.length === 0) return step("warn", id, `${label}: この導入の記録がありません（${dir}）。`);
-  const present = readdirSafe(dir).filter((name) => isFile(path.join(dir, name, SKILL_FILE)));
-  const missing = recorded.filter((name) => !present.includes(name));
-  if (missing.length > 0) return step("warn", id, `${label}: ${missing.join(", ")} がありません（${dir}）。`, "導入をもう一度実行すると入れ直します。");
-  return step("ok", id, `${label}: ${recorded.join(", ")}（${dir}）`);
+  const { changed, missing, same } = compareSkillCopies(paths.repoRoot, paths.stateDir, dir);
+  if (changed.length > 0 || missing.length > 0) {
+    const parts = [changed.length > 0 ? `中身が元と違う: ${changed.join(", ")}` : null, missing.length > 0 ? `まだ配っていない: ${missing.join(", ")}` : null].filter(Boolean);
+    return step("warn", id, `${label}: 写しが今の Skill と揃っていません（${parts.join("／")}。${dir}）。`, "導入をもう一度実行すると写し直します（書き換えていた写しは、控えを取ってから置き換えます）。新しい会話から使えます。");
+  }
+  return step("ok", id, `${label}: ${same.join(", ")}（${dir}。元と同じ中身）`);
+}
+
+/**
+ * 動いている橋渡しが、起動したあとに更新されたコードで動いていないか（health の stale）。
+ * stale を載せない古い版の橋渡しなら null（何も言わない）。
+ */
+export function bridgeCodeStep(probe) {
+  if (probe?.state !== "bridge" || typeof probe.health?.stale !== "boolean") return null;
+  if (!probe.health.stale) return step("ok", "bridge_code", "動いている橋渡しは、今のリポジトリのコードで動いています。");
+  return step(
+    "warn",
+    "bridge_code",
+    "動いている橋渡しは、起動したあとにリポジトリのコードが更新されています（中継は古いコードのままです）。",
+    "止めて起動し直してください。Claude が起動したものならその Claude を終了し、自動起動や導入で起動したものは docs/local.md の「今すぐ橋渡しを止める」のあと導入をもう一度実行します。",
+  );
+}
+
+/** 作業画面のビルドが元より古くないか */
+export function buildStatusStep(repoRoot) {
+  const reason = needsBuild(repoRoot);
+  if (reason === null) return step("ok", "build", "作業画面のビルドは最新です（dist/app）。");
+  return step("warn", "build", `${reason}。`, "導入をもう一度実行するとビルドし直します。そのあと作業画面を再読み込みしてください。");
 }
 
 /** 作業画面を開く */
@@ -2104,6 +2499,10 @@ async function uninstall(opts, paths, out) {
   if (opts.antigravity && (state?.installed?.antigravity || existsSync(paths.antigravityConfig))) {
     unregister(opts, paths, paths.antigravityConfig, state?.previous?.antigravity, bridgeEntry, lastWritten, "antigravity", "Antigravity", out);
   }
+  // Codex も同じく、設定ファイルがあるか、記録に入れたとあるときだけ
+  if (opts.codex && (state?.installed?.codex || existsSync(paths.codexConfig))) {
+    unregisterCodex(opts, paths, state?.previous?.codex, bridgeEntry, lastWritten, out);
+  }
 
   // --- Skill ---
   uninstallSkills(opts, paths, state, out);
@@ -2205,6 +2604,59 @@ function unregister(opts, paths, configPath, previous, bridgeEntry, lastWritten,
   if (id === "claude_desktop") out.push(step("warn", "claude_desktop_restart", "Claude Desktop は再起動するまで設定の変更を読みません。"));
 }
 
+/** Codex の設定（config.toml）から mxstudio の表を外す。置き換える前の設定があれば控えから戻す */
+function unregisterCodex(opts, paths, previous, bridgeEntry, lastWritten, out) {
+  const id = "codex";
+  const configPath = paths.codexConfig;
+  if (!existsSync(configPath)) {
+    out.push(step("ok", id, `Codex の設定ファイルはありません（${configPath}）。`));
+    return;
+  }
+  let text;
+  try {
+    text = readFileSync(configPath, "utf8");
+  } catch (err) {
+    out.push(step("warn", id, `Codex の設定を読めないので触りません（${err instanceof Error ? err.message : String(err)}）。`));
+    return;
+  }
+  const found = findCodexTable(text);
+  if (found.start < 0) {
+    out.push(step("ok", id, `Codex に ${MCP_NAME} の設定はありません。`));
+    return;
+  }
+  if (found.entry?.unreadable || !isOurEntry(found.entry, bridgeEntry)) {
+    out.push(step("warn", id, `Codex の ${MCP_NAME} は、この導入が作ったものではないようなので残します: ${JSON.stringify(redactEntry(found.entry))}`, "外すなら手で消してください。"));
+    return;
+  }
+  let restore = null;
+  if (previous) {
+    try {
+      const saved = findCodexTable(readFileSync(previous.backup, "utf8"));
+      if (saved.block !== null && !saved.entry?.unreadable) {
+        const kind = classifyPrevious(saved.entry, { bridgeEntry, lastWritten });
+        if (kind.kind === "user") restore = saved.block.join("\n");
+        else out.push(step("warn", id, `Codex の控えにある前の設定は、${kind.kind === "ours" ? "この導入が書いたもの" : "指しているファイルが見つからないもの"}なので戻しません。外すだけにします。`));
+      }
+    } catch {
+      // 控えが無い・読めない
+    }
+    if (restore === null) out.push(step("warn", id, `Codex の前の設定を控えから戻せませんでした（${previous.backup ?? "控え無し"}）。外すだけにします。`));
+  }
+  if (opts.dryRun) {
+    out.push(step("skip", id, `Codex から ${MCP_NAME} を${restore ? "前の設定に戻します" : "外します"}（${configPath}）。--dry-run なので書いていません。`));
+    return;
+  }
+  let backup = null;
+  try {
+    backup = backupFile(configPath, paths.backupDir);
+    writeTextFileAtomic(configPath, removeCodexTable(text, restore).next);
+  } catch (err) {
+    out.push(step("error", id, `Codex の設定を書けませんでした: ${err instanceof Error ? err.message : String(err)}`, backup ? `控え: ${backup}` : undefined));
+    return;
+  }
+  out.push(step("ok", id, `Codex から ${MCP_NAME} を${restore ? "外し、前の設定に戻しました" : "外しました"}（${configPath}）。`, backup ? `書き換える前の控え: ${backup}` : undefined));
+}
+
 // ---------------------------------------------------------------------------
 // 状態を見る
 // ---------------------------------------------------------------------------
@@ -2219,7 +2671,11 @@ async function status(opts, paths, out) {
   const port = opts.port ?? (Number.isInteger(state?.port) ? state.port : DEFAULT_PORT);
   // 橋渡しが 1 つ動いているか（/_mxstudio/health で確かめる）。隣のポートに残っている古い版も知らせる
   const entryForProtocol = typeof state?.bridgeEntry === "string" ? state.bridgeEntry : resolveBridgeEntry(paths.repoRoot, opts.bridge).entry;
-  out.push(singleBridgeStep(port, await probeBridge(port), true, expectedPeerProtocol(entryForProtocol)));
+  const probe = await probeBridge(port);
+  out.push(singleBridgeStep(port, probe, true, expectedPeerProtocol(entryForProtocol)));
+  const codeStep = bridgeCodeStep(probe);
+  if (codeStep) out.push(codeStep);
+  out.push(buildStatusStep(paths.repoRoot));
   const others = await findOtherBridges(port);
   if (others.length > 0) out.push(otherBridgesStep(others));
 
@@ -2239,10 +2695,24 @@ async function status(opts, paths, out) {
     }
   }
   if (!antigravity.ok) out.push(step("skip", "antigravity", `${antigravity.reason}、Antigravity は見ていません。`));
+  const codex = codexWanted(opts, paths);
+  if (!codex.ok) out.push(step("skip", "codex", `${codex.reason}、Codex は見ていません。`));
+  else if (!existsSync(paths.codexConfig)) out.push(step("warn", "codex", `Codex の設定ファイルがありません（${paths.codexConfig}）。`));
+  else {
+    let found = null;
+    try {
+      found = findCodexTable(readFileSync(paths.codexConfig, "utf8"));
+    } catch (err) {
+      out.push(step("warn", "codex", `Codex の設定を読めません（${err instanceof Error ? err.message : String(err)}）。`));
+    }
+    if (found?.block) out.push(step("ok", "codex", `Codex: ${JSON.stringify(redactEntry(found.entry))}`));
+    else if (found) out.push(step("warn", "codex", `Codex に ${MCP_NAME} の設定はありません。`));
+  }
   out.push(skillsStatusStep(paths, state));
   if (antigravity.ok) {
     out.push(skillsStatusStep(paths, state, { id: "antigravity_skills", label: "Antigravity の Skill", dir: paths.antigravitySkillsDir, record: "antigravitySkills" }));
   }
+  if (codex.ok) out.push(skillsStatusStep(paths, state, { id: "codex_skills", label: "Codex の Skill", dir: paths.codexSkillsDir, record: "codexSkills" }));
   const startupPath = path.join(paths.startupDir, STARTUP_SHORTCUT);
   out.push(existsSync(startupPath) ? step("ok", "autostart", `自動起動: ${startupPath}`) : step("warn", "autostart", `自動起動: ありません（${startupPath}）`));
   // デスクトップは .lnk（アプリ窓）か .url（既定のブラウザ）のどちらか 1 つがあればよい
@@ -2276,10 +2746,11 @@ function printText(mode, steps, result, paths, dryRun) {
     if (errors === 0) {
       lines.push(warns === 0 ? "導入できました。" : `導入できました（警告 ${warns} 件。上の [警告] の行を読んでください）。`);
       if (result.appUrl) lines.push(`  作業画面: ${result.appUrl}${result.installed?.desktopShortcut ? "（デスクトップのショートカットからも開けます）" : ""}`);
-      if (result.port) lines.push(`  橋渡し: ポート ${result.port} の 1 つだけ（作業画面と Claude Code / Claude Desktop / Antigravity で共有します）`);
+      if (result.port) lines.push(`  橋渡し: ポート ${result.port} の 1 つだけ（作業画面と Claude Code / Claude Desktop / Antigravity / Codex で共有します）`);
       if (result.installed?.claudeCode) lines.push("  Claude Code: 起動し直すと mxstudio のツールが使えます。");
       if (result.installed?.claudeDesktop) lines.push("  Claude Desktop: いったん終了して開き直してください（再起動するまで設定を読みません）。");
       if (result.installed?.antigravity) lines.push("  Antigravity: 新しい会話から mxstudio のツールが使えます（2.0・IDE・agy CLI 共通。出てこなければ開き直してください）。");
+      if (result.installed?.codex) lines.push("  Codex: 新しい会話から mxstudio のツールが使えます（デスクトップ・CLI・IDE 拡張共通。出てこなければ開き直してください）。");
       lines.push(`  取り消す: ${undo}`);
       if (result.installed?.startup) lines.push(`  自動起動だけやめる: ${result.installed.startup} を消す`);
     } else {

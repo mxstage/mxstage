@@ -60,6 +60,8 @@ export interface BridgeCoordinatorOptions {
   log?: (line: string) => void;
   /** 利用者の Skill のフォルダ（~/.config/mxstudio/skills） */
   userSkillsDir?: string | null;
+  /** 起動したあとにコードが変わったか（primary のとき health の stale に載せる。src/bridge/freshness.ts） */
+  codeStale?: () => boolean;
 }
 
 export class BridgeCoordinator {
@@ -180,6 +182,17 @@ export class BridgeCoordinator {
     return attempt;
   }
 
+  /**
+   * ポートを持つ橋渡し（primary）のコードが、起動したあとに変わったか。
+   * primary なら自分の値、client なら primary の health に載った値。分からなければ null（古い版の primary など）。
+   */
+  async primaryStale(): Promise<boolean | null> {
+    if (this.roleValue === "primary") return this.opts.codeStale?.() ?? null;
+    if (this.roleValue !== "client") return null;
+    const probe = await probeBridgeHealth(this.port, this.opts.probeTimeoutMs);
+    return probe.kind === "bridge" && typeof probe.health.stale === "boolean" ? probe.health.stale : null;
+  }
+
   async close(): Promise<void> {
     const previous = this.roleValue;
     this.roleValue = "closed";
@@ -206,6 +219,7 @@ export class BridgeCoordinator {
       keyStore: this.opts.keyStore,
       version: this.opts.version,
       userSkillsDir: this.opts.userSkillsDir ?? null,
+      ...(this.opts.codeStale !== undefined ? { codeStale: this.opts.codeStale } : {}),
     });
   }
 

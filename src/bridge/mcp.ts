@@ -2,6 +2,8 @@
 // 作業タブへ中継する。runAt:"worker" のツール（open_grid / list_skills / get_skill / save_skill /
 // create_import_session）は橋渡しの中で完結させる。
 // 会話（MCP のセッション）で最初のツール呼び出しの結果には、基本手順の Skill と利用者の Skill の一覧を添える（sessionGuide）。
+// get_status と最初のツール呼び出しの結果には、古くなっているもの（橋渡しのコード・作業画面のビルド・配った Skill の写し）と
+// 直し方も添える（src/bridge/freshness.ts）。
 
 import { McpServer } from "@modelcontextprotocol/server";
 import type { CallToolResult, ServerContext } from "@modelcontextprotocol/server";
@@ -10,6 +12,8 @@ import { RELAY_TIMEOUTS, RelayErrorCode, relayErrorMessage } from "../shared/pro
 import type { HubInvokeRequest, HubInvokeResponse, HubRpc, InvokeProgress } from "../shared/protocol.ts";
 import { TOOL_DEFS, TOOL_NAMES, isReadOnlyTool, publishedInputSchema } from "../shared/toolDefs.ts";
 import type { ToolName } from "../shared/toolDefs.ts";
+import { updatesText } from "./freshness.ts";
+import type { UpdateNotice } from "./freshness.ts";
 import { readSkillCatalog, saveUserSkill } from "./skills.ts";
 import { createProgressForwarder, progressTokenOf } from "./progress.ts";
 import { IMPORT_MAX_BYTES } from "./importUpload.ts";
@@ -56,6 +60,31 @@ export function withGuide(result: CallToolResult, guide: string): CallToolResult
   return { ...result, content: [...(result.content ?? []), { type: "text", text: guide }] };
 }
 
+/**
+ * get_status の結果に更新の知らせを足す。structuredContent には updates（空なら載せない）、文字の内容には読む文を足す。
+ * 知らせが無ければ結果をそのまま返す。
+ */
+export function withUpdates(result: CallToolResult, notices: readonly UpdateNotice[]): CallToolResult {
+  const text = updatesText(notices);
+  if (text === null) return result;
+  const structured = result.structuredContent;
+  return {
+    ...result,
+    ...(structured !== undefined && structured !== null && typeof structured === "object" ? { structuredContent: { ...structured, updates: notices } } : {}),
+    content: [...(result.content ?? []), { type: "text", text }],
+  };
+}
+
+/** 知らせを集める。失敗しても呼び出しは止めない（知らせは添え物） */
+async function collectUpdates(deps: BridgeMcpDeps): Promise<UpdateNotice[]> {
+  if (deps.checkUpdates === undefined) return [];
+  try {
+    return await deps.checkUpdates();
+  } catch {
+    return [];
+  }
+}
+
 const RELAY_ERROR_NAMES = new Map<number, string>(Object.entries(RelayErrorCode).map(([name, code]) => [code, name]));
 
 export interface BridgeMcpDeps {
@@ -68,6 +97,8 @@ export interface BridgeMcpDeps {
   version: string;
   /** 利用者の Skill のフォルダ（~/.config/mxstudio/skills）。null なら既定の Skill だけ */
   userSkillsDir?: string | null;
+  /** 古くなっているものを調べる（src/bridge/freshness.ts の checkUpdates）。省くと知らせを添えない */
+  checkUpdates?: () => Promise<UpdateNotice[]>;
 }
 
 export function jsonResult(value: Record<string, unknown>): CallToolResult {
@@ -257,10 +288,17 @@ export function buildBridgeMcpServer(deps: BridgeMcpDeps): McpServer {
       name,
       { title: def.title, description: def.description, inputSchema, annotations: def.annotations },
       async (args: Record<string, unknown>, ctx: ServerContext) => {
-        const result = def.runAt === "tab" ? await runTabToolWithProgress(deps, name, args, ctx) : await runWorkerTool(deps, name, args);
-        if (guided) return result;
+        let result = def.runAt === "tab" ? await runTabToolWithProgress(deps, name, args, ctx) : await runWorkerTool(deps, name, args);
+        const first = !guided;
         guided = true;
-        return withGuide(result, sessionGuide(deps.userSkillsDir ?? null));
+        // 更新の知らせは get_status のたびと、会話で最初の呼び出しに添える（最初が get_status なら 1 回だけ）。
+        // get_status 以外の結果の structuredContent は変えず、文だけを足す
+        if (name === "get_status") result = withUpdates(result, await collectUpdates(deps));
+        else if (first) {
+          const text = updatesText(await collectUpdates(deps));
+          if (text !== null) result = withGuide(result, text);
+        }
+        return first ? withGuide(result, sessionGuide(deps.userSkillsDir ?? null)) : result;
       },
     );
   }

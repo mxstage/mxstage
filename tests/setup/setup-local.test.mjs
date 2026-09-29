@@ -26,8 +26,18 @@ import { fileURLToPath } from "node:url";
 import {
   antigravityPaths,
   antigravityWanted,
+  buildCodexBlock,
+  codexPaths,
+  codexWanted,
+  findCodexTable,
+  removeCodexTable,
+  tomlTableKey,
+  tomlValue,
+  upsertCodexTable,
   bridgeArgs,
+  bridgeCodeStep,
   bridgeTestEnv,
+  buildStatusStep,
   buildAntigravityEntry,
   buildCodeEntry,
   buildDesktopEntry,
@@ -120,6 +130,8 @@ function realTargets() {
     shell.desktop ? { path: shell.desktop, type: "dir", owner: "Windows / OneDrive" } : null,
     { path: path.join(home, ".gemini", "config", "mcp_config.json"), type: "json", owner: "Antigravity" },
     { path: path.join(home, ".gemini", "skills"), type: "dir", owner: "Antigravity" },
+    { path: path.join(process.env.CODEX_HOME || path.join(home, ".codex"), "config.toml"), type: "toml", owner: "Codex" },
+    { path: path.join(home, ".agents", "skills"), type: "dir", owner: "Codex などのエージェント" },
     // ほかに書くプログラムが無い場所。更新時刻が変わったらそれだけで失敗にする
     { path: path.join(home, ".config", "mxstudio"), type: "strict", owner: null },
     // 導入の記録と控え。控えのフォルダが既にあると、中に控えが増えても親フォルダの更新時刻は変わらないので、別に見る
@@ -143,6 +155,15 @@ function realTargets() {
 }
 
 /** mcpServers.mxstudio だけを読む（中身は画面に出さず、比べるだけ） */
+/** Codex の config.toml の [mcp_servers.mxstudio] の表（読むだけ） */
+function codexTableOf(file) {
+  try {
+    return JSON.stringify(findCodexTable(readFileSync(file, "utf8")).block);
+  } catch (err) {
+    return err && err.code === "ENOENT" ? "(無い)" : "(読めない)";
+  }
+}
+
 function mxstudioEntryOf(file) {
   for (let i = 0; i < 10; i++) {
     try {
@@ -167,6 +188,10 @@ function snapshotReal(targets) {
     const snap = { ...t, exists: Boolean(st), mtimeMs: st ? st.mtimeMs : null };
     if (st && t.type === "json") {
       snap.entry = mxstudioEntryOf(t.path);
+      snap.tmp = existsSync(`${t.path}.mxstudio.tmp`);
+    }
+    if (st && t.type === "toml") {
+      snap.entry = codexTableOf(t.path);
       snap.tmp = existsSync(`${t.path}.mxstudio.tmp`);
     }
     if (st && st.isDirectory()) {
@@ -280,13 +305,41 @@ test("antigravityPaths / antigravityWanted / skillTargets: ~/.gemini がある�
   assert.equal(antigravityWanted(on, paths, () => true).ok, true);
   assert.match(antigravityWanted(on, paths, () => false).reason, /設定フォルダ.*が無い/);
   assert.match(antigravityWanted(parseArgs(["--no-antigravity"]), paths, () => true).reason, /--no-antigravity/);
-  assert.deepEqual(skillTargets(on, paths, () => true).map((t) => [t.id, t.dir]), [
+  // Codex の分は別の試験で見る（ここでは Antigravity の分だけ）
+  const noCodex = parseArgs(["--no-codex"]);
+  assert.deepEqual(skillTargets(noCodex, paths, () => true).map((t) => [t.id, t.dir]), [
     ["skills", paths.claudeSkillsDir],
     ["antigravity_skills", ag.antigravitySkillsDir],
   ]);
   assert.deepEqual(skillTargets(on, paths, () => false).map((t) => t.id), ["skills"]);
   // Antigravity の mcp_config.json には type を書かない（stdio は command / args）
   assert.deepEqual(buildAntigravityEntry("C:\\node.exe", "C:\\r\\src\\bridge\\cli.mjs", 8788), { command: "C:\\node.exe", args: ["C:\\r\\src\\bridge\\cli.mjs", "--port", "8788"] });
+});
+
+test("bridgeCodeStep / buildStatusStep: 動いている橋渡しの古さ（health の stale）と、作業画面のビルドの古さを出す", () => {
+  assert.equal(bridgeCodeStep({ state: "down", health: null }), null);
+  assert.equal(bridgeCodeStep({ state: "bridge", health: { name: "mxstudio-bridge", version: "0.1.0", protocol: 1 } }), null, "stale を載せない古い版には何も言わない");
+  assert.equal(bridgeCodeStep({ state: "bridge", health: { name: "mxstudio-bridge", version: "0.1.0", protocol: 1, stale: false } }).level, "ok");
+  const stale = bridgeCodeStep({ state: "bridge", health: { name: "mxstudio-bridge", version: "0.1.0", protocol: 1, stale: true } });
+  assert.equal(stale.level, "warn");
+  assert.match(stale.hint, /起動し直して/);
+
+  const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-buildstatus-"));
+  try {
+    assert.equal(buildStatusStep(dir).level, "warn", "ビルドが無い");
+    mkdirSync(path.join(dir, "dist", "app"), { recursive: true });
+    writeFileSync(path.join(dir, "dist", "app", "index.html"), "<html>", "utf8");
+    assert.equal(buildStatusStep(dir).level, "ok");
+    mkdirSync(path.join(dir, "src", "app"), { recursive: true });
+    const later = new Date(Date.now() + 60_000);
+    writeFileSync(path.join(dir, "src", "app", "main.tsx"), "x", "utf8");
+    utimesSync(path.join(dir, "src", "app", "main.tsx"), later, later);
+    const s = buildStatusStep(dir);
+    assert.equal(s.level, "warn");
+    assert.match(s.message, /src\/app/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("Antigravity: 入っていれば登録し Skill も写す（ほかのサーバは残す）。取り消しで外して Skill も消す。入っていなければ触らない", { timeout: 120_000 }, async () => {
@@ -330,10 +383,34 @@ test("Antigravity: 入っていれば登録し Skill も写す（ほかのサー
     assert.deepEqual(state.installed.antigravitySkills.map((sk) => sk.name), repoSkills.map((sk) => sk.name));
     assert.equal(state.previous.antigravity, null, "前に mxstudio は無かったので戻す先は無い");
 
+    // 写した先を記録する（橋渡しが写しの古さを見るのに使う）
+    assert.deepEqual(state.skillDirs, { skills: path.join(dir, "claude-skills"), antigravitySkills: agSkills });
+
     // --- 状態を見る ---
     const status = await runJson([...common, "--status"]);
     assert.equal(stepOf(status.json, "antigravity")[0].level, "ok");
     assert.equal(stepOf(status.json, "antigravity_skills")[0].level, "ok");
+    assert.match(stepOf(status.json, "antigravity_skills")[0].message, /元と同じ中身/);
+
+    // 写しが古い・まだ配っていない Skill があれば、中身を比べて名前を出す
+    const copy = path.join(agSkills, repoSkills[0].name, "SKILL.md");
+    writeFileSync(copy, `${repoSkills[0].text}\n古い写し\n`, "utf8");
+    mkdirSync(path.join(dir, "state", "skills", "new-flow"), { recursive: true });
+    writeFileSync(path.join(dir, "state", "skills", "new-flow", "SKILL.md"), "---\nname: new-flow\ndescription: \"新しい手順\"\n---\n\n# 新しい手順\n", "utf8");
+    const stale = await runJson([...common, "--status"]);
+    for (const id of ["skills", "antigravity_skills"]) {
+      const s = stepOf(stale.json, id)[0];
+      assert.equal(s.level, "warn", id);
+      assert.match(s.message, /まだ配っていない: new-flow/, id);
+      assert.match(s.hint, /導入をもう一度実行/, id);
+    }
+    assert.match(stepOf(stale.json, "antigravity_skills")[0].message, new RegExp(`中身が元と違う: ${repoSkills[0].name}`));
+    assert.doesNotMatch(stepOf(stale.json, "skills")[0].message, /中身が元と違う/);
+    // 導入し直せば揃う
+    assert.equal(await quietMain(common), 0);
+    for (const id of ["skills", "antigravity_skills"]) assert.equal(stepOf((await runJson([...common, "--status"])).json, id)[0].level, "ok", id);
+    rmSync(path.join(dir, "state", "skills", "new-flow"), { recursive: true, force: true });
+    assert.equal(await quietMain(common), 0);
 
     // --- もう一度（冪等）---
     const again = await runJson(common);
@@ -347,6 +424,156 @@ test("Antigravity: 入っていれば登録し Skill も写す（ほかのサー
     assert.deepEqual(after.mcpServers["chrome-devtools-mcp"], other);
     for (const skill of repoSkills) assert.equal(existsSync(path.join(agSkills, skill.name)), false, `${skill.name} は消す`);
     assert.equal(existsSync(path.join(agSkills, "cloudflare", "SKILL.md")), true, "利用者の Skill は消さない");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("--no-codex なら Codex の書き先を指定しなくても試験の囲いを通る。--no-skills なら Skill の置き場所は要らない", () => {
+  const dir = path.join(os.tmpdir(), "mxs-nocodex");
+  const base = ["--port", "19001", "--bridge", path.join(dir, "b.mjs")];
+  const drop = (flag) => (a, i, all) => a !== flag && all[i - 1] !== flag;
+  const without = sandboxArgs(dir).filter(drop("--codex-dir")).filter(drop("--agents-skills-dir"));
+  assert.match(testSandboxProblem(parseArgs([...without, ...base])) ?? "", /--codex-dir がありません（Codex に登録しないなら --no-codex）/);
+  assert.match(testSandboxProblem(parseArgs([...without, ...base])) ?? "", /--agents-skills-dir がありません/);
+  assert.equal(testSandboxProblem(parseArgs([...without, ...base, "--no-codex"])), null);
+  const noSkillsDir = sandboxArgs(dir).filter(drop("--agents-skills-dir")).filter(drop("--claude-skills-dir"));
+  assert.equal(testSandboxProblem(parseArgs([...noSkillsDir, ...base, "--no-skills"])), null);
+  assert.equal(parseArgs(["--no-codex"]).codex, false);
+  assert.equal(parseArgs([]).codex, true);
+});
+
+test("codexPaths / codexWanted / skillTargets: ~/.codex があるときだけ Codex に登録し、Skill は ~/.agents/skills に写す", () => {
+  const dir = path.join(os.tmpdir(), "mxs-codex-paths", "codex");
+  assert.equal(codexPaths(dir).codexConfig, path.join(dir, "config.toml"));
+  const on = parseArgs([]);
+  const paths = { ...codexPaths(dir), codexSkillsDir: path.join(os.tmpdir(), "agents-skills"), claudeSkillsDir: "x", antigravityDir: "none" };
+  assert.equal(codexWanted(on, paths, () => true).ok, true);
+  assert.match(codexWanted(on, paths, () => false).reason, /設定フォルダ.*が無い/);
+  assert.match(codexWanted(parseArgs(["--no-codex"]), paths, () => true).reason, /--no-codex/);
+  const targets = skillTargets(on, paths, (p) => p === dir);
+  assert.deepEqual(
+    targets.map((t) => [t.id, t.dir]),
+    [
+      ["skills", "x"],
+      ["codex_skills", paths.codexSkillsDir],
+    ],
+  );
+});
+
+test("Codex の config.toml: mxstudio の表だけを足す・置き換える・外す（ほかの表・コメント・改行コードは変えない）", () => {
+  const base = [
+    "# 利用者の設定",
+    'model = "gpt-5"',
+    "",
+    "[mcp_servers.node_repl]",
+    "command = 'C:/x/node.exe'",
+    'args = ["a"]',
+    "",
+    "[mcp_servers.node_repl.env]",
+    'X = "1"',
+    "",
+    "[windows]",
+    'sandbox = "elevated"',
+    "",
+  ].join("\r\n");
+  const block = buildCodexBlock("C:\\Program Files\\nodejs\\node.exe", "C:\\r\\src\\bridge\\cli.ts", 8788);
+  assert.equal(
+    block,
+    [
+      "[mcp_servers.mxstudio]",
+      'command = "C:\\\\Program Files\\\\nodejs\\\\node.exe"',
+      `args = [${bridgeArgs("C:\\r\\src\\bridge\\cli.ts", 8788).map((a) => JSON.stringify(a)).join(", ")}]`,
+      "startup_timeout_sec = 30",
+    ].join("\n"),
+  );
+  const added = upsertCodexTable(base, block);
+  assert.ok(added.startsWith(base.trimEnd()), "前の行はそのまま");
+  assert.equal(added.includes("\n") && !/[^\r]\n/.test(added), true, "改行は CRLF のまま");
+  const found = findCodexTable(added);
+  assert.deepEqual(found.entry, { command: "C:\\Program Files\\nodejs\\node.exe", args: bridgeArgs("C:\\r\\src\\bridge\\cli.ts", 8788) });
+  assert.equal(upsertCodexTable(added, block), added, "2 回目は変えない");
+  assert.equal(removeCodexTable(added).next, base, "外すと元に戻る");
+  assert.equal(removeCodexTable(base).changed, false);
+
+  // 利用者が手で書いた mxstudio（複数行の配列・env 付き）: 読めて、置き換え、外すときは元の表に戻せる
+  const user = ["[mcp_servers.mxstudio]", 'command = "npx"', "args = [", '  "mxstudio-mcp",', "]", "", "[mcp_servers.mxstudio.env]", 'TOKEN = "secret"', "", "[windows]", 'sandbox = "x"', ""].join("\n");
+  const userFound = findCodexTable(user);
+  assert.deepEqual(userFound.entry, { command: "npx", args: ["mxstudio-mcp"], env: { TOKEN: "" } });
+  const replaced = upsertCodexTable(user, block);
+  assert.equal(findCodexTable(replaced).block.join("\n"), block);
+  assert.match(replaced, /\[windows\]/, "後ろの表は残す");
+  assert.equal(removeCodexTable(replaced, userFound.block.join("\n")).next, user);
+
+  // 表ではない書き方の mxstudio には触らない（呼び出し側が otherForm を見て止まる）
+  assert.equal(findCodexTable('mcp_servers.mxstudio.command = "x"\n').otherForm, true);
+  assert.equal(findCodexTable('[mcp_servers]\nmxstudio = { command = "x" }\n').otherForm, true);
+  assert.equal(findCodexTable('[mcp_servers.mxstudio.env]\nA = "1"\n').otherForm, true);
+  assert.equal(findCodexTable(added).otherForm, false);
+
+  // 見出しと値の読み取り
+  assert.deepEqual(tomlTableKey('[mcp_servers."mxstudio"]'), ["mcp_servers", "mxstudio"]);
+  assert.deepEqual(tomlTableKey("[projects.'c:/users/x']"), ["projects", "c:/users/x"]);
+  assert.equal(tomlTableKey("[[array]]"), null);
+  assert.deepEqual(tomlValue('[\n "a", \'b\' ,\n 3]'), ["a", "b", 3]);
+  assert.equal(tomlValue('"x" # コメント'), "x");
+  assert.equal(tomlValue('"x" y'), undefined);
+});
+
+test("Codex: 入っていれば config.toml に登録し ~/.agents/skills に Skill を写す（ほかの表は残す）。利用者の前の設定は取り消しで戻す。入っていなければ触らない", { timeout: 120_000 }, async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-codex-"));
+  try {
+    const bridge = path.join(dir, "fake-bridge.mjs");
+    writeFileSync(bridge, FAKE_BRIDGE, "utf8");
+    const port = await freePort();
+    const common = [...sandboxArgs(dir), "--no-start", "--no-autostart", "--no-shortcut", "--port", String(port), "--bridge", bridge];
+    const codexDir = path.join(dir, "codex");
+    const config = path.join(codexDir, "config.toml");
+    const agentsSkills = path.join(dir, "agents-skills");
+    const repoSkills = readRepoSkills(path.resolve(import.meta.dirname, "..", ".."));
+
+    // --- Codex が入っていない（~/.codex が無い）: 何も作らない ---
+    const absent = await runJson(common);
+    assert.equal(absent.code, 0, absent.stdout);
+    assert.equal(stepOf(absent.json, "codex")[0].level, "skip");
+    assert.equal(existsSync(codexDir), false, "入れていない PC に ~/.codex を作らない");
+    assert.equal(existsSync(agentsSkills), false, "~/.agents/skills も作らない");
+
+    // --- 入っている: 利用者の設定（ほかの表と、手で書いた mxstudio）がある ---
+    const userBlock = ['[mcp_servers.mxstudio]', 'command = "npx"', 'args = ["mxstudio-mcp"]'].join("\r\n");
+    const original = ["# 利用者の設定", 'model = "gpt-5"', "", "[mcp_servers.node_repl]", 'command = "node"', "", userBlock, "", "[windows]", 'sandbox = "elevated"', ""].join("\r\n");
+    mkdirSync(codexDir, { recursive: true });
+    writeFileSync(config, original, "utf8");
+
+    const first = await runJson(common);
+    assert.equal(first.code, 0, first.stdout);
+    assert.equal(stepOf(first.json, "codex")[0].level, "ok");
+    assert.match(stepOf(first.json, "codex")[0].message, /前の mxstudio の設定を置き換えました/);
+    assert.ok(first.json.result.installed.codex);
+    const written = readFileSync(config, "utf8");
+    const found = findCodexTable(written);
+    assert.deepEqual(found.entry, { command: process.execPath, args: [bridge, "--port", String(port)] });
+    assert.match(written, /\[mcp_servers\.node_repl\]\r\ncommand = "node"/, "ほかの MCP サーバは残す");
+    assert.match(written, /\[windows\]\r\nsandbox = "elevated"/, "後ろの表も残す");
+    for (const skill of repoSkills) {
+      assert.equal(readFileSync(path.join(agentsSkills, skill.name, "SKILL.md"), "utf8"), skill.text, `${skill.name} を ~/.agents/skills にも入れた`);
+    }
+    const state = JSON.parse(readFileSync(path.join(dir, "state", "setup.json"), "utf8"));
+    assert.deepEqual(state.installed.codexSkills.map((sk) => sk.name), repoSkills.map((sk) => sk.name));
+    assert.ok(state.previous.codex?.backup, "利用者の前の mxstudio を戻す先として控えごと覚える");
+
+    // --- 状態を見る・もう一度（冪等）---
+    const status = await runJson([...common, "--status"]);
+    assert.equal(stepOf(status.json, "codex")[0].level, "ok");
+    assert.equal(stepOf(status.json, "codex_skills")[0].level, "ok");
+    const again = await runJson(common);
+    assert.match(stepOf(again.json, "codex")[0].message, /既に同じ設定/);
+    assert.equal(readFileSync(config, "utf8"), written, "2 回目は何も変えない");
+
+    // --- 取り消し: mxstudio の表を利用者の前の設定に戻し、Skill を消す ---
+    assert.equal(await quietMain([...common, "--uninstall"]), 0);
+    assert.equal(readFileSync(config, "utf8"), original, "元の config.toml に戻る");
+    for (const skill of repoSkills) assert.equal(existsSync(path.join(agentsSkills, skill.name)), false, `${skill.name} は消す`);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -711,9 +938,13 @@ test("testSandboxProblem: TEMP がホームフォルダに向いていても、�
     path.join(home, "OneDrive", "Desktop"),
     "--antigravity-dir",
     path.join(home, ".gemini"),
+    "--codex-dir",
+    path.join(home, ".codex"),
+    "--agents-skills-dir",
+    path.join(home, ".agents", "skills"),
   ];
   const problem = testSandboxProblem(parseArgs(args), home, real);
-  for (const flag of ["--state-dir", "--claude-code-config", "--claude-desktop-config", "--startup-dir", "--desktop-dir", "--antigravity-dir"]) {
+  for (const flag of ["--state-dir", "--claude-code-config", "--claude-desktop-config", "--startup-dir", "--desktop-dir", "--antigravity-dir", "--codex-dir", "--agents-skills-dir"]) {
     assert.match(problem, new RegExp(`${flag} が本物の書き先です`), flag);
   }
   // ホームの中でも、本物の書き先でない場所は通す
@@ -725,6 +956,9 @@ test("testSandboxProblem: TEMP がホームフォルダに向いていても、�
   // CLAUDE_CONFIG_DIR が一時フォルダの外なら、その .claude.json も本物として拒む。中なら試験の差し替えなので含めない
   assert.ok(realWriteLocations({ CLAUDE_CONFIG_DIR: "D:\\cfg" }, "C:\\h", "C:\\t").some((p) => p === path.join("D:\\cfg", ".claude.json")));
   assert.equal(realWriteLocations({ CLAUDE_CONFIG_DIR: path.join(home, "cfg") }, "C:\\h", home).some((p) => p.includes("cfg")), false);
+  // CODEX_HOME も同じ決め方
+  assert.ok(realWriteLocations({ CODEX_HOME: "D:\\codex" }, "C:\\h", "C:\\t").includes("D:\\codex"));
+  assert.equal(realWriteLocations({ CODEX_HOME: path.join(home, "cx") }, "C:\\h", home).some((p) => p.includes("cx")), false);
 });
 
 test("main: 試験中に書き先を差し替え忘れたら、何もせずに終了コード 2 で止まる", async () => {
@@ -971,6 +1205,11 @@ function sandboxArgs(dir, extra = []) {
     // フォルダは作らない（Antigravity を入れていない PC と同じ。作った試験だけが Antigravity に登録する）
     "--antigravity-dir",
     path.join(dir, "gemini"),
+    // Codex も同じ（~/.codex を作った試験だけが登録し、~/.agents/skills に Skill を写す）
+    "--codex-dir",
+    path.join(dir, "codex"),
+    "--agents-skills-dir",
+    path.join(dir, "agents-skills"),
     ...extra,
   ];
 }
@@ -1761,7 +2000,7 @@ test("更新のあとは、依存を入れ直し・画面をビルドし直す�
   }
 });
 
-test("本物の ~/.claude.json・Claude Desktop・Antigravity・スタートアップ・デスクトップ・~/.config/mxstudio に触れていない（更新時刻を比べる）", (t) => {
+test("本物の ~/.claude.json・Claude Desktop・Antigravity・Codex・スタートアップ・デスクトップ・~/.config/mxstudio に触れていない（更新時刻を比べる）", (t) => {
   const after = snapshotReal(REAL_TARGETS);
   const problems = [];
   const notes = [];
@@ -1772,8 +2011,8 @@ test("本物の ~/.claude.json・Claude Desktop・Antigravity・スタートア�
       continue;
     }
     if (!before.exists) continue;
-    if (before.type === "json" && (before.entry !== now.entry || now.tmp)) {
-      problems.push(`${before.path}: mcpServers.mxstudio が変わった、または書きかけの一時ファイルがある`);
+    if ((before.type === "json" || before.type === "toml") && (before.entry !== now.entry || now.tmp)) {
+      problems.push(`${before.path}: mxstudio の設定が変わった、または書きかけの一時ファイルがある`);
       continue;
     }
     if (before.names !== undefined && JSON.stringify(before.names) !== JSON.stringify(now.names)) {

@@ -554,8 +554,10 @@ describe("CLI（別プロセス）", () => {
     const tab = await FakeTab.connect(address);
     answerWithProgress(tab, "primary のタブ");
     const call = await second.call(2, "tools/call", { name: "load_sheet", arguments: LOAD_ARGS, _meta: { progressToken: "tok-cli" } }, 20_000);
-    // 会話で最初の呼び出しなので、タブの結果の後ろに基本手順の Skill が添えられる
-    expect(call.result).toMatchObject({ content: [{ type: "text", text: "primary のタブ" }, { type: "text", text: expect.stringContaining("mxstudio の基本手順と禁止事項") }] });
+    // 会話で最初の呼び出しなので、タブの結果の後ろに基本手順の Skill が添えられる。
+    // 更新の知らせ（【mxstudio の更新】）は、試験を動かしているリポジトリの状態で付いたり付かなかったりするので外して比べる
+    const content = ((call.result as { content: { type: string; text: string }[] }).content ?? []).filter((c) => !c.text.startsWith("【mxstudio の更新】"));
+    expect(content).toMatchObject([{ type: "text", text: "primary のタブ" }, { type: "text", text: expect.stringContaining("mxstudio の基本手順と禁止事項") }]);
     expect((tab.frames("tool.invoke")[0] as unknown as InvokeMsg).tool).toBe("load_sheet");
     const progress = second.notifications.filter((n) => n.method === "notifications/progress");
     expect(progress[0]?.params).toMatchObject({ progressToken: "tok-cli", progress: 1, total: 2 });
@@ -571,7 +573,9 @@ describe("CLI（別プロセス）", () => {
     const again = await FakeTab.connect(address);
     again.onInvoke = (msg) => again.answer(msg.id, "引き継いだ橋渡しのタブ");
     const after = await second.call(3, "tools/call", { name: "get_status", arguments: {} }, 20_000);
-    expect(after.result).toMatchObject({ content: [{ type: "text", text: "引き継いだ橋渡しのタブ" }] });
+    // get_status には更新の知らせが付くことがある（上と同じ理由で外して比べる）
+    const afterContent = ((after.result as { content: { type: string; text: string }[] }).content ?? []).filter((c) => !c.text.startsWith("【mxstudio の更新】"));
+    expect(afterContent).toMatchObject([{ type: "text", text: "引き継いだ橋渡しのタブ" }]);
 
     // 鍵の値はどちらのログにも出さない
     const key = box.keyStore().current() as string;

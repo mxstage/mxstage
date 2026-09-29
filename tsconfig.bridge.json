@@ -3,7 +3,8 @@
   "compilerOptions": {
     "lib": ["ES2022"],
     "types": ["node"],
-    "allowImportingTsExtensions": true
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true
   },
   "include": ["src/bridge/**/*.ts", "src/shared/**/*.ts", "tests/bridge/**/*.ts"]
 }

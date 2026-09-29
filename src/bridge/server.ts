@@ -51,6 +51,8 @@ export interface BridgeServerOptions {
   upstreamTimeoutMs?: number;
   /** 利用者の Skill のフォルダ（~/.config/mxstudio/skills）。null・省略なら既定の Skill だけ */
   userSkillsDir?: string | null;
+  /** 起動したあとにコードが変わったか。/_mxstudio/health の stale に載せる（省くと載せない） */
+  codeStale?: () => boolean;
 }
 
 /** 作業画面の設定が読む Skill の一覧（本文は含めない） */
@@ -174,7 +176,7 @@ export async function startBridgeServer(opts: BridgeServerOptions): Promise<Brid
     }
 
     if (url.pathname.startsWith(PEER_PREFIX)) {
-      await handlePeerRequest(req, res, url.pathname, { hub, tickets, keyStore, version });
+      await handlePeerRequest(req, res, url.pathname, { hub, tickets, keyStore, version, ...(opts.codeStale !== undefined ? { codeStale: opts.codeStale } : {}) });
       return;
     }
 

@@ -118,7 +118,9 @@ describe("stdio の MCP サーバ", () => {
     expect(grid.appUrl).toBe(`http://127.0.0.1:${port}/app`);
     expect(grid.tabConnected).toBe(false);
     // 会話で最初のツール呼び出しには、基本手順の Skill を添える（Skill 機能の無いクライアントにも、どのツールから始めても届く）
-    const firstContent = (open.result as ToolCallResult).content;
+    // 更新の知らせ（【mxstudio の更新】）は、試験を動かしているリポジトリの状態（ビルドが古いなど）で付いたり付かなかったりするので外して比べる
+    const withoutUpdates = (content: ToolCallResult["content"]) => content.filter((c) => !c.text.startsWith("【mxstudio の更新】"));
+    const firstContent = withoutUpdates((open.result as ToolCallResult).content);
     expect(firstContent).toHaveLength(2);
     expect(firstContent[1]!.text).toContain("mxstudio の基本手順と禁止事項");
     expect(firstContent[1]!.text).toContain("# mxstudio 作業の基本手順");
@@ -127,7 +129,7 @@ describe("stdio の MCP サーバ", () => {
     // タブが無いときの get_status は「つながっていない」と答える（エラーにしない）。2 回目からは添えない
     const status = await cli.call(4, "tools/call", { name: "get_status", arguments: {} });
     expect((status.result as { structuredContent: { tabConnected: boolean } }).structuredContent.tabConnected).toBe(false);
-    expect((status.result as ToolCallResult).content).toHaveLength(1);
+    expect(withoutUpdates((status.result as ToolCallResult).content)).toHaveLength(1);
 
     const skills = await cli.call(5, "tools/call", { name: "list_skills", arguments: {} });
     expect((skills.result as { structuredContent: { skills: unknown[] } }).structuredContent.skills.length).toBeGreaterThan(0);

@@ -36,6 +36,7 @@ node scripts/setup-local.mjs
 Claude Desktop にも登録されるので、Claude Desktop を使っているならそちらも開き直します
 （タスクトレイのアイコンから終了します。ウィンドウの × では終わりません）。
 Antigravity（2.0・IDE・`agy` CLI）が入っていれば（`~\.gemini` があれば）そちらにも登録されます。新しい会話からツールと Skill が使えます。
+Codex（デスクトップ・CLI・IDE 拡張）が入っていれば（`~\.codex` があれば）そちらにも登録されます。Codex を開き直すと、新しい会話からツールと Skill が使えます。
 
 ### 何が起きるか（何度実行しても壊れません）
 
@@ -48,7 +49,8 @@ Antigravity（2.0・IDE・`agy` CLI）が入っていれば（`~\.gemini` があ
 | Claude Code | `~\.claude.json` の `mcpServers.mxstudio` に登録（`claude mcp add --scope user mxstudio -- <node> --experimental-strip-types <入口> --port 8788` と同じ内容） |
 | Claude Desktop | `%APPDATA%\Claude\claude_desktop_config.json` の `mcpServers.mxstudio` に登録 |
 | Antigravity | `~\.gemini` があるときだけ、`~\.gemini\config\mcp_config.json` の `mcpServers.mxstudio` に登録（2.0・IDE・`agy` CLI が同じファイルを読みます）。無ければ何も作りません。登録しないときは `--no-antigravity` |
-| Skill | アプリ既定（リポジトリの `skills\`）と利用者の Skill（`~\.config\mxstudio\skills\`）を `~\.claude\skills\<名前>\SKILL.md` に写す（2 章の「Skill」）。Antigravity に登録したときは `~\.gemini\skills\<名前>\SKILL.md` にも写す。入れないときは `--no-skills` |
+| Codex | `~\.codex`（`CODEX_HOME` があればそこ）があるときだけ、`config.toml` に `[mcp_servers.mxstudio]` の表を 1 つだけ足します（デスクトップ・CLI・IDE 拡張が同じファイルを読みます。ほかの行・コメントには触りません）。表ではない書き方の mxstudio があれば触りません。登録しないときは `--no-codex` |
+| Skill | アプリ既定（リポジトリの `skills\`）と利用者の Skill（`~\.config\mxstudio\skills\`）を `~\.claude\skills\<名前>\SKILL.md` に写す（2 章の「Skill」）。Antigravity に登録したときは `~\.gemini\skills\<名前>\SKILL.md`、Codex に登録したときは `~\.agents\skills\<名前>\SKILL.md` にも写す。入れないときは `--no-skills` |
 | 自動起動 | スタートアップに `mxstudio-bridge.lnk`（最小化で橋渡しを起動） |
 | ショートカット | デスクトップに `mxstudio.lnk`（Chrome か Edge の**アプリ窓**で `/app` を開く。どちらも無ければ `mxstudio.url` で既定のブラウザ） |
 | 橋渡しの確認 | 最後に `/_mxstudio/health` に聞き、「橋渡しが 1 つ動いています」と出します。古い版の橋渡しや、取り決めの版（`protocol`）が違う橋渡しが動いていれば警告します |
@@ -183,6 +185,23 @@ node scripts/setup-local.mjs
 取り決めの版（`protocol`）が上がる更新のあと、古い橋渡しが動いたままだと
 `[警告] ポート 8788 で動いている橋渡しは、このリポジトリの橋渡しと取り決めの版が違います` と出ます。上の手順で入れ直してください。
 
+### 古くなっているものの知らせ
+
+動いているものは、更新しても古いままです。そこで、古くなっているものと直し方を 2 か所で知らせます（`src/bridge/freshness.ts`）。
+
+- **LLM へ**: `get_status` の結果（`updates`）と、会話で最初のツール呼び出しの結果に `【mxstudio の更新】` として添えます。
+  どのクライアント（Claude Code・Claude Desktop・Antigravity など）にも届き、LLM が利用者に伝えます。
+- **利用者へ**: `node scripts/setup-local.mjs --status` の `[警告]` の行。
+
+| 知らせ | 何が古いか | 直し方 |
+|---|---|---|
+| この会話の mxstudio | 会話の MCP を話す橋渡しのコード（`src/bridge`・`src/shared`・`package.json`）が、起動したあとに変わった | 会話を始め直す（Claude Desktop は再起動） |
+| 中継している橋渡し | ポートを持つ橋渡しのコードが、起動したあとに変わった（`/_mxstudio/health` の `stale`） | その橋渡しを止めて起動し直す |
+| 作業画面のビルド | `dist/app` が元（`src/app`・`skills` など）より古い | 導入をもう一度実行して、作業画面を再読み込み |
+| Skill の写し | 配った写し（`~\.claude\skills`・`~\.gemini\skills` など）が、元（`skills\` と利用者の Skill）と中身が違う・まだ無い | 導入をもう一度実行して、新しい会話から使う |
+
+コードは中身で比べるので、更新時刻が変わっただけでは知らせません。写した先は導入の記録（`setup.json` の `skillDirs`）から読みます。
+
 ---
 
 ## 4. 取り消す（全部戻す）
@@ -197,10 +216,10 @@ node scripts/setup-local.mjs --uninstall
   含まれるものだけを止めます。ファイル名が同じだけの別のプロセスは止めません。
 - ポートを持っているのが Claude の起動した橋渡し（`--no-mcp` の無いもの）なら、**止めずに**警告します
   （Claude の中で使っている最中のツールを、Claude に知らせずに切らないためです。Claude を終了すると止まります）。
-- Claude Code / Claude Desktop / Antigravity の設定から `mxstudio` を外します。**置き換える前の利用者の設定があれば、控えから読み直して元に戻します。**
+- Claude Code / Claude Desktop / Antigravity / Codex の設定から `mxstudio` を外します。**置き換える前の利用者の設定があれば、控えから読み直して元に戻します。**
   ほかの MCP サーバとほかの設定には触りません。
 - スタートアップとデスクトップのショートカットを消します。
-- この導入が入れた Skill（`~\.claude\skills\<名前>` と `~\.gemini\skills\<名前>`）を消します。**書き換えられている Skill は残します。**
+- この導入が入れた Skill（`~\.claude\skills\<名前>`・`~\.gemini\skills\<名前>`・`~\.agents\skills\<名前>`）を消します。**書き換えられている Skill は残します。**
   **利用者の Skill の元（`~\.config\mxstudio\skills\`）は消しません。**
 - 記録（`setup.json`）を消します。**控え（`backup\`）は残します。**
 
@@ -274,6 +293,8 @@ Claude の設定・自動起動・ショートカットもその番号で作ら�
 | `%APPDATA%\Claude\claude_desktop_config.json` の `mcpServers.mxstudio` | Claude Desktop の MCP 設定 |
 | `~\.gemini\config\mcp_config.json` の `mcpServers.mxstudio` | Antigravity の MCP 設定（`~\.gemini` があるときだけ） |
 | `~\.gemini\skills\<名前>\SKILL.md` | Antigravity の Skill（Claude Code の分と同じ中身・同じ扱い） |
+| `~\.codex\config.toml` の `[mcp_servers.mxstudio]` | Codex の MCP 設定（`~\.codex` があるときだけ。デスクトップ・CLI・IDE 拡張共通） |
+| `~\.agents\skills\<名前>\SKILL.md` | Codex が読む個人の Skill（Claude Code の分と同じ中身・同じ扱い。ほかのエージェントも読むことがあります） |
 | `~\.claude\skills\<名前>\SKILL.md` | Claude Code の Skill（アプリ既定と利用者の Skill の写し。記録には名前・出どころ・中身のハッシュだけを書き、取り消しでは書き換えられていないものだけを消す） |
 | スタートアップフォルダ（`shell:startup`） | `mxstudio-bridge.lnk` |
 | デスクトップ | `mxstudio.lnk` または `mxstudio.url` |

@@ -21,6 +21,7 @@ import { fileURLToPath } from "node:url";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { BridgeKeyStore, defaultBridgeKeyPath } from "./bridgeKey.ts";
 import { BridgeCoordinator, CLIENT_WATCH_INTERVAL_MS } from "./coordinator.ts";
+import { CodeFingerprint, checkUpdates, isDefaultAppDir } from "./freshness.ts";
 import { createBridgeLogger } from "./logFile.ts";
 import { buildBridgeMcpServer } from "./mcp.ts";
 import { userSkillsDirOf } from "./skills.ts";
@@ -96,6 +97,8 @@ export async function main(argv: readonly string[]): Promise<number> {
   const version = bridgeVersion();
   // 利用者の Skill は橋渡しの状態フォルダ（~/.config/mxstudio）の下。リポジトリの外なので更新でも消えない
   const userSkillsDir = userSkillsDirOf(dirname(keyPath));
+  // 起動したときのコードを覚えておき、あとでリポジトリが更新されたら知らせる（src/bridge/freshness.ts）
+  const code = new CodeFingerprint(ROOT);
   const coordinator = new BridgeCoordinator({
     port: opts.port,
     root,
@@ -105,6 +108,7 @@ export async function main(argv: readonly string[]): Promise<number> {
     keyStore: new BridgeKeyStore(keyPath),
     version,
     userSkillsDir,
+    codeStale: () => code.changed(),
     // MCP を話さないプロセスは client として残らないので、見張りは MCP を話すときだけ
     watchIntervalMs: opts.mcp ? CLIENT_WATCH_INTERVAL_MS : 0,
     log: record,
@@ -136,10 +140,24 @@ export async function main(argv: readonly string[]): Promise<number> {
   }
   if (opts.insecure) record("警告: --insecure が指定されています。Maximo の証明書を検証しません（このプロセスが primary のときだけ有効です）。");
 
+  const checkBuild = isDefaultAppDir(ROOT, root);
+  const updates = () =>
+    checkUpdates({
+      repoRoot: ROOT,
+      stateDir: dirname(keyPath),
+      userSkillsDir,
+      self: code,
+      checkBuild,
+      isPrimary: () => coordinator.role === "primary",
+      primaryStale: () => coordinator.primaryStale(),
+    });
   const stdio = opts.mcp
-    ? serveStdio(() => buildBridgeMcpServer({ origin: coordinator.origin, hub: coordinator.hub, tickets: coordinator.tickets, version, userSkillsDir }), {
-        onerror: () => record("MCP の接続でエラーが発生しました。"),
-      })
+    ? serveStdio(
+        () => buildBridgeMcpServer({ origin: coordinator.origin, hub: coordinator.hub, tickets: coordinator.tickets, version, userSkillsDir, checkUpdates: updates }),
+        {
+          onerror: () => record("MCP の接続でエラーが発生しました。"),
+        },
+      )
     : null;
 
   if (opts.open) openInBrowser(`${coordinator.origin}/app`);

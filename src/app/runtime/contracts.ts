@@ -6,6 +6,7 @@
 import type { BatchAuthor, CommitRowResult, CommitState } from "../../shared/model";
 import type { ObjectStructureCatalog } from "../catalog/catalog";
 import type { ImportStore } from "../imports";
+import type { LicenseGate } from "../license/client";
 import type { MaximoClient, MaximoVia } from "../maximo/client";
 import type { WriteLogEntry } from "../maximo/commit";
 import type { ToolHandler } from "../relay";
@@ -101,6 +102,11 @@ export interface CommitControllerDeps {
   now?: () => number;
   /** 反映パネルの再計算の間引き時間（ミリ秒。既定 200） */
   refreshMs?: number;
+  /**
+   * ライセンスと環境（本番／テスト）。本番の接続先への反映にだけキーを求める（src/app/license）。
+   * 作業画面では必ず渡す。省くと関門を通さない（反映の仕組みだけを試す試験用）
+   */
+  license?: LicenseGate;
 }
 
 export type CreateCommitController = (deps: CommitControllerDeps) => CommitController;

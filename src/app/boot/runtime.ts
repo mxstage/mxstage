@@ -1,6 +1,7 @@
 // 起動時の結線: Workspace・反映コントローラ・ツール実行・中継ソケットを作ってつなぐ。
 
 import type { ObjectStructureCatalog } from "../catalog/catalog";
+import type { LicenseGate } from "../license/client";
 import type { ImportStore } from "../imports";
 import { RelaySocket, type RelaySocketOptions, type RelayStatus } from "../relay";
 import type { ImportErrorReason, ImportedFile } from "../relay";
@@ -27,6 +28,8 @@ export interface RuntimeOptions {
   connection: ConnectionProvider;
   /** オブジェクト構造のカタログ。作業終了で作り直さないよう、ランタイムの外（services）で作って渡す */
   catalog: ObjectStructureCatalog;
+  /** ライセンスと環境（本番／テスト）。反映の関門が使う。作業終了で作り直さないよう services で作って渡す */
+  license?: LicenseGate;
   factories: RuntimeFactories;
   appVersion: string;
   /** 例 http://127.0.0.1:8788 */
@@ -77,7 +80,7 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
   const now = opts.now ?? (() => Date.now());
   const workspace = new Workspace(opts.workspaceName ?? defaultWorkspaceName(new Date(now())), { now });
   const jobs = workspace.jobs;
-  const commits = opts.factories.createCommitController({ workspace, connection: opts.connection, catalog: opts.catalog, now });
+  const commits = opts.factories.createCommitController({ workspace, connection: opts.connection, catalog: opts.catalog, now, ...(opts.license ? { license: opts.license } : {}) });
   const registry: TabToolRegistry = opts.factories.createToolRegistry({
     workspace,
     jobs,

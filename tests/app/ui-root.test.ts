@@ -8,6 +8,7 @@ import { ObjectStructureCatalog } from "../../src/app/catalog/catalog";
 import type { Runtime } from "../../src/app/boot/runtime";
 import type { AppServices } from "../../src/app/boot/types";
 import type { KeyVault, VaultView } from "../../src/app/keyvault/client";
+import { LicenseClient } from "../../src/app/license/client";
 import { REOPEN_HINT_AFTER } from "../../src/app/pages/status";
 import type { RelayStatus } from "../../src/app/relay";
 import type { CommitController, CommitPanelState } from "../../src/app/runtime/contracts";
@@ -78,6 +79,8 @@ function makeServices(counters: Counters, relay: RelayStatus = RELAY_OPEN): AppS
     vault: vault as unknown as KeyVault,
     toasts: new ToastStore(),
     catalog: new ObjectStructureCatalog(),
+    // 橋渡しにつながない（ライセンスは読めないまま）
+    license: new LicenseClient({ fetch: async () => new Response("{}", { status: 503 }) }),
     createRuntime: (): Runtime => {
       counters.created++;
       const workspace = new Workspace(`作業${counters.created}`);

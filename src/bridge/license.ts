@@ -12,9 +12,11 @@ import type { KeyObject } from "node:crypto";
 import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { licenseHostOf, parseLicenseKey, payloadState } from "../shared/license.ts";
-import type { LicenseKeyProblem, LicensePayload } from "../shared/license.ts";
+import type { AuthorizeProblem, LicenseEntry, LicensePayload, LicenseProblem } from "../shared/license.ts";
 import { LICENSE_PUBLIC_KEYS, REVOKED_LICENSES } from "../shared/licenseKeys.ts";
 import type { LicensePublicKey } from "../shared/licenseKeys.ts";
+
+export type { AuthorizeProblem, LicenseEntry, LicenseProblem } from "../shared/license.ts";
 
 /** キーを置くフォルダ（状態フォルダの下） */
 export const LICENSES_DIR_NAME = "licenses";
@@ -23,29 +25,8 @@ export const LICENSE_TEST_ENV = "MXSTAGE_LICENSE_TEST";
 /** 置けるキーの数の上限 */
 export const MAX_LICENSES = 50;
 
-/** キーを受け付けなかった理由（作業画面と LLM に出す文は呼び出し側が決める） */
-export type LicenseProblem = LicenseKeyProblem | "signature" | "unknown_key" | "test_key" | "expired" | "revoked" | "older" | "too_many";
-
-/** 作業画面に返す 1 つのキーの状態。キーそのものとメールは入れない */
-export interface LicenseEntry {
-  state: "valid" | "expired" | "revoked" | "invalid";
-  /** state が invalid のときの理由 */
-  problem?: LicenseProblem;
-  licenseId: string;
-  org?: string;
-  /** 本番の接続先（https://host[:port]） */
-  hosts?: string[];
-  issuedAt?: string;
-  expiresAt?: string;
-  /** 決済の試験用の鍵で署名したキー */
-  test?: boolean;
-  /** 開発用に橋渡しが読んだキー（--dev-license）。ファイルには無く、外せない */
-  bundled?: boolean;
-}
-
 export type SaveResult = { ok: true; license: LicenseEntry } | { ok: false; problem: LicenseProblem };
 
-export type AuthorizeProblem = "no_license" | "not_licensed" | "expired" | "revoked" | "bad_scope";
 export type AuthorizeResult =
   | { ok: true; host: string; license: LicenseEntry }
   | { ok: false; problem: AuthorizeProblem; host: string | null; licensedHosts: string[] };

@@ -23,6 +23,7 @@ import {
   type WriteLogEntry,
 } from "../maximo/commit";
 import type { CommitController, CommitCounts, CommitPanelState, CreateCommitController, MaximoConnection } from "../runtime/contracts";
+import { authorizeFailure, licenseBlocker } from "../license/gate";
 import { writeLogCsv } from "./csv";
 import { reloadParents } from "./reload";
 
@@ -198,6 +199,8 @@ interface Entry {
   cancelled: boolean;
   /** 中止した時点の results の件数。これ以降に skipped になった行の文言を中止に書き換える */
   cancelledAt: number;
+  /** 本番への反映の直前に、橋渡しでライセンスを確かめている間（二重の実行と編集を止める） */
+  starting: boolean;
 }
 
 export const createCommitController: CreateCommitController = (deps) => {
@@ -217,7 +220,7 @@ export const createCommitController: CreateCommitController = (deps) => {
   function ensure(sheet: string): Entry {
     let e = entries.get(sheet);
     if (e === undefined) {
-      e = { panel: idlePanel(sheet), canaryResolve: null, cancelled: false, cancelledAt: 0 };
+      e = { panel: idlePanel(sheet), canaryResolve: null, cancelled: false, cancelledAt: 0, starting: false };
       entries.set(sheet, e);
     }
     return e;
@@ -234,7 +237,7 @@ export const createCommitController: CreateCommitController = (deps) => {
     const source = s.meta.source;
     // シートを読み込んだ構造の、作業画面に保存している今の定義（取り直すと loadedAt が変わる）
     const structure = source.kind === "maximo" && source.baseUrl !== undefined && deps.catalog ? deps.catalog.get(source.baseUrl, source.os) : null;
-    const key = `${s.id}:${workspace.revision}:${conn === null ? "-" : normalizeScope(conn.info.baseUrl)}:${structure?.loadedAt ?? "-"}`;
+    const key = `${s.id}:${workspace.revision}:${conn === null ? "-" : normalizeScope(conn.info.baseUrl)}:${structure?.loadedAt ?? "-"}:${deps.license?.snapshot().version ?? "-"}`;
     const hit = evalCache.get(sheet);
     if (hit !== undefined && hit.key === key) return hit.ev;
     const summary = s.summary();
@@ -278,6 +281,11 @@ export const createCommitController: CreateCommitController = (deps) => {
       }
     }
     if (!connected) blockers.push(NOT_CONNECTED_BLOCKER);
+    // 本番の接続先への反映にだけライセンスを求める（テスト環境・本番での読み込みと編集は無償）
+    if (conn !== null && deps.license !== undefined && source.kind === "maximo") {
+      const why = licenseBlocker(deps.license, conn.info.baseUrl);
+      if (why !== null) blockers.push(why);
+    }
     const ev: Evaluation = { counts, blockers, needsDeleteConfirm, needsNullConfirm };
     evalCache.set(sheet, { key, ev });
     return ev;
@@ -348,6 +356,8 @@ export const createCommitController: CreateCommitController = (deps) => {
   connection.subscribe(() => scheduleRefresh(null));
   // オブジェクト構造の定義を取り直したら、それを使うシートの反映の可否を計算し直す
   deps.catalog?.subscribe(() => scheduleRefresh(null));
+  // ライセンスキー・環境の申告が変わったら、反映の可否を計算し直す
+  deps.license?.subscribe(() => scheduleRefresh(null));
 
   function appendLog(entry: WriteLogEntry): void {
     log.push(entry);
@@ -403,13 +413,14 @@ export const createCommitController: CreateCommitController = (deps) => {
     panel,
 
     isRunning(sheet) {
-      return entries.get(sheet)?.panel.state === "running";
+      const e = entries.get(sheet);
+      return e !== undefined && (e.panel.state === "running" || e.starting);
     },
 
     async run(sheet, opts) {
       const entry = ensure(sheet);
       // 反映中の呼び出しには理由を返すが、実行中のパネルの message（中止など）は書き換えない
-      if (entry.panel.state === "running") return { ...panel(sheet), message: ALREADY_RUNNING_MESSAGE };
+      if (entry.panel.state === "running" || entry.starting) return { ...panel(sheet), message: ALREADY_RUNNING_MESSAGE };
       const conn = connection.current();
       const ev = evaluate(sheet);
       if (conn === null || ev.blockers.length > 0) {
@@ -430,6 +441,25 @@ export const createCommitController: CreateCommitController = (deps) => {
       const attempt = attemptPlan(meta, s.records, workspace.changes(sheet), { allowNull, deletesConfirmed });
       if (attempt.error !== null) return notRun(sheet, `${PLAN_FAILED_MESSAGE_PREFIX}${attempt.error}`);
       if (attempt.plans.length === 0) return notRun(sheet, `${BLOCKED_MESSAGE_PREFIX}${NO_CHANGES_BLOCKER}`);
+      // 本番の接続先なら、送る直前に橋渡しでライセンスをもう一度確かめる（手元の一覧が古いこともある）。
+      // 確かめている間は反映中と同じ扱いにして、二重の実行と編集を止める
+      const license = deps.license;
+      if (license !== undefined && license.environmentOf(conn.info.baseUrl) !== "test") {
+        entry.starting = true;
+        emit(sheet);
+        let outcome: Awaited<ReturnType<typeof license.authorize>>;
+        try {
+          outcome = await license.authorize(conn.info.baseUrl);
+        } finally {
+          entry.starting = false;
+        }
+        if (!outcome.ok) return notRun(sheet, `${BLOCKED_MESSAGE_PREFIX}${authorizeFailure(outcome, conn.info.baseUrl)}`);
+        // 確かめている間に接続先が変わっていたら送らない
+        const still = connection.current();
+        if (still === null || normalizeScope(still.info.baseUrl) !== normalizeScope(conn.info.baseUrl)) {
+          return notRun(sheet, `${BLOCKED_MESSAGE_PREFIX}${still === null ? NOT_CONNECTED_BLOCKER : otherConnectionBlocker(conn.info.baseUrl, still.info.baseUrl)}`);
+        }
+      }
       const plans = attempt.plans;
       const sheetId = s.id;
       const startRevision = workspace.revision;

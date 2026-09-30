@@ -5,6 +5,7 @@ import { ObjectStructureCatalog } from "../catalog/catalog";
 import { createDefaultCatalogStorage } from "../catalog/storage";
 import { ImportStore, installImportDrop } from "../imports";
 import { KeyVault, createWorkerTransport } from "../keyvault/client";
+import { LicenseClient } from "../license/client";
 import { relayUrl, type ImportErrorReason } from "../relay";
 import { ToastStore } from "../ui/toast";
 import { factories } from "./factories";
@@ -39,6 +40,10 @@ export function createServices(): AppServices {
   // 画面の言語（保存した設定 → ブラウザの言語。src/shared/i18n.ts）
   setLocale(detectLocale({ stored: readStoredLocale(), languages: typeof navigator === "undefined" ? [] : navigator.languages }));
   const vault = new KeyVault({ transport: createWorkerTransport() });
+  // ライセンスキーは橋渡しが持つ。開いたときと、タブに戻ってきたとき（別のタブでキーを足したかもしれない）に読み直す
+  const license = new LicenseClient({ storage: browserStorage() });
+  void license.refresh();
+  if (typeof window !== "undefined") window.addEventListener("focus", () => void license.refresh());
   const toasts = new ToastStore();
   // オブジェクト構造は設定としてブラウザに保存し、作業終了でも消さない。
   // Maximo に接続したら、LLM の操作を待たずにすべての定義を機械的に読み込む
@@ -51,10 +56,12 @@ export function createServices(): AppServices {
     vault,
     toasts,
     catalog,
+    license,
     createRuntime: () => {
       const runtime = createRuntime({
         connection: vault,
         catalog,
+        license,
         factories,
         // LLM のツール実行も「作業中」として数える（タブを触らないまま API キーが自動ロックされるのを防ぐ）
         noteActivity: () => vault.noteActivity(),

@@ -45,6 +45,33 @@ export type ParsedLicenseKey =
 /** ライセンスの状態 */
 export type LicenseState = "none" | "valid" | "expired" | "revoked" | "invalid";
 
+// ---------------------------------------------------------------------------
+// 橋渡しと作業画面のあいだでやり取りする形（/_mxstage/license）
+// ---------------------------------------------------------------------------
+
+/** キーを受け付けなかった理由 */
+export type LicenseProblem = LicenseKeyProblem | "signature" | "unknown_key" | "test_key" | "expired" | "revoked" | "older" | "too_many";
+
+/** 置いてある 1 つのキーの状態。キーそのものとメールは入れない */
+export interface LicenseEntry {
+  state: "valid" | "expired" | "revoked" | "invalid";
+  /** state が invalid のときの理由 */
+  problem?: LicenseProblem;
+  licenseId: string;
+  org?: string;
+  /** 本番の接続先（https://host[:port]） */
+  hosts?: string[];
+  issuedAt?: string;
+  expiresAt?: string;
+  /** 決済の試験用の鍵で署名したキー */
+  test?: boolean;
+  /** 開発用に橋渡しが読んだキー（--dev-license）。ファイルには無く、外せない */
+  bundled?: boolean;
+}
+
+/** 本番に反映できない理由 */
+export type AuthorizeProblem = "no_license" | "not_licensed" | "expired" | "revoked" | "bad_scope";
+
 const LIC_PATTERN = /^[A-Za-z0-9_-]{1,100}$/;
 const KID_PATTERN = /^[a-z0-9]{1,16}$/;
 /** 1 つの環境に書ける接続先（別名）の数の上限 */

@@ -2,6 +2,7 @@
 
 import type { ObjectStructureCatalog } from "../catalog/catalog";
 import type { KeyVault } from "../keyvault/client";
+import type { LicenseClient } from "../license/client";
 import type { ToastStore } from "../ui/toast";
 import type { Runtime } from "./runtime";
 
@@ -10,6 +11,8 @@ export interface AppServices {
   toasts: ToastStore;
   /** 読み込んだオブジェクト構造（設定。/structures と LLM のツールが共有する） */
   catalog: ObjectStructureCatalog;
+  /** ライセンスキーと接続先ごとの環境（本番／テスト）。設定・上部バー・反映の関門が共有する */
+  license: LicenseClient;
   /** 作業画面を開いたときと、作業終了の後に呼ぶ */
   createRuntime(): Runtime;
 }

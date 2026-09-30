@@ -39,6 +39,8 @@ export interface LicenseEntry {
   expiresAt?: string;
   /** 決済の試験用の鍵で署名したキー */
   test?: boolean;
+  /** 開発用に橋渡しが読んだキー（--dev-license）。ファイルには無く、外せない */
+  bundled?: boolean;
 }
 
 export type SaveResult = { ok: true; license: LicenseEntry } | { ok: false; problem: LicenseProblem };
@@ -58,6 +60,8 @@ export interface LicenseStoreOptions {
   revoked?: ReadonlySet<string>;
   /** 今の時刻（ミリ秒。試験で差し替える） */
   now?: () => number;
+  /** ファイルに置かずに使うキー（開発用。--dev-license のときリポジトリの dev/*.license.key を読む） */
+  bundled?: readonly string[];
 }
 
 type Checked =
@@ -65,6 +69,24 @@ type Checked =
   | { ok: false; problem: LicenseProblem };
 
 const LICENSE_FILE_PATTERN = /^([A-Za-z0-9_-]{1,100})\.key$/;
+
+/** 開発用のキーを置くフォルダ（リポジトリの根から）と、ファイル名の終わり */
+export const DEV_LICENSE_DIR = "dev";
+export const DEV_LICENSE_SUFFIX = ".license.key";
+
+/** リポジトリの開発用のキー（dev/*.license.key）を読む。試験用の鍵のキーだけで、偽の Maximo にだけ使える */
+export function readDevLicenses(repoRoot: string, log?: (line: string) => void): string[] {
+  const folder = join(repoRoot, DEV_LICENSE_DIR);
+  let names: string[] = [];
+  try {
+    names = readdirSync(folder).filter((n) => n.endsWith(DEV_LICENSE_SUFFIX)).sort();
+  } catch {
+    names = [];
+  }
+  const keys = names.map((n) => readText(join(folder, n))).filter((t): t is string => t !== null && t.trim() !== "");
+  log?.(`開発用のライセンスキーを ${keys.length} 件読みました（${folder}）。試験用の鍵のキーも受け付けます。`);
+  return keys;
+}
 
 /** 環境変数から、決済の試験用の鍵を受け付けるかを読む */
 export function licenseTestKeysAllowed(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -102,8 +124,10 @@ export class LicenseStore {
   private readonly revoked: ReadonlySet<string>;
   private readonly now: () => number;
   private readonly keyObjects = new Map<string, KeyObject>();
+  private readonly bundled: readonly string[];
 
   constructor(opts: LicenseStoreOptions) {
+    this.bundled = opts.bundled ?? [];
     this.folder = join(opts.dir, LICENSES_DIR_NAME);
     this.allowTestKeys = opts.allowTestKeys === true;
     this.keys = opts.keys ?? LICENSE_PUBLIC_KEYS;
@@ -154,6 +178,16 @@ export class LicenseStore {
     };
   }
 
+  /** ファイルに置いてあるキーと、開発用に読んだキー */
+  private all(): { licenseId: string; checked: Checked; bundled: boolean }[] {
+    const files = this.saved().map((s) => ({ ...s, bundled: false }));
+    const bundled = this.bundled.map((text) => {
+      const checked = this.check(text);
+      return { licenseId: checked.ok ? checked.payload.lic : "bundled", checked, bundled: true };
+    });
+    return [...files, ...bundled];
+  }
+
   /** 置いてあるキー（ファイル名のライセンスの ID と、確かめた結果） */
   private saved(): { licenseId: string; checked: Checked }[] {
     let names: string[] = [];
@@ -175,9 +209,9 @@ export class LicenseStore {
     return out;
   }
 
-  /** 置いてあるキーの状態（ライセンスの ID の順） */
+  /** 置いてあるキーの状態（ライセンスの ID の順。開発用に読んだキーは最後） */
   list(): LicenseEntry[] {
-    return this.saved().map((s) => this.entryOf(s.licenseId, s.checked));
+    return this.all().map((s) => ({ ...this.entryOf(s.licenseId, s.checked), ...(s.bundled ? { bundled: true } : {}) }));
   }
 
   /**
@@ -212,7 +246,7 @@ export class LicenseStore {
    */
   authorize(baseUrl: string): AuthorizeResult {
     const host = licenseHostOf(baseUrl);
-    const saved = this.saved().filter((s): s is { licenseId: string; checked: Extract<Checked, { ok: true }> } => s.checked.ok);
+    const saved = this.all().filter((s): s is { licenseId: string; checked: Extract<Checked, { ok: true }>; bundled: boolean } => s.checked.ok);
     const licensedHosts = [...new Set(saved.filter((s) => s.checked.state === "valid").flatMap((s) => s.checked.payload.hosts))];
     if (host === null) return { ok: false, problem: "bad_scope", host: null, licensedHosts };
     const matching = saved.filter((s) => s.checked.payload.hosts.includes(host));

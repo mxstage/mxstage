@@ -16,7 +16,7 @@
     "bridge:open": "node --experimental-strip-types src/bridge/cli.ts --open",
     "build:skills": "node --experimental-strip-types scripts/build-skills.ts",
     "dev:fake-maximo": "node --experimental-strip-types scripts/dev-fake-maximo.ts",
-    "dev:bridge": "node --experimental-strip-types src/bridge/cli.ts --no-mcp --port 8790 --insecure --allow-host 127.0.0.1"
+    "dev:bridge": "node --experimental-strip-types src/bridge/cli.ts --no-mcp --port 8790 --insecure --allow-host 127.0.0.1 --dev-license"
   },
   "dependencies": {
     "@carbon/icons-react": "11.89.0",

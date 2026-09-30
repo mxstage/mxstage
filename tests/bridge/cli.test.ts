@@ -44,7 +44,11 @@ describe("直接起動の判定", () => {
 describe("引数の解釈", () => {
   it("既定値", () => {
     const res = parseArgs([]);
-    expect(res).toMatchObject({ kind: "run", options: { port: DEFAULT_PORT, open: false, insecure: false, mcp: true, allowHosts: [] } });
+    expect(res).toMatchObject({ kind: "run", options: { port: DEFAULT_PORT, open: false, insecure: false, mcp: true, allowHosts: [], devLicense: false } });
+  });
+
+  it("--dev-license（開発・試験用のキーを読む）", () => {
+    expect(parseArgs(["--dev-license"])).toMatchObject({ kind: "run", options: { devLicense: true } });
   });
 
   it("--port と --open", () => {

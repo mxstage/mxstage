@@ -221,6 +221,22 @@ describe("キーの保存と確かめ（LicenseStore）", () => {
   });
 });
 
+describe("開発用のキー（--dev-license）", () => {
+  it("ファイルに置かずに読んだキーも一覧に出て許可に使えるが、外せない。試験用の鍵のキーは試験の設定のときだけ", async () => {
+    const devKey = await issue(payload({ kid: "s1", lic: "dev_fake_maximo", hosts: ["https://127.0.0.1:9797"] }));
+    const dev = new LicenseStore({ dir, keys: KEYS, now: () => NOW, allowTestKeys: true, bundled: [devKey], revoked: new Set() });
+    expect(dev.list()).toMatchObject([{ state: "valid", licenseId: "dev_fake_maximo", test: true, bundled: true }]);
+    expect(dev.authorize("https://127.0.0.1:9797/maximo")).toMatchObject({ ok: true, license: { licenseId: "dev_fake_maximo" } });
+    expect(dev.remove("dev_fake_maximo")).toBe(false);
+    expect(dev.list()).toHaveLength(1);
+    expect(keyFiles()).toEqual([]);
+
+    const normal = new LicenseStore({ dir, keys: KEYS, now: () => NOW, bundled: [devKey], revoked: new Set() });
+    expect(normal.list()).toMatchObject([{ state: "invalid", problem: "test_key", bundled: true }]);
+    expect(normal.authorize("https://127.0.0.1:9797/maximo")).toMatchObject({ ok: false, problem: "no_license" });
+  });
+});
+
 describe("本番への反映の許可（authorize）", () => {
   it("接続先のホストがキーの本番の接続先に含まれていれば許す（パス・大文字小文字・既定のポートの違いは同じ環境）", async () => {
     const s = store();

@@ -15,6 +15,11 @@ export interface BridgeOptions {
   mcp: boolean;
   /** 画面の配信元。既定は dist/app */
   appDir: string | null;
+  /**
+   * MX Stage の開発・試験用。決済の試験用の鍵で作ったキーを受け付け、リポジトリの開発用のキー
+   * （dev/fake-maximo.license.key。偽の Maximo https://127.0.0.1:9797 だけに使える）を読む
+   */
+  devLicense: boolean;
 }
 
 export type ParseResult =
@@ -38,6 +43,8 @@ export const HELP_TEXT = `mxstage bridge — Maximo のデータ整備を、こ�
   --insecure         自己署名証明書の Maximo を受け入れる（この接続だけ検証を切ります）
   --app-dir <パス>   画面（dist/app）の場所
   --no-mcp           stdio の MCP サーバとして話さない（画面の配信だけ）
+  --dev-license      MX Stage の開発・試験用。試験用のライセンスキーを受け付け、偽の Maximo
+                     （https://127.0.0.1:9797）用の開発用のキーを読む（npm run dev:bridge が付ける）
   --version          版を表示する
   --help             この説明を表示する
 
@@ -59,7 +66,7 @@ function splitList(value: string): string[] {
 
 /** argv（process.argv.slice(2) の部分）を解釈する */
 export function parseArgs(argv: readonly string[]): ParseResult {
-  const options: BridgeOptions = { port: DEFAULT_PORT, open: false, allowHosts: [], insecure: false, mcp: true, appDir: null };
+  const options: BridgeOptions = { port: DEFAULT_PORT, open: false, allowHosts: [], insecure: false, mcp: true, appDir: null, devLicense: false };
 
   for (let i = 0; i < argv.length; i += 1) {
     const raw = argv[i] as string;
@@ -105,6 +112,9 @@ export function parseArgs(argv: readonly string[]): ParseResult {
         break;
       case "--no-mcp":
         options.mcp = false;
+        break;
+      case "--dev-license":
+        options.devLicense = true;
         break;
       case "--app-dir": {
         const v = next();

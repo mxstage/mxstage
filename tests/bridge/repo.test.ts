@@ -1,10 +1,12 @@
 // リポジトリ全体の決まり（版の一致・LICENSE・改名前の名前の残り方）。
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { APP_VERSION } from "../../src/app/boot/version.ts";
+import { LicenseStore, readDevLicenses } from "../../src/bridge/license.ts";
 
 const ROOT = join(import.meta.dirname, "..", "..");
 
@@ -67,6 +69,22 @@ describe("リポジトリ全体の決まり", () => {
     expect(grant).toContain("migration rehearsals, is not a Production Maximo Environment, even if it holds a copy of production data.");
     const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as { license: string };
     expect(pkg.license).toBe("BUSL-1.1");
+  });
+
+  it("リポジトリの開発用のキーは試験用の鍵（s1）で署名したもので、偽の Maximo（https://127.0.0.1:9797）にしか使えない", () => {
+    const keys = readDevLicenses(ROOT);
+    expect(keys.length).toBeGreaterThan(0);
+    const dir = mkdtempSync(join(tmpdir(), "mxs-devkey-"));
+    try {
+      // 製品の公開鍵で確かめる。試験の設定のときだけ有効で、ふだんの製品では使えない（本番用の鍵のキーを入れてはいけない）
+      const dev = new LicenseStore({ dir, allowTestKeys: true, bundled: keys });
+      for (const entry of dev.list()) {
+        expect(entry).toMatchObject({ state: "valid", test: true, bundled: true, hosts: ["https://127.0.0.1:9797"] });
+      }
+      expect(new LicenseStore({ dir, bundled: keys }).list().every((e) => e.state === "invalid" && e.problem === "test_key")).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("改名前の名前（mxstudio）は、移行の処理とその試験にだけ残っている", () => {

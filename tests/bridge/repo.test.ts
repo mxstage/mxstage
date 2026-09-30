@@ -60,7 +60,11 @@ describe("リポジトリ全体の決まり", () => {
     expect(license).toMatch(/^Licensor: {13}Kazuhiro Muto$/m);
     expect(license).not.toMatch(/\[[A-Z ]+\]/); // 仮の欄が残っていない
     expect(license).toMatch(/^Licensed Work: {8}MX Stage 0\.2\.0 or later\.$/m);
-    expect(license).toContain("provided that you do not use it to create, change or\n                      delete data held in a Production Maximo Environment.");
+    // 有償なのは本番の Maximo への書き込みだけ。本番の切り替えに向けて準備中の移行先も本番に含める
+    const grant = license.replace(/\s+/g, " ");
+    expect(grant).toContain("provided that you do not use it to create, change or delete data held in a Production Maximo Environment. Reading data from a Production Maximo Environment is permitted.");
+    expect(grant).toContain("or that is being prepared to replace such an instance (for example, the target of a migration or upgrade before go-live)");
+    expect(grant).toContain("migration rehearsals, is not a Production Maximo Environment, even if it holds a copy of production data.");
     const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as { license: string };
     expect(pkg.license).toBe("BUSL-1.1");
   });

@@ -11,13 +11,19 @@ Licensed Work:        MX Stage 0.2.0 or later.
 Additional Use Grant: You may make production use of the Licensed Work,
                       provided that you do not use it to create, change or
                       delete data held in a Production Maximo Environment.
+                      Reading data from a Production Maximo Environment is
+                      permitted.
 
                       A "Production Maximo Environment" is an instance of
                       IBM Maximo or IBM Maximo Application Suite (including
-                      Maximo Manage) that holds or processes live
-                      operational data of any organization. An instance used
-                      only for development, testing, training, or
-                      demonstration is not a Production Maximo Environment.
+                      Maximo Manage) that an organization uses to record its
+                      day-to-day operations, or that is being prepared to
+                      replace such an instance (for example, the target of a
+                      migration or upgrade before go-live). Any other
+                      instance, such as one used only for development,
+                      testing, training, demonstration or migration
+                      rehearsals, is not a Production Maximo Environment,
+                      even if it holds a copy of production data.
 Change Date:          Four years from the date on which each version of the
                       Licensed Work is first publicly distributed.
 Change License:       Apache License, Version 2.0

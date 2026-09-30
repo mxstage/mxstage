@@ -1,53 +1,52 @@
-// ライセンスキーの保存と確かめ、本番の Maximo の環境の割り当て。
-// 本番の Maximo への書き込み（作業画面の「Maximo に反映」）にだけライセンスが要る。本番かどうかは、
-// 接続ごとに利用者が申告する（作業画面）。確かめるのはこの PC の中だけで、外へは通信しない。
+// ライセンスキーの保存と確かめ、本番の Maximo への反映の許可。
+// 有償なのは本番の Maximo への書き込み（作業画面の「Maximo に反映」）だけ。1 ライセンス = 1 本番環境で、
+// キーの中に本番の接続先（別名を 3 つまで）が署名付きで書いてある。接続先がキーと合えば、何人・何台の PC でも使える。
+// 確かめるのはこの PC の中だけで、外へは通信しない。
 //
-// 置き場所は状態フォルダ（~/.config/mxstage）:
-//   - license.key         貼り付けたキー（空白を除いたもの）
-//   - license-envs.json   本番に使った環境（接続先）の一覧。ライセンスの ID ごと
-// 不正なキーでは、保存してある正しいキーを上書きしない。
+// 置き場所は状態フォルダ（~/.config/mxstage）の licenses/<ライセンスの ID>.key。本番環境が 2 つあれば 2 つのキーを置く。
+// 情報システム部門がまとめて配るときも、このフォルダにキーのファイルを置けばよい。
+// 正しくないキーでは、保存してある正しいキーを上書きしない。
 
 import { createPublicKey, verify } from "node:crypto";
 import type { KeyObject } from "node:crypto";
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseLicenseKey, payloadState } from "../shared/license.ts";
-import type { LicenseKeyProblem, LicensePayload, LicenseState } from "../shared/license.ts";
+import { licenseHostOf, parseLicenseKey, payloadState } from "../shared/license.ts";
+import type { LicenseKeyProblem, LicensePayload } from "../shared/license.ts";
 import { LICENSE_PUBLIC_KEYS, REVOKED_LICENSES } from "../shared/licenseKeys.ts";
 import type { LicensePublicKey } from "../shared/licenseKeys.ts";
-import { normalizeScope } from "../shared/scope.ts";
 
-export const LICENSE_FILE = "license.key";
-export const LICENSE_ENVS_FILE = "license-envs.json";
+/** キーを置くフォルダ（状態フォルダの下） */
+export const LICENSES_DIR_NAME = "licenses";
 /** "1" のとき、決済の試験用の鍵（s1）で署名したキーも受け付ける */
 export const LICENSE_TEST_ENV = "MXSTAGE_LICENSE_TEST";
+/** 置けるキーの数の上限 */
+export const MAX_LICENSES = 50;
 
 /** キーを受け付けなかった理由（作業画面と LLM に出す文は呼び出し側が決める） */
-export type LicenseProblem = LicenseKeyProblem | "signature" | "unknown_key" | "test_key" | "expired" | "revoked";
+export type LicenseProblem = LicenseKeyProblem | "signature" | "unknown_key" | "test_key" | "expired" | "revoked" | "older" | "too_many";
 
-/** 作業画面に返す状態。キーとメールは入れない */
-export interface LicenseStatus {
-  state: LicenseState;
+/** 作業画面に返す 1 つのキーの状態。キーそのものとメールは入れない */
+export interface LicenseEntry {
+  state: "valid" | "expired" | "revoked" | "invalid";
   /** state が invalid のときの理由 */
   problem?: LicenseProblem;
-  licenseId?: string;
+  licenseId: string;
   org?: string;
-  envsLicensed?: number;
-  envsInUse?: number;
-  /** 本番に使った接続先（normalizeScope したもの） */
-  boundScopes?: string[];
+  /** 本番の接続先（https://host[:port]） */
+  hosts?: string[];
   issuedAt?: string;
   expiresAt?: string;
   /** 決済の試験用の鍵で署名したキー */
   test?: boolean;
 }
 
-export type SaveResult = { ok: true; status: LicenseStatus } | { ok: false; problem: LicenseProblem; status: LicenseStatus };
+export type SaveResult = { ok: true; license: LicenseEntry } | { ok: false; problem: LicenseProblem };
 
-export type AuthorizeProblem = "no_license" | "invalid" | "expired" | "revoked" | "envs_exceeded" | "bad_scope";
+export type AuthorizeProblem = "no_license" | "not_licensed" | "expired" | "revoked" | "bad_scope";
 export type AuthorizeResult =
-  | { ok: true; status: LicenseStatus; scope: string; newlyBound: boolean }
-  | { ok: false; problem: AuthorizeProblem; status: LicenseStatus };
+  | { ok: true; host: string; license: LicenseEntry }
+  | { ok: false; problem: AuthorizeProblem; host: string | null; licensedHosts: string[] };
 
 export interface LicenseStoreOptions {
   /** 状態フォルダ（~/.config/mxstage） */
@@ -61,20 +60,11 @@ export interface LicenseStoreOptions {
   now?: () => number;
 }
 
-interface BoundEnv {
-  scope: string;
-  boundAt: string;
-}
-
-interface EnvsFile {
-  version: 1;
-  licenseId: string;
-  scopes: BoundEnv[];
-}
-
 type Checked =
   | { ok: true; key: string; payload: LicensePayload; state: "valid" | "expired" | "revoked"; test: boolean }
   | { ok: false; problem: LicenseProblem };
+
+const LICENSE_FILE_PATTERN = /^([A-Za-z0-9_-]{1,100})\.key$/;
 
 /** 環境変数から、決済の試験用の鍵を受け付けるかを読む */
 export function licenseTestKeysAllowed(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -106,7 +96,7 @@ function readText(file: string): string | null {
 }
 
 export class LicenseStore {
-  private readonly dir: string;
+  private readonly folder: string;
   private readonly allowTestKeys: boolean;
   private readonly keys: Readonly<Record<string, LicensePublicKey>>;
   private readonly revoked: ReadonlySet<string>;
@@ -114,19 +104,11 @@ export class LicenseStore {
   private readonly keyObjects = new Map<string, KeyObject>();
 
   constructor(opts: LicenseStoreOptions) {
-    this.dir = opts.dir;
+    this.folder = join(opts.dir, LICENSES_DIR_NAME);
     this.allowTestKeys = opts.allowTestKeys === true;
     this.keys = opts.keys ?? LICENSE_PUBLIC_KEYS;
     this.revoked = opts.revoked ?? REVOKED_LICENSES;
     this.now = opts.now ?? Date.now;
-  }
-
-  private get keyFile(): string {
-    return join(this.dir, LICENSE_FILE);
-  }
-
-  private get envsFile(): string {
-    return join(this.dir, LICENSE_ENVS_FILE);
   }
 
   private publicKey(kid: string): KeyObject | null {
@@ -158,86 +140,85 @@ export class LicenseStore {
     return { ok: true, key: parsed.key, payload, state: payloadState(payload, Math.floor(this.now() / 1000), this.revoked), test: entry.test };
   }
 
-  private checkSaved(): Checked | null {
-    const text = readText(this.keyFile);
-    if (text === null || text.trim() === "") return null;
-    return this.check(text);
-  }
-
-  /** そのライセンスで本番に使った環境。別のライセンスの一覧・壊れた一覧は無いものとして扱う */
-  private readEnvs(licenseId: string): BoundEnv[] {
-    const text = readText(this.envsFile);
-    if (text === null) return [];
-    try {
-      const parsed = JSON.parse(text) as Partial<EnvsFile>;
-      if (parsed.version !== 1 || parsed.licenseId !== licenseId || !Array.isArray(parsed.scopes)) return [];
-      return parsed.scopes.filter((s) => typeof s?.scope === "string" && s.scope !== "" && typeof s.boundAt === "string");
-    } catch {
-      return [];
-    }
-  }
-
-  private statusOf(checked: Checked | null): LicenseStatus {
-    if (checked === null) return { state: "none" };
-    if (!checked.ok) return { state: "invalid", problem: checked.problem };
+  private entryOf(licenseId: string, checked: Checked): LicenseEntry {
+    if (!checked.ok) return { state: "invalid", problem: checked.problem, licenseId };
     const { payload } = checked;
-    const scopes = this.readEnvs(payload.lic).map((s) => s.scope);
     return {
       state: checked.state,
       licenseId: payload.lic,
       org: payload.org,
-      envsLicensed: payload.envs,
-      envsInUse: scopes.length,
-      boundScopes: scopes,
+      hosts: [...payload.hosts],
       issuedAt: new Date(payload.iat * 1000).toISOString(),
       expiresAt: new Date(payload.exp * 1000).toISOString(),
       ...(checked.test ? { test: true } : {}),
     };
   }
 
-  /** 保存してあるキーの状態 */
-  status(): LicenseStatus {
-    return this.statusOf(this.checkSaved());
+  /** 置いてあるキー（ファイル名のライセンスの ID と、確かめた結果） */
+  private saved(): { licenseId: string; checked: Checked }[] {
+    let names: string[] = [];
+    try {
+      names = readdirSync(this.folder).sort();
+    } catch {
+      return [];
+    }
+    const out: { licenseId: string; checked: Checked }[] = [];
+    for (const name of names) {
+      const m = LICENSE_FILE_PATTERN.exec(name);
+      if (!m) continue;
+      const text = readText(join(this.folder, name));
+      if (text === null) continue;
+      const checked = this.check(text);
+      // ファイル名と中身のライセンスの ID が違うものは、手で置き間違えたもの。中身の ID で扱う
+      out.push({ licenseId: checked.ok ? checked.payload.lic : m[1]!, checked });
+    }
+    return out;
+  }
+
+  /** 置いてあるキーの状態（ライセンスの ID の順） */
+  list(): LicenseEntry[] {
+    return this.saved().map((s) => this.entryOf(s.licenseId, s.checked));
   }
 
   /**
-   * キーを保存する。署名が正しく、期限内で取り消されていないキーだけを保存する
-   * （正しくないキーで、保存してある正しいキーを上書きしない）。
-   * 本番に使った環境の一覧はライセンスの ID ごとに数えるので、更新したキー（同じ ID）では引き継ぎ、別のライセンスでは数え直す。
+   * キーを保存する。署名が正しく、期限内で取り消されていないキーだけを保存する。
+   * 同じライセンス（更新したキー）は新しいほうで置き換え、古いキーでは置き換えない。
    */
   save(text: string): SaveResult {
     const checked = this.check(text);
-    if (!checked.ok) return { ok: false, problem: checked.problem, status: this.status() };
-    if (checked.state !== "valid") return { ok: false, problem: checked.state, status: this.status() };
-    mkdirSync(this.dir, { recursive: true });
-    writeAtomic(this.keyFile, `${checked.key}\n`);
-    return { ok: true, status: this.statusOf(checked) };
+    if (!checked.ok) return { ok: false, problem: checked.problem };
+    if (checked.state !== "valid") return { ok: false, problem: checked.state };
+    const saved = this.saved();
+    const same = saved.find((s) => s.licenseId === checked.payload.lic);
+    if (same && same.checked.ok && same.checked.payload.iat > checked.payload.iat) return { ok: false, problem: "older" };
+    if (!same && saved.length >= MAX_LICENSES) return { ok: false, problem: "too_many" };
+    mkdirSync(this.folder, { recursive: true });
+    writeAtomic(join(this.folder, `${checked.payload.lic}.key`), `${checked.key}\n`);
+    return { ok: true, license: this.entryOf(checked.payload.lic, checked) };
+  }
+
+  /** キーを外す（置いていなければ何もしない）。外したら true */
+  remove(licenseId: string): boolean {
+    if (!/^[A-Za-z0-9_-]{1,100}$/.test(licenseId)) return false;
+    const file = join(this.folder, `${licenseId}.key`);
+    if (readText(file) === null) return false;
+    rmSync(file, { force: true });
+    return true;
   }
 
   /**
-   * 本番の環境（接続先）をライセンスに結びつける。作業画面が本番に反映する直前に呼ぶ。
-   * 既に結びついている接続先は数を増やさない。ライセンスの環境の数を超えるときは断る。
+   * 本番の接続先に反映してよいか。接続先のホストが、期限内のキーの本番の接続先に含まれていればよい。
+   * 作業画面が本番に反映する直前に呼ぶ。
    */
   authorize(baseUrl: string): AuthorizeResult {
-    const scope = normalizeScope(baseUrl);
-    const checked = this.checkSaved();
-    const current = this.statusOf(checked);
-    let protocol = "";
-    try {
-      protocol = new URL(scope).protocol;
-    } catch {
-      protocol = "";
-    }
-    if (protocol !== "https:" && protocol !== "http:") return { ok: false, problem: "bad_scope", status: current };
-    if (checked === null) return { ok: false, problem: "no_license", status: current };
-    if (!checked.ok) return { ok: false, problem: "invalid", status: current };
-    if (checked.state !== "valid") return { ok: false, problem: checked.state, status: current };
-    const bound = this.readEnvs(checked.payload.lic);
-    if (bound.some((s) => s.scope === scope)) return { ok: true, status: current, scope, newlyBound: false };
-    if (bound.length >= checked.payload.envs) return { ok: false, problem: "envs_exceeded", status: current };
-    const file: EnvsFile = { version: 1, licenseId: checked.payload.lic, scopes: [...bound, { scope, boundAt: new Date(this.now()).toISOString() }] };
-    mkdirSync(this.dir, { recursive: true });
-    writeAtomic(this.envsFile, `${JSON.stringify(file, null, 2)}\n`);
-    return { ok: true, status: this.statusOf(checked), scope, newlyBound: true };
+    const host = licenseHostOf(baseUrl);
+    const saved = this.saved().filter((s): s is { licenseId: string; checked: Extract<Checked, { ok: true }> } => s.checked.ok);
+    const licensedHosts = [...new Set(saved.filter((s) => s.checked.state === "valid").flatMap((s) => s.checked.payload.hosts))];
+    if (host === null) return { ok: false, problem: "bad_scope", host: null, licensedHosts };
+    const matching = saved.filter((s) => s.checked.payload.hosts.includes(host));
+    const valid = matching.find((s) => s.checked.state === "valid");
+    if (valid) return { ok: true, host, license: this.entryOf(valid.licenseId, valid.checked) };
+    if (matching.length > 0) return { ok: false, problem: matching.some((s) => s.checked.state === "revoked") ? "revoked" : "expired", host, licensedHosts };
+    return { ok: false, problem: saved.length === 0 ? "no_license" : "not_licensed", host, licensedHosts };
   }
 }

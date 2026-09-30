@@ -60,10 +60,13 @@ export interface BridgeServerOptions {
 
 /** 作業画面の設定が読む Skill の一覧（本文は含めない） */
 export const SKILLS_LIST_PATH = "/_mxstage/skills";
-/** ライセンスの状態（GET）と保存（POST） */
+/** ライセンスキーの一覧（GET）と保存（POST） */
 export const LICENSE_PATH = "/_mxstage/license";
-/** 本番の環境をライセンスに結びつける（POST） */
+/** ライセンスキーを外す（POST） */
+export const LICENSE_REMOVE_PATH = "/_mxstage/license/remove";
+/** 本番の接続先に反映してよいかを確かめる（POST） */
 export const LICENSE_AUTHORIZE_PATH = "/_mxstage/license/authorize";
+const LICENSE_PATHS: readonly string[] = [LICENSE_PATH, LICENSE_REMOVE_PATH, LICENSE_AUTHORIZE_PATH];
 /** ライセンスの入口が受ける本文の上限 */
 export const LICENSE_BODY_LIMIT = 8 * 1024;
 
@@ -140,10 +143,11 @@ async function readJsonBody(req: IncomingMessage, limit: number): Promise<Record
 }
 
 /**
- * ライセンスの入口。
- *   GET  /_mxstage/license            今の状態（キーとメールは返さない）
+ * ライセンスの入口（作業画面の「設定」→「ライセンス」と、本番への反映の関門が使う）。
+ *   GET  /_mxstage/license            置いてあるキーの状態（キーそのものとメールは返さない）
  *   POST /_mxstage/license            { key } を保存する（正しいキーだけ）
- *   POST /_mxstage/license/authorize  { baseUrl } を本番の環境としてライセンスに結びつける
+ *   POST /_mxstage/license/remove     { licenseId } のキーを外す
+ *   POST /_mxstage/license/authorize  { baseUrl } の本番に反映してよいか（接続先がキーの本番の接続先に含まれるか）
  */
 async function handleLicenseRequest(req: IncomingMessage, res: ServerResponse, pathname: string, license: LicenseStore | null): Promise<void> {
   const method = (req.method ?? "GET").toUpperCase();
@@ -157,7 +161,7 @@ async function handleLicenseRequest(req: IncomingMessage, res: ServerResponse, p
     return;
   }
   if (method === "GET") {
-    sendJson(res, 200, { ok: true, license: license.status() });
+    sendJson(res, 200, { ok: true, licenses: license.list() });
     return;
   }
   const body = await readJsonBody(req, LICENSE_BODY_LIMIT);
@@ -165,23 +169,25 @@ async function handleLicenseRequest(req: IncomingMessage, res: ServerResponse, p
     sendJson(res, 413, { ok: false, error: "too_large", message: `本文が大きすぎます（上限 ${LICENSE_BODY_LIMIT} バイト）。` });
     return;
   }
+  const field = pathname === LICENSE_PATH ? "key" : pathname === LICENSE_REMOVE_PATH ? "licenseId" : "baseUrl";
+  const value = body === null ? undefined : body[field];
+  if (typeof value !== "string") {
+    sendJson(res, 400, { ok: false, error: "invalid_request", message: `${field} を文字列で送ってください。` });
+    return;
+  }
   if (pathname === LICENSE_PATH) {
-    if (body === null || typeof body.key !== "string") {
-      sendJson(res, 400, { ok: false, error: "invalid_request", message: "key（ライセンスキーの文字列）を送ってください。" });
-      return;
-    }
-    const saved = license.save(body.key);
-    if (saved.ok) sendJson(res, 200, { ok: true, license: saved.status });
-    else sendJson(res, 422, { ok: false, error: "license_rejected", problem: saved.problem, license: saved.status });
+    const saved = license.save(value);
+    if (saved.ok) sendJson(res, 200, { ok: true, license: saved.license, licenses: license.list() });
+    else sendJson(res, 422, { ok: false, error: "license_rejected", problem: saved.problem, licenses: license.list() });
     return;
   }
-  if (body === null || typeof body.baseUrl !== "string") {
-    sendJson(res, 400, { ok: false, error: "invalid_request", message: "baseUrl（Maximo の接続先）を送ってください。" });
+  if (pathname === LICENSE_REMOVE_PATH) {
+    sendJson(res, 200, { ok: true, removed: license.remove(value), licenses: license.list() });
     return;
   }
-  const result = license.authorize(body.baseUrl);
-  if (result.ok) sendJson(res, 200, { ok: true, scope: result.scope, newlyBound: result.newlyBound, license: result.status });
-  else sendJson(res, 403, { ok: false, error: "license_required", problem: result.problem, license: result.status });
+  const result = license.authorize(value);
+  if (result.ok) sendJson(res, 200, { ok: true, host: result.host, license: result.license });
+  else sendJson(res, 403, { ok: false, error: "license_required", problem: result.problem, host: result.host, licensedHosts: result.licensedHosts });
 }
 
 export async function startBridgeServer(opts: BridgeServerOptions): Promise<BridgeServer> {
@@ -202,8 +208,7 @@ export async function startBridgeServer(opts: BridgeServerOptions): Promise<Brid
     try {
       const pathname = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
       // ライセンスの入口は作業画面（同一オリジン）からだけ受ける
-      const licensePath = pathname === LICENSE_PATH || pathname === LICENSE_AUTHORIZE_PATH;
-      isTicketPath = pathname.startsWith("/import/") || (pathname.startsWith(PEER_PREFIX) && !licensePath);
+      isTicketPath = pathname.startsWith("/import/") || (pathname.startsWith(PEER_PREFIX) && !LICENSE_PATHS.includes(pathname));
     } catch {
       isTicketPath = false;
     }
@@ -243,7 +248,7 @@ export async function startBridgeServer(opts: BridgeServerOptions): Promise<Brid
       return;
     }
 
-    if (url.pathname === LICENSE_PATH || url.pathname === LICENSE_AUTHORIZE_PATH) {
+    if (LICENSE_PATHS.includes(url.pathname)) {
       await handleLicenseRequest(req, res, url.pathname, opts.license ?? null);
       return;
     }

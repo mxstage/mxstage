@@ -22,8 +22,11 @@ export interface LicensePayload {
   org: string;
   /** 購入者のメール。製品は画面にも LLM にも出さない */
   email: string;
-  /** ライセンスで書き込める本番の Maximo の環境の数 */
-  envs: number;
+  /**
+   * ライセンスで書き込める本番の Maximo の環境（1 ライセンス = 1 環境）の接続先。
+   * 同じ環境の別名（社内用と社外用など）を 3 つまで。licenseHostOf で正規化した形（https://host[:port]）
+   */
+  hosts: string[];
   /** 発行した時刻（UNIX 秒） */
   iat: number;
   /** 期限（UNIX 秒）。請求期間の終わり + 30 日 */
@@ -44,7 +47,23 @@ export type LicenseState = "none" | "valid" | "expired" | "revoked" | "invalid";
 
 const LIC_PATTERN = /^[A-Za-z0-9_-]{1,100}$/;
 const KID_PATTERN = /^[a-z0-9]{1,16}$/;
-const MAX_ENVS = 1000;
+/** 1 つの環境に書ける接続先（別名）の数の上限 */
+export const LICENSE_MAX_HOSTS = 3;
+
+/**
+ * 接続先の URL から、ライセンスと照らし合わせる形（スキーム・ホスト・ポート）を取り出す。
+ * パス（/maximo など）の違いは同じ環境とみなす。http・https 以外、利用者名・パスワード付き、読めない URL は null
+ */
+export function licenseHostOf(url: string): string | null {
+  let u: URL;
+  try {
+    u = new URL(url.trim());
+  } catch {
+    return null;
+  }
+  if ((u.protocol !== "https:" && u.protocol !== "http:") || u.username !== "" || u.password !== "" || u.hostname === "") return null;
+  return `${u.protocol}//${u.host}`.toLowerCase();
+}
 
 // ---------------------------------------------------------------------------
 // base64url（Node の Buffer やブラウザの atob に頼らない）
@@ -107,10 +126,11 @@ function isPayload(value: unknown): value is LicensePayload {
     LIC_PATTERN.test(p.lic) &&
     str(p.org, 200) &&
     str(p.email, 320) &&
-    typeof p.envs === "number" &&
-    Number.isInteger(p.envs) &&
-    p.envs >= 1 &&
-    p.envs <= MAX_ENVS &&
+    Array.isArray(p.hosts) &&
+    p.hosts.length >= 1 &&
+    p.hosts.length <= LICENSE_MAX_HOSTS &&
+    p.hosts.every((h) => typeof h === "string" && licenseHostOf(h) === h) &&
+    new Set(p.hosts).size === p.hosts.length &&
     time(p.iat) &&
     time(p.exp) &&
     (p.exp as number) > (p.iat as number) &&

@@ -1,5 +1,5 @@
 // オブジェクト構造のカタログの保存先。
-// - ブラウザの IndexedDB（データベース mxstudio）に、Maximo の接続先（baseUrl）ごとに保存する。
+// - ブラウザの IndexedDB（データベース mxstage）に、Maximo の接続先（baseUrl）ごとに保存する。
 // - 保存するのは jsonschemas から読んだ属性の定義と、オブジェクト構造の一覧（apimeta と MXAPIINTOBJECT）だけ。API キーや行データは入れない。
 // - IndexedDB が使えない環境（プライベートウィンドウ、試験など）ではメモリに置く（タブを閉じると消える）。
 
@@ -90,7 +90,7 @@ export function createMemoryCatalogStorage(): CatalogStorage {
 // IndexedDB
 // ---------------------------------------------------------------------------
 
-export const CATALOG_DB_NAME = "mxstudio";
+export const CATALOG_DB_NAME = "mxstage";
 export const CATALOG_DB_VERSION = 1;
 const STRUCTURES_STORE = "objectStructures";
 const API_LISTS_STORE = "apiLists";

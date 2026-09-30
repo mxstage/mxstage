@@ -1,6 +1,6 @@
 // Skill（作業手順書）の一覧。2 か所を分けて持つ。
 //   - アプリ既定: リポジトリの skills/ から生成した defaultSkills.ts。アプリと一緒に更新される。利用者は書き換えない。
-//   - 利用者の Skill: ~/.config/mxstudio/skills/<name>/SKILL.md。業務や客先ごとの手順を利用者が置く。
+//   - 利用者の Skill: ~/.config/mxstage/skills/<name>/SKILL.md。業務や客先ごとの手順を利用者が置く。
 //     リポジトリの外なので、アプリを更新しても消えず、公開もされない。読むたびに既定と同じ規則で検証する。
 // 同じ名前なら既定を優先し、利用者の方は読み込まずに問題として返す（既定の手順を黙って差し替えないため）。
 
@@ -10,7 +10,7 @@ import { NAME_PATTERN, SKILL_FILE, validateSkill } from "../shared/skillFile.ts"
 import { TOOL_NAMES } from "../shared/toolDefs.ts";
 import { CONFLICT_REASONS, SKILLS as DEFAULT_SKILLS } from "./defaultSkills.ts";
 
-/** 利用者の Skill を置くフォルダ名（橋渡しの状態フォルダ ~/.config/mxstudio の下） */
+/** 利用者の Skill を置くフォルダ名（橋渡しの状態フォルダ ~/.config/mxstage の下） */
 export const USER_SKILLS_DIR_NAME = "skills";
 
 export type SkillOrigin = "default" | "user";
@@ -119,7 +119,7 @@ export function skillFileText(input: SaveSkillInput): string {
 }
 
 /**
- * 利用者の Skill を ~/.config/mxstudio/skills/<name>/SKILL.md に保存する。
+ * 利用者の Skill を ~/.config/mxstage/skills/<name>/SKILL.md に保存する。
  * 読むときと同じ規則で検証し、通らなければ書かない。アプリ既定と同じ名前、無断の上書きはしない。
  * 書き込みは一時ファイルから置き換える（途中で止まっても半端な SKILL.md を残さない）
  */

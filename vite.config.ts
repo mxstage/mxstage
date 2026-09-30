@@ -14,7 +14,7 @@ const path = (rel: string) => fileURLToPath(new URL(rel, import.meta.url));
  */
 function swPrecachePlugin(): Plugin {
   return {
-    name: "mxstudio-sw-precache",
+    name: "mxstage-sw-precache",
     apply: "build",
     // index.html は vite 自身の plugin が出力するので、その後で一覧を作る
     enforce: "post",
@@ -57,7 +57,7 @@ export default defineConfig({
       "/mx": BRIDGE,
       // "/import" だけだと画面のソース（/imports/index.ts）まで橋渡しへ渡してしまう
       "/import/": BRIDGE,
-      "/_mxstudio": BRIDGE,
+      "/_mxstage": BRIDGE,
       "/ws": { target: BRIDGE, ws: true },
     },
   },

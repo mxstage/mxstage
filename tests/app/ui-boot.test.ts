@@ -91,8 +91,8 @@ function setup(overrides: Partial<RuntimeFactories> = {}) {
     catalog: new ObjectStructureCatalog(),
     factories,
     appVersion: "1.2.3",
-    origin: "https://mxstudio.test",
-    relayUrl: "wss://mxstudio.test/ws",
+    origin: "https://mxstage.test",
+    relayUrl: "wss://mxstage.test/ws",
     workspaceName: "作業A",
     relayOverrides: { WebSocketImpl: FakeWebSocket as unknown as WebSocketFactory, window: null, document: null, tabId: "tab-test" },
   });
@@ -108,7 +108,7 @@ describe("createRuntime", () => {
     expect(d?.jobs).toBe(runtime.workspace.jobs);
     expect(d?.connection).toBe(connection);
     expect(d?.appVersion).toBe("1.2.3");
-    expect(d?.appUrl).toBe("https://mxstudio.test/app");
+    expect(d?.appUrl).toBe("https://mxstage.test/app");
     // LLM のツールからは Maximo へ書き込めない
     expect(Object.keys(d?.commits ?? {}).sort()).toEqual(["isRunning", "panel", "request"]);
     expect((d?.commits as unknown as { run?: unknown }).run).toBeUndefined();
@@ -120,7 +120,7 @@ describe("createRuntime", () => {
     expect(runtime.relayStatus().state).toBe("closed");
     runtime.start();
     const ws = FakeWebSocket.instances[0];
-    expect(ws?.url).toBe("wss://mxstudio.test/ws");
+    expect(ws?.url).toBe("wss://mxstage.test/ws");
     expect(ws?.protocols).toBe(RELAY_SUBPROTOCOL);
     expect(runtime.relayStatus().state).toBe("connecting");
 

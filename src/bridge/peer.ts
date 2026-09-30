@@ -1,13 +1,13 @@
-// 橋渡し同士の内部経路（/_mxstudio/*）。PC に橋渡しを 1 つにするために使う。
+// 橋渡し同士の内部経路（/_mxstage/*）。PC に橋渡しを 1 つにするために使う。
 // - primary（ポートを取れた橋渡し）がサーバ側を受け持つ。
-// - client（ポートが使用中で、相手が mxstudio の橋渡しだった）は RemoteHub で primary にツール呼び出しを渡す。
+// - client（ポートが使用中で、相手が MX Stage の橋渡しだった）は RemoteHub で primary にツール呼び出しを渡す。
 //
 // 経路:
-//   GET  /_mxstudio/health         鍵なし。{ name, version, protocol } だけ返す（鍵や PID は出さない）
-//   POST /_mxstudio/invoke         鍵あり。HubInvokeRequest を受け、改行区切り JSON で進捗と結果を返す
-//   GET  /_mxstudio/status         鍵あり。HubStatus
-//   POST /_mxstudio/import-ticket  鍵あり。アップロード URL のチケットを primary で発行する
-//   POST /_mxstudio/import-chunk   鍵あり。ImportChunkMsg を primary の Hub へ流す
+//   GET  /_mxstage/health         鍵なし。{ name, version, protocol } だけ返す（鍵や PID は出さない）
+//   POST /_mxstage/invoke         鍵あり。HubInvokeRequest を受け、改行区切り JSON で進捗と結果を返す
+//   GET  /_mxstage/status         鍵あり。HubStatus
+//   POST /_mxstage/import-ticket  鍵あり。アップロード URL のチケットを primary で発行する
+//   POST /_mxstage/import-chunk   鍵あり。ImportChunkMsg を primary の Hub へ流す
 //
 // 作業データ・鍵は console に出さない。
 
@@ -22,16 +22,19 @@ import type { BridgeKeyStore } from "./bridgeKey.ts";
 import type { ImportTicket } from "./importUpload.ts";
 
 /** health に載せる名前（setup-local.mjs などがこれで橋渡しと見分ける） */
-export const BRIDGE_NAME = "mxstudio-bridge";
+export const BRIDGE_NAME = "mxstage-bridge";
 /** 内部経路の取り決めの版。互換の無い変更をしたら上げる */
-export const BRIDGE_PEER_PROTOCOL = 1;
+export const BRIDGE_PEER_PROTOCOL = 2;
 
-export const PEER_PREFIX = "/_mxstudio/";
-export const PEER_HEALTH_PATH = "/_mxstudio/health";
-export const PEER_INVOKE_PATH = "/_mxstudio/invoke";
-export const PEER_STATUS_PATH = "/_mxstudio/status";
-export const PEER_IMPORT_TICKET_PATH = "/_mxstudio/import-ticket";
-export const PEER_IMPORT_CHUNK_PATH = "/_mxstudio/import-chunk";
+export const PEER_PREFIX = "/_mxstage/";
+export const PEER_HEALTH_PATH = "/_mxstage/health";
+/** 改名前（mxstudio）の橋渡しの health の経路と名前。ポートを持っているのが改名前の橋渡しかを見分けるためだけに使う */
+export const LEGACY_PEER_HEALTH_PATH = "/_mxstudio/health";
+export const LEGACY_BRIDGE_NAME = "mxstudio-bridge";
+export const PEER_INVOKE_PATH = "/_mxstage/invoke";
+export const PEER_STATUS_PATH = "/_mxstage/status";
+export const PEER_IMPORT_TICKET_PATH = "/_mxstage/import-ticket";
+export const PEER_IMPORT_CHUNK_PATH = "/_mxstage/import-chunk";
 
 /** invoke の本文の上限（Hub は 1 フレーム 1MiB で断るので、それより少し大きく受けて Hub に判定させる） */
 export const PEER_MAX_INVOKE_BYTES = RELAY_LIMITS.maxFrameBytes * 2;
@@ -126,7 +129,7 @@ function forbidden(res: ServerResponse): void {
   sendJson(res, 403, { ok: false, error: "forbidden_key", message: "橋渡しの鍵が一致しません。" });
 }
 
-/** /_mxstudio/* を処理する（入口の Host・Origin の検査は呼び出し側で済ませておく） */
+/** /_mxstage/* を処理する（入口の Host・Origin の検査は呼び出し側で済ませておく） */
 export async function handlePeerRequest(req: IncomingMessage, res: ServerResponse, pathname: string, deps: PeerServerDeps): Promise<void> {
   const method = (req.method ?? "GET").toUpperCase();
 
@@ -259,9 +262,11 @@ export type HealthProbe =
   | { kind: "bridge"; health: HealthBody }
   /** 何も待ち受けていない */
   | { kind: "down" }
-  /** mxstudio の橋渡しだが、/_mxstudio/health の無い古い版 */
+  /** MX Stage の橋渡しだが、/_mxstage/health の無い古い版 */
   | { kind: "legacy" }
-  /** mxstudio 以外のアプリ（または応答しない） */
+  /** 改名前の mxstudio の橋渡し（/_mxstudio/health に応える） */
+  | { kind: "renamed"; version: string }
+  /** MX Stage 以外のアプリ（または応答しない） */
   | { kind: "other" };
 
 interface RawReply {
@@ -346,6 +351,19 @@ export async function probeBridgeHealth(port: number, timeoutMs = 3_000): Promis
       return { kind: "bridge", health };
     }
   }
+  // 改名前の mxstudio の橋渡しは /_mxstudio/health に応える（新しい経路には画面の HTML を返す）
+  try {
+    const legacy = await peerRequest({ port, method: "GET", path: LEGACY_PEER_HEALTH_PATH, timeoutMs, maxBytes: 64 * 1024 });
+    if (legacy.status === 200 && legacy.contentType.includes("application/json")) {
+      const body = parseJson(legacy.body) as { name?: unknown; version?: unknown } | undefined;
+      if (body && body.name === LEGACY_BRIDGE_NAME) {
+        const version = typeof body.version === "string" ? body.version.replace(/[^\x20-\x7e]/g, "").slice(0, 40) : "";
+        return { kind: "renamed", version };
+      }
+    }
+  } catch {
+    // 見分けられなければ次の手がかりへ
+  }
   // 古い版の橋渡しは /ws に 426 と upgrade_required を返す（src/bridge/server.ts）
   try {
     const ws = await peerRequest({ port, method: "GET", path: "/ws", timeoutMs, maxBytes: 64 * 1024 });
@@ -381,9 +399,9 @@ function peerFailure(message: string): HubInvokeResponse {
 }
 
 const KEY_MISSING_MESSAGE =
-  "橋渡し同士の鍵ファイルが見つかりません。すでに動いている mxstudio の橋渡しを再起動してから、もう一度実行してください。";
+  "橋渡し同士の鍵ファイルが見つかりません。すでに動いている MX Stage の橋渡しを再起動してから、もう一度実行してください。";
 const KEY_REJECTED_MESSAGE =
-  "橋渡し同士の認証に失敗しました（鍵ファイルが食い違っています）。mxstudio の橋渡しをすべて止めてから起動し直してください。";
+  "橋渡し同士の認証に失敗しました（鍵ファイルが食い違っています）。MX Stage の橋渡しをすべて止めてから起動し直してください。";
 const TOO_LARGE_MESSAGE = "引数が大きすぎて作業画面へ送れません。対象を分けて、複数回に分けて実行してください。";
 
 function isHubInvokeResponse(value: unknown): value is HubInvokeResponse {

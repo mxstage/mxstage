@@ -52,7 +52,7 @@ export interface SettingsPageProps {
   /** 接続に成功したときの history.replaceState */
   replaceUrl?: (url: string) => void;
   clipboard?: ClipboardLike | null;
-  /** Skill の一覧を読む（省略時は橋渡しの /_mxstudio/skills） */
+  /** Skill の一覧を読む（省略時は橋渡しの /_mxstage/skills） */
   loadSkills?: () => Promise<SkillList>;
 }
 
@@ -137,8 +137,8 @@ export function SettingsPage(props: SettingsPageProps) {
 
 /**
  * Skill（作業手順書）の一覧。アプリ既定と利用者の Skill を分けて出す。
- * - アプリ既定: mxstudio と一緒に入り、更新で置き換わる。書き換えない。
- * - 利用者の Skill: 業務や客先ごとの手順。利用者のフォルダに置き、mxstudio を更新しても残る。
+ * - アプリ既定: MX Stage と一緒に入り、更新で置き換わる。書き換えない。
+ * - 利用者の Skill: 業務や客先ごとの手順。利用者のフォルダに置き、MX Stage を更新しても残る。
  */
 function SkillsSection({ load }: { load: () => Promise<SkillList> }) {
   const [state, setState] = useState<{ kind: "loading" } | { kind: "ok"; list: SkillList } | { kind: "error"; message: string }>({ kind: "loading" });
@@ -163,13 +163,13 @@ function SkillsSection({ load }: { load: () => Promise<SkillList> }) {
   return (
     <section className="card skills">
       <h2>Skill（作業手順書）</h2>
-      <p className="muted">LLM に mxstudio の作業手順と禁止事項を教えるファイルです。Claude Code は新しいセッションから読みます。</p>
+      <p className="muted">LLM に MX Stage の作業手順と禁止事項を教えるファイルです。Claude Code は新しいセッションから読みます。</p>
       {state.kind === "loading" && <p className="muted">一覧を読んでいます…</p>}
       {state.kind === "error" && <Notice kind="warning">{state.message}</Notice>}
       {state.kind === "ok" && (
         <>
           <h3>アプリ既定</h3>
-          <p className="muted small">mxstudio と一緒に入り、mxstudio を更新すると置き換わります。書き換えないでください。</p>
+          <p className="muted small">MX Stage と一緒に入り、MX Stage を更新すると置き換わります。書き換えないでください。</p>
           <SkillItems items={defaults} empty="ありません。" />
           <h3>利用者の Skill</h3>
           <p className="muted small">
@@ -180,7 +180,7 @@ function SkillsSection({ load }: { load: () => Promise<SkillList> }) {
                 <code className="mono">{state.list.userSkillsDir}</code> の下に <code className="mono">&lt;名前&gt;/SKILL.md</code> で置きます。
               </>
             ) : null}
-            mxstudio を更新しても消えず、公開もされません。置いたあと導入をやり直すと Claude Code に入ります。
+            MX Stage を更新しても消えず、公開もされません。置いたあと導入をやり直すと Claude Code に入ります。
           </p>
           <SkillItems items={users} empty="まだありません。" />
           {problems.length > 0 && (

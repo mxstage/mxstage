@@ -43,7 +43,7 @@ function harness() {
   let t = 1_000;
   const catalog = new ObjectStructureCatalog({ now: () => ++t });
   const commits = createCommitController({ workspace, connection, catalog, refreshMs: 0 });
-  const registry = createToolRegistry({ workspace, jobs: new JobRegistry(), connection, commits, catalog, appVersion: "0.1.0-test", appUrl: "https://mxstudio.test/app" });
+  const registry = createToolRegistry({ workspace, jobs: new JobRegistry(), connection, commits, catalog, appVersion: "0.1.0-test", appUrl: "https://mxstage.test/app" });
   let seq = 0;
   async function call(tool: string, args: unknown): Promise<Record<string, any>> {
     const msg: InvokeMsg = { type: "tool.invoke", id: `c${++seq}`, tool: tool as ToolName, args, deadlineAt: Date.now() + 30_000, timeoutMs: 30_000, idempotencyKey: "", readOnly: false };

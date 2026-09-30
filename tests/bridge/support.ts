@@ -225,7 +225,7 @@ export function isUnderTmp(path: string): boolean {
 
 export async function createSandbox(): Promise<Sandbox> {
   const dir = await mkdtemp(join(tmpdir(), "mxs-bridge-sbx-"));
-  const keyFile = join(dir, "local", "mxstudio", "bridge.key");
+  const keyFile = join(dir, "local", "mxstage", "bridge.key");
   if (!isUnderTmp(keyFile)) throw new Error("鍵ファイルが一時フォルダの外を指しています");
   const env: NodeJS.ProcessEnv = {
     ...process.env,

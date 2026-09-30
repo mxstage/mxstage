@@ -79,7 +79,7 @@ function coordinator(port: number, overrides: Partial<BridgeCoordinatorOptions> 
   return c;
 }
 
-/** mxstudio 以外のサーバでポートを埋める */
+/** MX Stage 以外のサーバでポートを埋める */
 async function occupyWith(port: number, handler: (req: IncomingMessage, res: ServerResponse) => void): Promise<Server> {
   const server = createServer(handler);
   await new Promise<void>((done, failed) => {
@@ -109,11 +109,11 @@ function parseNdjson(body: string): Array<Record<string, unknown>> {
 // ---------------------------------------------------------------------------
 
 describe("鍵ファイル", () => {
-  it("既定の場所はどの OS でも ~/.config/mxstudio（%LOCALAPPDATA% は見ない）。環境変数で差し替えられる", () => {
+  it("既定の場所はどの OS でも ~/.config/mxstage（%LOCALAPPDATA% は見ない）。環境変数で差し替えられる", () => {
     // Claude Desktop（MSIX）が起動した橋渡しは %LOCALAPPDATA% への書き込みを振り替えられるので、そこに置かない
     const local = join("C:", "Users", "u", "AppData", "Local");
-    expect(defaultBridgeKeyPath({ env: { LOCALAPPDATA: local }, home: join("C:", "Users", "u") })).toBe(join("C:", "Users", "u", ".config", "mxstudio", "bridge.key"));
-    expect(defaultBridgeKeyPath({ env: {}, home: "/home/u" })).toBe(join("/home/u", ".config", "mxstudio", "bridge.key"));
+    expect(defaultBridgeKeyPath({ env: { LOCALAPPDATA: local }, home: join("C:", "Users", "u") })).toBe(join("C:", "Users", "u", ".config", "mxstage", "bridge.key"));
+    expect(defaultBridgeKeyPath({ env: {}, home: "/home/u" })).toBe(join("/home/u", ".config", "mxstage", "bridge.key"));
     expect(defaultBridgeKeyPath({ env: { [BRIDGE_KEY_FILE_ENV]: box.keyFile, LOCALAPPDATA: local } })).toBe(resolve(box.keyFile));
   });
 
@@ -169,7 +169,7 @@ describe("鍵ファイル", () => {
 
 // ---------------------------------------------------------------------------
 
-describe("内部経路（/_mxstudio/*）", () => {
+describe("内部経路（/_mxstage/*）", () => {
   async function keyedBridge() {
     const keyStore = box.keyStore();
     const bridge = await startTestBridge({ keyStore, version: "1.2.3" });
@@ -454,7 +454,7 @@ describe("役割決め（同じプロセスの中）", () => {
     }
   });
 
-  it("ポートを mxstudio 以外のサーバが使っていたら、ずらさず conflict", async () => {
+  it("ポートを MX Stage 以外のサーバが使っていたら、ずらさず conflict", async () => {
     const port = await findFreePort();
     await occupyWith(port, (_req, res) => {
       res.writeHead(200, { "content-type": "text/html" });
@@ -486,7 +486,7 @@ describe("役割決め（同じプロセスの中）", () => {
     expect((await coordinator(otherPort, { createHub: countingHub(againstOther) }).start()).kind).toBe("conflict");
     expect(againstOther.n).toBe(0);
 
-    // mxstudio の橋渡しが応答するときも、待ち受けを試さずに client になる
+    // MX Stage の橋渡しが応答するときも、待ち受けを試さずに client になる
     const port = await findFreePort();
     const primaryHubs = { n: 0 };
     expect((await coordinator(port, { createHub: countingHub(primaryHubs) }).start()).kind).toBe("primary");
@@ -510,7 +510,7 @@ describe("役割決め（同じプロセスの中）", () => {
     expect(tab.frames("tool.invoke")).toHaveLength(0);
   });
 
-  it("/_mxstudio/health を持たない古い版の橋渡しは見分けて止まる", async () => {
+  it("/_mxstage/health を持たない古い版の橋渡しは見分けて止まる", async () => {
     const port = await findFreePort();
     await occupyWith(port, (req, res) => {
       if (req.url === "/ws") {
@@ -555,9 +555,9 @@ describe("CLI（別プロセス）", () => {
     answerWithProgress(tab, "primary のタブ");
     const call = await second.call(2, "tools/call", { name: "load_sheet", arguments: LOAD_ARGS, _meta: { progressToken: "tok-cli" } }, 20_000);
     // 会話で最初の呼び出しなので、タブの結果の後ろに基本手順の Skill が添えられる。
-    // 更新の知らせ（【mxstudio の更新】）は、試験を動かしているリポジトリの状態で付いたり付かなかったりするので外して比べる
-    const content = ((call.result as { content: { type: string; text: string }[] }).content ?? []).filter((c) => !c.text.startsWith("【mxstudio の更新】"));
-    expect(content).toMatchObject([{ type: "text", text: "primary のタブ" }, { type: "text", text: expect.stringContaining("mxstudio の基本手順と禁止事項") }]);
+    // 更新の知らせ（【MX Stage の更新】）は、試験を動かしているリポジトリの状態で付いたり付かなかったりするので外して比べる
+    const content = ((call.result as { content: { type: string; text: string }[] }).content ?? []).filter((c) => !c.text.startsWith("【MX Stage の更新】"));
+    expect(content).toMatchObject([{ type: "text", text: "primary のタブ" }, { type: "text", text: expect.stringContaining("MX Stage の基本手順と禁止事項") }]);
     expect((tab.frames("tool.invoke")[0] as unknown as InvokeMsg).tool).toBe("load_sheet");
     const progress = second.notifications.filter((n) => n.method === "notifications/progress");
     expect(progress[0]?.params).toMatchObject({ progressToken: "tok-cli", progress: 1, total: 2 });
@@ -574,7 +574,7 @@ describe("CLI（別プロセス）", () => {
     again.onInvoke = (msg) => again.answer(msg.id, "引き継いだ橋渡しのタブ");
     const after = await second.call(3, "tools/call", { name: "get_status", arguments: {} }, 20_000);
     // get_status には更新の知らせが付くことがある（上と同じ理由で外して比べる）
-    const afterContent = ((after.result as { content: { type: string; text: string }[] }).content ?? []).filter((c) => !c.text.startsWith("【mxstudio の更新】"));
+    const afterContent = ((after.result as { content: { type: string; text: string }[] }).content ?? []).filter((c) => !c.text.startsWith("【MX Stage の更新】"));
     expect(afterContent).toMatchObject([{ type: "text", text: "引き継いだ橋渡しのタブ" }]);
 
     // 鍵の値はどちらのログにも出さない
@@ -628,11 +628,11 @@ describe("CLI（別プロセス）", () => {
     expect((await probeBridgeHealth(port, 1_000)).kind).toBe("down");
   }, 30_000);
 
-  it("ポートを mxstudio 以外のサーバが使っていると、ずらさず終了コード 1", async () => {
+  it("ポートを MX Stage 以外のサーバが使っていると、ずらさず終了コード 1", async () => {
     const port = await findFreePort();
     await occupyWith(port, (_req, res) => {
       res.writeHead(404, { "content-type": "text/plain" });
-      res.end("not mxstudio");
+      res.end("not mxstage");
     });
     const cli = new CliProcess(["--port", String(port)], box);
     expect(await cli.exited).toBe(1);
@@ -648,7 +648,7 @@ describe("CLI（別プロセス）", () => {
     await first.waitForStderr("listening on");
     const second = new CliProcess(["--port", String(port), "--no-mcp"], box);
     expect(await second.exited).toBe(0);
-    expect(second.stderr).toContain("既に mxstudio の橋渡し");
+    expect(second.stderr).toContain("既に MX Stage の橋渡し");
     // 先に動いている橋渡しはそのまま
     expect((await probeBridgeHealth(port)).kind).toBe("bridge");
   }, 30_000);

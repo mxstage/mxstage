@@ -15,7 +15,7 @@ import type { CellValue, ColumnSchema } from "../../src/shared/model";
 import { makeParentKey, type SheetMeta, type SheetRow } from "../../src/shared/sheet";
 import type { ToolName } from "../../src/shared/toolDefs";
 
-const APP_URL = "https://mxstudio.test/app";
+const APP_URL = "https://mxstage.test/app";
 const encoder = new TextEncoder();
 const byteLength = (v: unknown) => encoder.encode(JSON.stringify(v)).length;
 
@@ -122,7 +122,7 @@ describe("get_status: 結果の大きさ", () => {
 
 describe("Maximo のエラー文をモデルに返すとき", () => {
   const ctx: ErrorContext = {
-    settingsUrl: "https://mxstudio.test/settings",
+    settingsUrl: "https://mxstage.test/settings",
     sheets: [],
     sheetNames: () => [],
     columnsOf: () => null,

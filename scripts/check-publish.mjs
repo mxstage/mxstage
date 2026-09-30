@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // 公開（git push）の前に、客先の情報を含むコミットやファイルが無いかを調べる。
-// 探す語はリポジトリの外（~/.config/mxstudio/publish-terms.txt）に置く（一覧そのものが客先の情報なので）。
+// 探す語はリポジトリの外（~/.config/mxstage/publish-terms.txt）に置く（一覧そのものが客先の情報なので）。
 // - pre-push フック（.githooks/pre-push）から呼ばれると、送ろうとしているコミット（送り先にまだ無いもの）を全部調べ、
 //   1 つでも当たれば送らない。語の一覧が無いときも送らない（調べずに通さない）。
 // - 手で動かすと、今のブランチの履歴（--all ならすべてのブランチとタグ、--worktree なら作業中のファイルも）を調べる。
@@ -11,7 +11,8 @@
 //   node scripts/check-publish.mjs --all           すべてのブランチとタグの履歴
 //   node scripts/check-publish.mjs --worktree      今のブランチの履歴と、作業中のファイル（まだコミットしていない変更）
 //   node scripts/check-publish.mjs --pre-push <送り先の名前>   pre-push フック用（送る範囲を標準入力から読む）
-//   --terms <パス>   語の一覧（既定: 環境変数 MXSTUDIO_PUBLISH_TERMS か ~/.config/mxstudio/publish-terms.txt）
+//   --terms <パス>   語の一覧（既定: 環境変数 MXSTAGE_PUBLISH_TERMS か ~/.config/mxstage/publish-terms.txt。
+//                    無ければ改名前の MXSTUDIO_PUBLISH_TERMS・~/.config/mxstudio/publish-terms.txt）
 //
 // 終了コード: 0 = 当たりなし、1 = 当たりあり（送らない）、2 = 語の一覧が無い・引数が不正など（送らない）。
 
@@ -27,9 +28,20 @@ const MAX_REPORT = 50;
 /** 作業中のファイルで読む大きさの上限（これより大きいファイルはパスだけ調べる） */
 const MAX_WORKTREE_BYTES = 5 * 1024 * 1024;
 
-export function defaultTermsPath(env = process.env, home = os.homedir()) {
-  const fromEnv = typeof env.MXSTUDIO_PUBLISH_TERMS === "string" ? env.MXSTUDIO_PUBLISH_TERMS.trim() : "";
-  return fromEnv !== "" ? fromEnv : path.join(home, ".config", "mxstudio", "publish-terms.txt");
+/**
+ * 語の一覧の場所。環境変数 → ~/.config/mxstage → 改名前の置き場所（~/.config/mxstudio）の順に探す。
+ * 改名前の名前（MXSTUDIO_PUBLISH_TERMS・~/.config/mxstudio）も読むのは、移す前に送れなくならないようにするため。
+ * どれも無ければ新しい置き場所を返す（無いことを知らせる文に使う）。
+ */
+export function defaultTermsPath(env = process.env, home = os.homedir(), exists = existsSync) {
+  for (const name of ["MXSTAGE_PUBLISH_TERMS", "MXSTUDIO_PUBLISH_TERMS"]) {
+    const fromEnv = typeof env[name] === "string" ? env[name].trim() : "";
+    if (fromEnv !== "") return fromEnv;
+  }
+  const current = path.join(home, ".config", "mxstage", "publish-terms.txt");
+  const legacy = path.join(home, ".config", "mxstudio", "publish-terms.txt");
+  if (!exists(current) && exists(legacy)) return legacy;
+  return current;
 }
 
 /**

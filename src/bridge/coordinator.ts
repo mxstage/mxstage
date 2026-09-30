@@ -1,9 +1,9 @@
 // 橋渡しを PC に 1 つにするための役割決めと引き継ぎ。
 //
-// 起動時（先に GET /_mxstudio/health を聞き、何も応答しなければポートを取りに行く）:
+// 起動時（先に GET /_mxstage/health を聞き、何も応答しなければポートを取りに行く）:
 //   - ポートを取れた → primary。画面の配信・WebSocket の中継・/mx・内部経路を受け持ち、自分の MCP はローカルの Hub を使う。
-//   - ポートが使用中（誰かが応答した・待ち受けが EADDRINUSE で失敗した）→ /_mxstudio/health の応答で相手を確かめる。
-//       mxstudio の橋渡しなら client（自分では待ち受けず、ツール呼び出しを primary に渡す）。
+//   - ポートが使用中（誰かが応答した・待ち受けが EADDRINUSE で失敗した）→ /_mxstage/health の応答で相手を確かめる。
+//       MX Stage の橋渡しなら client（自分では待ち受けず、ツール呼び出しを primary に渡す）。
 //       それ以外なら「ポート <port> は別のアプリが使っています」で終わる（ずらさない）。
 // 引き継ぎ:
 //   - client は、呼び出しの前（と、watchIntervalMs ごと）にポートを取り直してみる。取れたら primary になる。
@@ -58,7 +58,7 @@ export interface BridgeCoordinatorOptions {
   remoteGraceMs?: number;
   /** stderr への 1 行ログ（鍵・作業データは渡さない） */
   log?: (line: string) => void;
-  /** 利用者の Skill のフォルダ（~/.config/mxstudio/skills） */
+  /** 利用者の Skill のフォルダ（~/.config/mxstage/skills） */
   userSkillsDir?: string | null;
   /** 起動したあとにコードが変わったか（primary のとき health の stale に載せる。src/bridge/freshness.ts） */
   codeStale?: () => boolean;
@@ -131,7 +131,7 @@ export class BridgeCoordinator {
           if (probe.health.protocol !== BRIDGE_PEER_PROTOCOL) {
             return {
               kind: "conflict",
-              message: `ポート ${this.port} では版の違う mxstudio の橋渡し（${probe.health.version.slice(0, 40)}）が動いています。すべての mxstudio の橋渡しを止めてから起動し直してください。`,
+              message: `ポート ${this.port} では版の違う MX Stage の橋渡し（${probe.health.version.slice(0, 40)}）が動いています。すべての MX Stage の橋渡しを止めてから起動し直してください。`,
             };
           }
           this.roleValue = "client";
@@ -140,7 +140,14 @@ export class BridgeCoordinator {
         case "legacy":
           return {
             kind: "conflict",
-            message: `ポート ${this.port} では古い版の mxstudio の橋渡しが動いています。それを止めてから起動し直してください。`,
+            message: `ポート ${this.port} では古い版の MX Stage の橋渡しが動いています。それを止めてから起動し直してください。`,
+          };
+        case "renamed":
+          return {
+            kind: "conflict",
+            message:
+              `ポート ${this.port} では改名前の mxstudio の橋渡し${probe.version ? `（${probe.version}）` : ""}が動いています。` +
+              "Claude などの LLM のアプリをすべて終了し、mxstage.cmd（または node scripts/setup-local.mjs）を実行してから開き直してください。",
           };
         case "other":
           return { kind: "conflict", message: `ポート ${this.port} は別のアプリが使っています。--port で別の番号を指定してください。` };
@@ -230,7 +237,7 @@ export class BridgeCoordinator {
     if (tookOver) {
       // 前の primary につながっていたタブがつなぎ直してくるのを、猶予の間だけ待つ
       bridge.hub.expectReconnect();
-      this.log(`mxstudio bridge ${this.opts.version} listening on ${bridge.origin} (took over as primary)`);
+      this.log(`mxstage bridge ${this.opts.version} listening on ${bridge.origin} (took over as primary)`);
       this.log("primary の橋渡しが終了したため、このプロセスがポートを引き継ぎました。");
     }
     if (!bridge.keyReady) this.log("警告: 橋渡しの鍵ファイルを用意できませんでした。他の MCP クライアントからの中継は受け付けられません。");

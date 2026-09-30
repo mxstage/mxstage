@@ -14,7 +14,7 @@ export const LOG_MAX_BYTES = 512 * 1024;
 export const LOG_FILE_NAME = "bridge.log";
 
 export interface BridgeLoggerOptions {
-  /** 鍵ファイルと同じ場所（既定 ~/.config/mxstudio） */
+  /** 鍵ファイルと同じ場所（既定 ~/.config/mxstage） */
   stateDir: string;
   /** 画面（stderr）への出力。試験で差し替える */
   write?: (text: string) => void;

@@ -23,14 +23,14 @@ export type ParseResult =
   | { kind: "version" }
   | { kind: "error"; message: string };
 
-export const HELP_TEXT = `mxstudio bridge — Maximo のデータ整備を、この PC の中だけで中継します。
+export const HELP_TEXT = `mxstage bridge — Maximo のデータ整備を、この PC の中だけで中継します。
 
 使い方:
   node --experimental-strip-types src/bridge/cli.ts [オプション]
 
 オプション:
   --port <番号>      待ち受けるポート（既定 ${DEFAULT_PORT}。ずらしません。
-                     既に mxstudio の橋渡しが使っていればそちらに中継し、
+                     既に MX Stage の橋渡しが使っていればそちらに中継し、
                      別のアプリが使っていれば終了コード 1 で終わります）
   --open             既定のブラウザで作業画面を開く
   --no-open          ブラウザを開かない（既定）
@@ -47,7 +47,7 @@ export const HELP_TEXT = `mxstudio bridge — Maximo のデータ整備を、こ
 橋渡しは PC に 1 つです。後から起動した橋渡しは、先に動いている橋渡しに
 ツール呼び出しを渡します。先の橋渡しが終了すると、残った橋渡しが引き継ぎます。
 橋渡し同士は利用者ごとの鍵ファイルで確かめ合います
-（~/.config/mxstudio/bridge.key。Windows では %USERPROFILE%\\.config\\mxstudio\\bridge.key。
+（~/.config/mxstage/bridge.key。Windows では %USERPROFILE%\\.config\\mxstage\\bridge.key。
 環境変数 ${BRIDGE_KEY_FILE_ENV} で場所を変えられます）。`;
 
 function splitList(value: string): string[] {

@@ -210,9 +210,9 @@ describe("設定画面のフォーム", () => {
   it("Skill はアプリ既定と利用者の Skill に分けて出し、置き場所と問題を示す（一覧は 1 回だけ読む）", async () => {
     const loadSkills = vi.fn(
       async (): Promise<SkillList> => ({
-        userSkillsDir: "/home/u/.config/mxstudio/skills",
+        userSkillsDir: "/home/u/.config/mxstage/skills",
         skills: [
-          { name: "mxstudio-workbench", version: "0.7.0", description: "基本手順", origin: "default" },
+          { name: "mxstage-workbench", version: "0.7.0", description: "基本手順", origin: "default" },
           { name: "my-flow", version: "0.1.0", description: "業務の手順", origin: "user" },
         ],
         problems: [{ name: "broken", level: "error", message: "SKILL.md がありません。" }],
@@ -227,9 +227,9 @@ describe("設定画面のフォーム", () => {
     expect(text).toContain("アプリ既定");
     expect(text).toContain("利用者の Skill");
     // 既定の見出しの後に既定の Skill、利用者の見出しの後に利用者の Skill が並ぶ
-    expect(text.indexOf("mxstudio-workbench")).toBeGreaterThan(text.indexOf("アプリ既定"));
+    expect(text.indexOf("mxstage-workbench")).toBeGreaterThan(text.indexOf("アプリ既定"));
     expect(text.indexOf("my-flow")).toBeGreaterThan(text.indexOf("利用者の Skill"));
-    expect(text).toContain("/home/u/.config/mxstudio/skills");
+    expect(text).toContain("/home/u/.config/mxstage/skills");
     expect(text).toContain("broken");
     expect(text).toContain("読み込めません");
     // ZIP のダウンロードは無い

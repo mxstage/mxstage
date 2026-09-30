@@ -98,18 +98,18 @@ describe("Skill の一覧", () => {
   });
 
   it("置き場所は橋渡しの状態フォルダの下の skills", () => {
-    expect(userSkillsDirOf(join("home", ".config", "mxstudio"))).toBe(join("home", ".config", "mxstudio", "skills"));
+    expect(userSkillsDirOf(join("home", ".config", "mxstage"))).toBe(join("home", ".config", "mxstage", "skills"));
   });
 });
 
 describe("利用者の Skill を保存する（save_skill）", () => {
   const input = {
     name: "permit-date-update",
-    description: "mxstudio で、作業指示の子の許可申請の完了日を\n一括で変えるときに使う。",
+    description: "mxstage で、作業指示の子の許可申請の完了日を\n一括で変えるときに使う。",
     body: "# 許可申請の完了日\n\n1. get_status から始める。\n2. apply_rule で dryRun してから変え、get_diff で確かめて request_commit する。",
   };
 
-  it("~/.config/mxstudio/skills/<name>/SKILL.md に保存し、読むときと同じ規則で読める", async () => {
+  it("~/.config/mxstage/skills/<name>/SKILL.md に保存し、読むときと同じ規則で読める", async () => {
     const saved = saveUserSkill(dir, input);
     expect(saved).toMatchObject({ ok: true, name: "permit-date-update", version: "0.1.0", created: true, warnings: [] });
     const text = await readFile(join(dir, "permit-date-update", "SKILL.md"), "utf8");
@@ -117,7 +117,7 @@ describe("利用者の Skill を保存する（save_skill）", () => {
     expect(text.split("\n").slice(0, 5)).toEqual([
       "---",
       "name: permit-date-update",
-      'description: "mxstudio で、作業指示の子の許可申請の完了日を 一括で変えるときに使う。"',
+      'description: "mxstage で、作業指示の子の許可申請の完了日を 一括で変えるときに使う。"',
       "metadata:",
       '  version: "0.1.0"',
     ]);

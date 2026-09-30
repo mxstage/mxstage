@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// mxstudio をこの PC に入れる（1 ステップ導入）と、その取り消し。
+// MX Stage をこの PC に入れる（1 ステップ導入）と、その取り消し。
 // 橋渡し（ローカルで動く Node のプロセス）を起動し、Claude Code と Claude Desktop と
 // Antigravity（2.0・IDE・agy CLI。入っているときだけ）と Codex（デスクトップ・CLI・IDE 拡張。入っているときだけ）に
 // MCP サーバとして登録し、
@@ -12,6 +12,7 @@
 //
 // 利用者の設定ファイル（~/.claude.json、Claude Desktop の設定、~/.gemini/config/mcp_config.json、~/.codex/config.toml）を書き換えるので、
 // **書き換える前に必ずバックアップを取る**。既存の設定は消さない。取り消し方は画面と docs/local.md に出す。
+// 改名前（mxstudio）の導入が残したものがあれば、先に片付けて新しい名前へ移す（migrateLegacy）。
 // 秘密（個人トークン・API キー）は画面にも自分の記録（setup.json）にも書かない。
 // 置き換えた古い MCP 設定は、値を伏せた要約だけを記録し、戻すときはバックアップから読み直す。
 //
@@ -31,17 +32,17 @@ import { pathToFileURL } from "node:url";
 // ---------------------------------------------------------------------------
 
 /** Claude の設定に入れる MCP サーバ名 */
-const MCP_NAME = "mxstudio";
+const MCP_NAME = "mxstage";
 /**
  * 橋渡しの取り決め:
  * - 橋渡しは 1 つだけ。ポートは固定（既定 8788）で、塞がっていても隣のポートへはずらさない。
  * - 最初に起動した橋渡しがポートを持ち（primary）、2 つ目以降（Claude Code / Claude Desktop が起動した分など）は
  *   client としてその橋渡しに中継する。
- * - `GET /_mxstudio/health` が `{ name: "mxstudio-bridge", ... }` を返す。これで「橋渡しが動いている」ことを確かめる。
- * 古い版の橋渡し（/_mxstudio/health が無い）は、/ws が 426 と upgrade_required を返すことで見分ける。
+ * - `GET /_mxstage/health` が `{ name: "mxstage-bridge", ... }` を返す。これで「橋渡しが動いている」ことを確かめる。
+ * 古い版の橋渡し（/_mxstage/health が無い）は、/ws が 426 と upgrade_required を返すことで見分ける。
  */
-const BRIDGE_NAME = "mxstudio-bridge";
-const HEALTH_PATH = "/_mxstudio/health";
+const BRIDGE_NAME = "mxstage-bridge";
+const HEALTH_PATH = "/_mxstage/health";
 /**
  * 橋渡しの入口。上から順に探し、最初に見つかったものを使う（--bridge で上書きできる）。
  * Node 22 は .ts をそのまま実行できる（型注釈を取り除いて動かす）。
@@ -53,7 +54,7 @@ const BRIDGE_CANDIDATES = [
   "src/bridge/cli.mjs",
   "src/bridge/main.mjs",
   "dist/bridge/cli.js",
-  "bin/mxstudio-bridge.mjs",
+  "bin/mxstage-bridge.mjs",
 ];
 /** 画面と WebSocket だけを動かす（stdio の MCP を開かない）ときに橋渡しへ渡す引数（src/bridge/options.ts） */
 const BRIDGE_SERVE_ARGS = ["--no-mcp"];
@@ -69,14 +70,33 @@ const LEGACY_SCAN_COUNT = 20;
  * 試験の目印。この環境変数が "1" のときは、書き先がすべて一時フォルダでなければ何もせずに止まり、
  * 本物の claude コマンドを探さない（tests/setup/ が設定する。条件は testSandboxProblem）。
  */
-const TEST_GUARD_ENV = "MXSTUDIO_SETUP_TEST";
+const TEST_GUARD_ENV = "MXSTAGE_SETUP_TEST";
 /** claude コマンドの場所を差し替える環境変数（--claude-cli と同じ。引数が優先） */
-const CLAUDE_CLI_ENV = "MXSTUDIO_CLAUDE_CLI";
+const CLAUDE_CLI_ENV = "MXSTAGE_CLAUDE_CLI";
 
 /** スタートアップとデスクトップに置くショートカットの名前（取り消しのときはこの名前で消す） */
-const STARTUP_SHORTCUT = "mxstudio-bridge.lnk";
-const DESKTOP_SHORTCUT_LNK = "mxstudio.lnk";
-const DESKTOP_SHORTCUT_URL = "mxstudio.url";
+const STARTUP_SHORTCUT = "mxstage-bridge.lnk";
+const DESKTOP_SHORTCUT_LNK = "mxstage.lnk";
+const DESKTOP_SHORTCUT_URL = "mxstage.url";
+
+/**
+ * 改名前（mxstudio）の名前。0.2.0 で mxstudio を MX Stage（mxstage）に改名した。
+ * 導入のたびに、古い名前の登録・Skill の写し・自動起動・ショートカットが残っていないかを調べて片付け、
+ * 利用者の Skill と公開前の検査の語の一覧を新しい置き場所へ写す（migrateLegacy）。
+ */
+const LEGACY = Object.freeze({
+  mcpName: "mxstudio",
+  bridgeName: "mxstudio-bridge",
+  healthPath: "/_mxstudio/health",
+  stateDirName: "mxstudio",
+  startupShortcut: "mxstudio-bridge.lnk",
+  desktopShortcuts: Object.freeze(["mxstudio.lnk", "mxstudio.url"]),
+  defaultSkill: "mxstudio-workbench",
+  claudeCliEnv: "MXSTUDIO_CLAUDE_CLI",
+  publishTerms: "publish-terms.txt",
+  /** 改名前の置き場所から写し終えた印（新しい状態フォルダに置く。橋渡しの src/bridge/legacy.ts の LEGACY_MIGRATED_MARKER と同じ） */
+  migratedMarker: "migrated-from-mxstudio.json",
+});
 
 /** 橋渡しが立ち上がるのを待つ時間 */
 const START_TIMEOUT_MS = 20_000;
@@ -153,7 +173,7 @@ const LABEL = { ok: "OK  ", warn: "警告", error: "NG  ", skip: "飛ばした" 
 // 引数
 // ---------------------------------------------------------------------------
 
-const USAGE = `mxstudio をこの PC に入れる（1 ステップ導入）
+const USAGE = `MX Stage をこの PC に入れる（1 ステップ導入）
 
   node scripts/setup-local.mjs [オプション]
   node scripts/setup-local.mjs --uninstall
@@ -177,7 +197,8 @@ const USAGE = `mxstudio をこの PC に入れる（1 ステップ導入）
   --help                   この説明を出す
 
   試験用（ふだんは使わない。書き換え先を差し替える）:
-  --state-dir <パス>          記録とバックアップの置き場（既定: ~/.config/mxstudio）
+  --state-dir <パス>          記録とバックアップの置き場（既定: ~/.config/mxstage）
+  --legacy-state-dir <パス>   改名前（mxstudio）の記録の置き場（既定: ~/.config/mxstudio。試験中は指定したときだけ移す）
   --claude-code-config <パス> Claude Code の設定ファイル（既定: ~/.claude.json）
   --claude-desktop-config <パス> Claude Desktop の設定ファイル
   --startup-dir <パス>        スタートアップフォルダ
@@ -214,6 +235,7 @@ export function parseArgs(argv) {
     json: false,
     help: false,
     stateDir: null,
+    legacyStateDir: null,
     claudeCodeConfig: null,
     claudeDesktopConfig: null,
     startupDir: null,
@@ -228,6 +250,7 @@ export function parseArgs(argv) {
     "--port": "port",
     "--bridge": "bridge",
     "--state-dir": "stateDir",
+    "--legacy-state-dir": "legacyStateDir",
     "--claude-code-config": "claudeCodeConfig",
     "--claude-desktop-config": "claudeDesktopConfig",
     "--startup-dir": "startupDir",
@@ -314,7 +337,7 @@ export function readJsonFile(filePath) {
 /** 一時ファイルに書いてから置き換える（途中で止まっても元のファイルを壊さない） */
 function writeJsonFileAtomic(filePath, json) {
   mkdirSync(path.dirname(filePath), { recursive: true });
-  const tmp = `${filePath}.mxstudio.tmp`;
+  const tmp = `${filePath}.mxstage.tmp`;
   try {
     writeFileSync(tmp, `${JSON.stringify(json, null, 2)}\n`, "utf8");
     renameSync(tmp, filePath);
@@ -347,7 +370,7 @@ function backupFile(filePath, backupDir) {
 // ---------------------------------------------------------------------------
 
 /**
- * Claude Code に入れる形。`claude mcp add --scope user mxstudio -- <node> <入口> --port <番号>` が
+ * Claude Code に入れる形。`claude mcp add --scope user mxstage -- <node> <入口> --port <番号>` が
  * 書くものと同じ形にしてある（type/command/args/env）。
  */
 export function buildCodeEntry(nodePath, bridgeEntry, port) {
@@ -392,7 +415,7 @@ export function isSameEntry(a, b) {
   return left.length === right.length && left.every((v, i) => v === right[i]);
 }
 
-/** mxstudio の橋渡しを指している設定か（取り消しのとき、人が自分で足した設定を消さないため） */
+/** MX Stage の橋渡しを指している設定か（取り消しのとき、人が自分で足した設定を消さないため） */
 export function isOurEntry(entry, bridgeEntry) {
   if (!entry || typeof entry !== "object") return false;
   const args = Array.isArray(entry.args) ? entry.args : [];
@@ -471,7 +494,7 @@ export function missingTargets(entry, exists = existsSync, findCommand = (name) 
 }
 
 /**
- * 置き換える前の mcpServers.mxstudio が何者か。
+ * 置き換える前の mcpServers.mxstage が何者か。
  * - "none": 無かった
  * - "ours": この導入が前に書いたもの（入口が同じ・この導入の形・前回の記録と同じ）
  * - "broken": 指しているファイルが無い（壊れた登録）
@@ -592,8 +615,8 @@ export function entryFromBackup(backupPath, name) {
 }
 
 // ---------------------------------------------------------------------------
-// Codex の設定（~/.codex/config.toml の [mcp_servers.mxstudio]）
-// デスクトップ版・CLI・IDE 拡張が同じファイルを読む。TOML なので、依存を足さずに mxstudio の表 1 つだけを読み書きし、
+// Codex の設定（~/.codex/config.toml の [mcp_servers.mxstage]）
+// デスクトップ版・CLI・IDE 拡張が同じファイルを読む。TOML なので、依存を足さずに MX Stage の表 1 つだけを読み書きし、
 // ほかの行（コメントや並びも）には触らない。
 // ---------------------------------------------------------------------------
 
@@ -725,20 +748,19 @@ function tomlPairs(lines) {
   return pairs;
 }
 
-const CODEX_TABLE_KEY = ["mcp_servers", MCP_NAME];
-
-function isCodexTableKey(key, sub) {
-  if (key === null || key.length < 2 || key[0] !== CODEX_TABLE_KEY[0] || key[1] !== CODEX_TABLE_KEY[1]) return false;
+function isCodexTableKey(key, sub, name = MCP_NAME) {
+  if (key === null || key.length < 2 || key[0] !== "mcp_servers" || key[1] !== name) return false;
   return sub ? key.length > 2 : key.length === 2;
 }
 
 /**
- * config.toml から [mcp_servers.mxstudio] の表（と、その下の [mcp_servers.mxstudio.env] などの小さな表）を探す。
+ * config.toml から [mcp_servers.mxstage] の表（と、その下の [mcp_servers.mxstage.env] などの小さな表）を探す。
  * - start / end: 表の行の範囲（end は含まない。後ろの空行は含めない）。無ければ start は -1
  * - entry: 読めた設定（command / args / env のキー）。表が無ければ null、読めなければ { unreadable: true }
- * - otherForm: 表の見出し以外の書き方（mcp_servers.mxstudio.command = … や mxstudio = { … }）で書かれている。触らない
+ * - otherForm: 表の見出し以外の書き方（mcp_servers.mxstage.command = … や mxstage = { … }）で書かれている。触らない
+ * name を渡すと、その名前の表を探す（改名前の mxstudio の表を片付けるとき）。
  */
-export function findCodexTable(text) {
+export function findCodexTable(text, name = MCP_NAME) {
   const eol = text.includes("\r\n") ? "\r\n" : "\n";
   const lines = text.split(/\r?\n/);
   let start = -1;
@@ -749,9 +771,9 @@ export function findCodexTable(text) {
     if (!isHeader) continue;
     const key = tomlTableKey(lines[i]);
     if (start < 0) {
-      if (isCodexTableKey(key, false)) start = i;
-      else if (isCodexTableKey(key, true)) orphanSubtable = true;
-    } else if (!isCodexTableKey(key, true)) {
+      if (isCodexTableKey(key, false, name)) start = i;
+      else if (isCodexTableKey(key, true, name)) orphanSubtable = true;
+    } else if (!isCodexTableKey(key, true, name)) {
       end = i;
       break;
     }
@@ -761,7 +783,7 @@ export function findCodexTable(text) {
   const outside = start >= 0 ? [...lines.slice(0, start), ...lines.slice(end)] : lines;
   const otherForm =
     orphanSubtable ||
-    outside.some((l) => new RegExp(`^\\s*(?:mcp_servers\\s*\\.\\s*)?["']?${MCP_NAME}["']?\\s*(?:\\.|=)`).test(l));
+    outside.some((l) => new RegExp(`^\\s*(?:mcp_servers\\s*\\.\\s*)?["']?${name}["']?\\s*(?:\\.|=)`).test(l));
   let entry = null;
   if (block !== null) {
     const firstSub = block.findIndex((l, i) => i > 0 && /^\s*\[/.test(l));
@@ -774,7 +796,7 @@ export function findCodexTable(text) {
       entry = { command, args: args ?? [] };
       const envAt = block.findIndex((l) => {
         const key = tomlTableKey(l);
-        return key !== null && key.length === 3 && isCodexTableKey(key, true) && key[2] === "env";
+        return key !== null && key.length === 3 && isCodexTableKey(key, true, name) && key[2] === "env";
       });
       if (envAt >= 0) {
         const envEnd = block.findIndex((l, i) => i > envAt && /^\s*\[/.test(l));
@@ -785,7 +807,7 @@ export function findCodexTable(text) {
   return { eol, lines, start, end, block, entry, otherForm };
 }
 
-/** [mcp_servers.mxstudio] の表を書く（あれば置き換え、無ければ末尾に足す）。ほかの行には触らない */
+/** [mcp_servers.mxstage] の表を書く（あれば置き換え、無ければ末尾に足す）。ほかの行には触らない */
 export function upsertCodexTable(text, block) {
   const found = findCodexTable(text);
   const blockLines = block.split("\n");
@@ -801,9 +823,9 @@ export function upsertCodexTable(text, block) {
   return lines.join(found.eol);
 }
 
-/** [mcp_servers.mxstudio] の表を外す（restore があればその表に戻す） */
-export function removeCodexTable(text, restore = null) {
-  const found = findCodexTable(text);
+/** [mcp_servers.mxstage] の表を外す（restore があればその表に戻す）。name を渡すとその名前の表を外す */
+export function removeCodexTable(text, restore = null, name = MCP_NAME) {
+  const found = findCodexTable(text, name);
   if (found.start < 0) return { next: text, changed: false };
   const before = found.lines.slice(0, found.start);
   const after = found.lines.slice(found.end);
@@ -815,7 +837,7 @@ export function removeCodexTable(text, restore = null) {
 
 function writeTextFileAtomic(filePath, text) {
   mkdirSync(path.dirname(filePath), { recursive: true });
-  const tmp = `${filePath}.mxstudio.tmp`;
+  const tmp = `${filePath}.mxstage.tmp`;
   try {
     writeFileSync(tmp, text, "utf8");
     renameSync(tmp, filePath);
@@ -883,17 +905,17 @@ export function resolveBridgeEntry(repoRoot, explicit, exists = isFile) {
 }
 
 /**
- * 記録（setup.json）・控え・橋渡しの鍵ファイルの置き場所。どの OS でも ~/.config/mxstudio（src/bridge/bridgeKey.ts と同じ）。
+ * 記録（setup.json）・控え・橋渡しの鍵ファイルの置き場所。どの OS でも ~/.config/mxstage（src/bridge/bridgeKey.ts と同じ）。
  * %LOCALAPPDATA% に置くと、Claude（MSIX パッケージ）の中から実行したときに書き込みがパッケージ専用の場所へ振り替えられ、
  * ダブルクリックやログイン時の自動起動（パッケージの外）からは見えなくなる。
  */
-function mxstudioHome(home = os.homedir()) {
-  return path.join(home, ".config", "mxstudio");
+function mxstageHome(home = os.homedir()) {
+  return path.join(home, ".config", "mxstage");
 }
 
 function makePaths(opts) {
   const folders = opts.startupDir && opts.desktopDir ? { startup: opts.startupDir, desktop: opts.desktopDir } : shellFolders();
-  const stateDir = opts.stateDir ? path.resolve(opts.stateDir) : mxstudioHome();
+  const stateDir = opts.stateDir ? path.resolve(opts.stateDir) : mxstageHome();
   // Claude Code と同じ決め方（CLAUDE_CONFIG_DIR があればその下、無ければホーム）
   const codeConfigDefault = path.join(process.env.CLAUDE_CONFIG_DIR || os.homedir(), ".claude.json");
   return {
@@ -1055,10 +1077,10 @@ export function isTestGuard(env = process.env) {
 
 /**
  * どの claude コマンドを使うか決める。戻り値の exe が null なら claude コマンドを使わず自分で書く。
- * - 試験中（MXSTUDIO_SETUP_TEST=1）: 本物を**探さない**。一時フォルダに置いた偽物が指定されたときだけ使う
+ * - 試験中（MXSTAGE_SETUP_TEST=1）: 本物を**探さない**。一時フォルダに置いた偽物が指定されたときだけ使う
  *   （偽物は、差し替えた書き先に書くように試験が作る）。
  * - ふだん: 書き先が既定の ~/.claude.json のときだけ使う（claude コマンドは既定のファイルしか書かないため）。
- *   --claude-cli / MXSTUDIO_CLAUDE_CLI で場所を指定でき、無ければ PATH から探す。
+ *   --claude-cli / MXSTAGE_CLAUDE_CLI で場所を指定でき、無ければ PATH から探す。
  * locate は PATH から探す関数（試験で「呼ばれないこと」を確かめるために差し替える）。
  */
 export function chooseClaudeCli({ explicit = null, configPath, defaultConfigPath, guard = false, locate = findClaudeCli, tmpDir = os.tmpdir() }) {
@@ -1098,9 +1120,10 @@ export function realWriteLocations(env = process.env, home = os.homedir(), tmpDi
     path.join(home, ".gemini"),
     path.join(home, ".codex"),
     path.join(home, ".agents"),
-    mxstudioHome(home),
-    // 以前の版の置き場所（残っている PC があるので、試験ではここも拒む）
-    path.join(localDir, "mxstudio"),
+    mxstageHome(home),
+    // 改名前（mxstudio）の置き場所と、それより前の版の置き場所（残っている PC があるので、試験ではここも拒む）
+    path.join(home, ".config", LEGACY.stateDirName),
+    path.join(localDir, LEGACY.stateDirName),
   ];
   const configDir = typeof env.CLAUDE_CONFIG_DIR === "string" ? env.CLAUDE_CONFIG_DIR.trim() : "";
   if (configDir !== "" && !isInside(tmpDir, configDir)) list.push(path.join(configDir, ".claude.json"));
@@ -1110,7 +1133,7 @@ export function realWriteLocations(env = process.env, home = os.homedir(), tmpDi
 }
 
 /**
- * 試験中（MXSTUDIO_SETUP_TEST=1）に、本物の設定・フォルダ・橋渡し・リポジトリに触れうる指定なら、その理由を返す（問題なければ null）。
+ * 試験中（MXSTAGE_SETUP_TEST=1）に、本物の設定・フォルダ・橋渡し・リポジトリに触れうる指定なら、その理由を返す（問題なければ null）。
  * - 書き先（Skill と Antigravity は入れるときだけ）と --claude-cli は一時フォルダの中。一時フォルダの中でも、本物の書き先（realWriteLocations）とその中は拒む。
  * - --port と --bridge は必ず指定し、--port は既定の番号にしない（利用者が動かしている橋渡しを止めないため）。
  * - --no-open・--no-install・--no-build も必須（npm install / npm run build は本物のリポジトリの node_modules と dist を
@@ -1138,6 +1161,11 @@ export function testSandboxProblem(opts, tmpDir = os.tmpdir(), realLocations = r
     if (!opts[key]) problems.push(`${flag} がありません${unless}`);
     else if (!isInside(tmpDir, opts[key])) problems.push(`${flag} が一時フォルダ（${tmpDir}）の外です: ${opts[key]}`);
     else if (realLocations.some((real) => isSameOrInside(real, opts[key]))) problems.push(`${flag} が本物の書き先です: ${opts[key]}`);
+  }
+  // 改名前の記録の置き場所は、試験で移行を確かめるときだけ指定する（指定しなければ移行そのものをしない）
+  if (opts.legacyStateDir) {
+    if (!isInside(tmpDir, opts.legacyStateDir)) problems.push(`--legacy-state-dir が一時フォルダ（${tmpDir}）の外です: ${opts.legacyStateDir}`);
+    else if (realLocations.some((real) => isSameOrInside(real, opts.legacyStateDir))) problems.push(`--legacy-state-dir が本物の書き先です: ${opts.legacyStateDir}`);
   }
   if (opts.claudeCli && !isInside(tmpDir, opts.claudeCli)) problems.push(`--claude-cli が一時フォルダの外です: ${opts.claudeCli}`);
   if (opts.port === null) problems.push("--port がありません");
@@ -1180,7 +1208,7 @@ export function isPortFree(port) {
   });
 }
 
-/** /_mxstudio/health の応答が mxstudio の橋渡しのものか */
+/** /_mxstage/health の応答が MX Stage の橋渡しのものか */
 export function isBridgeHealth(body) {
   return Boolean(body) && typeof body === "object" && !Array.isArray(body) && body.name === BRIDGE_NAME;
 }
@@ -1196,12 +1224,12 @@ async function discardBody(res) {
 
 /**
  * そのポートで何が動いているかを調べる。
- * state: "bridge" = mxstudio の橋渡し、"other" = 別のもの、"down" = 何も居ない（応答しない）。
- * health: /_mxstudio/health の本文（今の橋渡し）。legacy: true なら /_mxstudio/health に応えない古い版の橋渡し。
+ * state: "bridge" = MX Stage の橋渡し、"other" = 別のもの、"down" = 何も居ない（応答しない）。
+ * health: /_mxstage/health の本文（今の橋渡し）。legacy: true なら /_mxstage/health に応えない古い版の橋渡し。
  */
 export async function probeBridge(port, timeoutMs = PROBE_TIMEOUT_MS) {
   const base = `http://127.0.0.1:${port}`;
-  // 1) /_mxstudio/health（橋渡しの取り決め）
+  // 1) /_mxstage/health（橋渡しの取り決め）
   try {
     const res = await fetch(`${base}${HEALTH_PATH}`, { signal: AbortSignal.timeout(timeoutMs), headers: { accept: "application/json" } });
     if (res.ok) {
@@ -1266,7 +1294,7 @@ export function expectedPeerProtocol(bridgeEntry, read = (p) => readFileSync(p, 
 }
 
 /**
- * 「橋渡しが 1 つ動いている」ことを /_mxstudio/health で確かめた結果を、画面の 1 行にする。
+ * 「橋渡しが 1 つ動いている」ことを /_mxstage/health で確かめた結果を、画面の 1 行にする。
  * expectRunning が false（--no-start など）なら、動いていないことは警告にしない。
  * expectedProtocol（このリポジトリの橋渡しの取り決めの版）が分かっていて、動いている橋渡しの protocol と違うときは警告する。
  * 違うと、Claude Code / Claude Desktop が起動する（このリポジトリの）橋渡しは、動いている橋渡しに中継せずに終了する（src/bridge/coordinator.ts）。
@@ -1300,7 +1328,7 @@ export function singleBridgeStep(port, probe, expectRunning = true, expectedProt
     );
   }
   if (probe.state === "other") {
-    return step("warn", "bridge_single", `ポート ${port} には mxstudio の橋渡しではないものが応えています。`, "そのプログラムを止めてから、もう一度実行してください。");
+    return step("warn", "bridge_single", `ポート ${port} には MX Stage の橋渡しではないものが応えています。`, "そのプログラムを止めてから、もう一度実行してください。");
   }
   return step(
     expectRunning ? "warn" : "skip",
@@ -1311,11 +1339,11 @@ export function singleBridgeStep(port, probe, expectRunning = true, expectedProt
 }
 
 /** 橋渡し同士の認証の鍵ファイルの場所を差し替える環境変数（src/bridge/bridgeKey.ts） */
-const BRIDGE_KEY_FILE_ENV = "MXSTUDIO_BRIDGE_KEY_FILE";
+const BRIDGE_KEY_FILE_ENV = "MXSTAGE_BRIDGE_KEY_FILE";
 
 /**
  * 試験中に起動する橋渡しへ足す環境変数。本物の橋渡しは、primary になると鍵ファイル
- * （既定は ~/.config/mxstudio/bridge.key）を作るので、試験中は記録の置き場所（一時フォルダ）の中に向ける。
+ * （既定は ~/.config/mxstage/bridge.key）を作るので、試験中は記録の置き場所（一時フォルダ）の中に向ける。
  * ふだん（試験中でない）と、呼び出し側が既に差し替えているときは何も足さない。
  */
 export function bridgeTestEnv(paths, env = process.env) {
@@ -1324,7 +1352,7 @@ export function bridgeTestEnv(paths, env = process.env) {
 }
 
 /**
- * ふだん（試験中でない）の導入を、MXSTUDIO_BRIDGE_KEY_FILE を設定したまま実行したときの警告（無ければ null）。
+ * ふだん（試験中でない）の導入を、MXSTAGE_BRIDGE_KEY_FILE を設定したまま実行したときの警告（無ければ null）。
  * この導入が起動する橋渡しはその鍵ファイルを使うが、Claude Code / Claude Desktop の登録（env は空）と
  * ログイン時の自動起動はその値を受け取らないので、橋渡し同士の鍵が食い違って中継が認証に失敗する。
  * 値（パス）は画面に出さない。
@@ -1453,7 +1481,7 @@ function stopBridgeByPid(pid, bridgeEntry) {
   if (!info.ok) return { ok: false, reason: info.reason };
   if (info.pid === 0) return { ok: true, stopped: false, reason: `プロセス ${pid} はもう動いていません。` };
   if (!isBridgeCommandLine(info.commandLine, bridgeEntry)) {
-    return { ok: false, reason: `プロセス ${pid} は ${bridgeEntry ?? "mxstudio"} の橋渡しではないようです。止めませんでした。` };
+    return { ok: false, reason: `プロセス ${pid} は ${bridgeEntry ?? "mxstage"} の橋渡しではないようです。止めませんでした。` };
   }
   if (!isServeBridgeCommandLine(info.commandLine, bridgeEntry)) {
     return { ok: true, stopped: false, mcp: true, reason: `プロセス ${pid} は Claude Code / Claude Desktop が起動した橋渡しなので、止めませんでした。` };
@@ -1523,12 +1551,12 @@ export function buildIco(pngs) {
   return Buffer.concat([header, dir, ...pngs]);
 }
 
-/** ショートカットに付ける mxstudio のアイコン（public/ の PNG から作る）。作れなければ null（ブラウザのアイコンのまま） */
+/** ショートカットに付ける MX Stage のアイコン（public/ の PNG から作る）。作れなければ null（ブラウザのアイコンのまま） */
 function writeAppIcon(stateDir) {
   try {
     const pngs = ["favicon-32.png", "icon-192.png"].map((f) => readFileSync(path.join(REPO_ROOT, "public", f)));
     mkdirSync(stateDir, { recursive: true });
-    const icoPath = path.join(stateDir, "mxstudio.ico");
+    const icoPath = path.join(stateDir, "mxstage.ico");
     writeFileSync(icoPath, buildIco(pngs));
     return icoPath;
   } catch {
@@ -1654,13 +1682,20 @@ async function install(opts, paths, out) {
   result.port = port;
   result.portExplicit = port !== DEFAULT_PORT;
   result.appUrl = `http://127.0.0.1:${port}/app`;
+
+  // --- 改名前（mxstudio）からの移行（ポートを確かめる前に。改名前の橋渡しがポートを持っていると、新しい橋渡しを起動できない）---
+  const legacy = await migrateLegacy(opts, paths, out, { port, bridgeEntry: found.entry, mode: "install" });
+  if (legacy.blocked) return result;
+  const migratedFrom = legacy.migratedFrom ?? (typeof state.migratedFrom === "string" ? state.migratedFrom : null);
+  if (migratedFrom) result.migratedFrom = migratedFrom;
+
   const decided = await decidePort(port);
   if (decided.busy) {
     out.push(
       step(
         "error",
         "port",
-        `ポート ${port} を、mxstudio の橋渡しではないプログラムが使っています。何も書き換えずに止めます。`,
+        `ポート ${port} を、MX Stage の橋渡しではないプログラムが使っています。何も書き換えずに止めます。`,
         "橋渡しは Claude Code / Claude Desktop と同じポートを共有するので、別のポートへはずらしません。そのプログラムを止めてからもう一度実行するか、--port <番号> で空いている番号を指定してください（Claude の設定とショートカットもその番号で作ります）。",
       ),
     );
@@ -1697,12 +1732,12 @@ async function install(opts, paths, out) {
           "ok",
           "bridge_start",
           `ポート ${port} の橋渡しは Claude Code / Claude Desktop が起動したもの（プロセス ${owner.pid}）です。画面用の橋渡しは起動していません。`,
-          "Claude を終了するとこの橋渡しも終わり、ほかに橋渡しが動いていなければ作業画面はつながらなくなります。そのときは .\\mxstudio.cmd をもう一度実行するか、スタートアップの mxstudio-bridge.lnk を実行してください。",
+          "Claude を終了するとこの橋渡しも終わり、ほかに橋渡しが動いていなければ作業画面はつながらなくなります。そのときは .\\mxstage.cmd をもう一度実行するか、スタートアップの mxstage-bridge.lnk を実行してください。",
         ),
       );
     } else if (owner?.ok && owner.pid > 0) {
       result.bridgePid = null;
-      out.push(step("warn", "bridge_start", `ポート ${port} で動いている橋渡しは、この入口（${found.entry}）から起動したものではないようです。`, "別の場所にある mxstudio の橋渡しかもしれません。止めてから導入し直すか、--port で別の番号を指定してください。"));
+      out.push(step("warn", "bridge_start", `ポート ${port} で動いている橋渡しは、この入口（${found.entry}）から起動したものではないようです。`, "別の場所にある MX Stage の橋渡しかもしれません。止めてから導入し直すか、--port で別の番号を指定してください。"));
     } else {
       result.bridgePid = Number.isInteger(decided.health?.pid) ? decided.health.pid : (state.bridgePid ?? null);
     }
@@ -1771,7 +1806,7 @@ async function install(opts, paths, out) {
       target: nodePath,
       args: quoteArgs(bridgeArgs(found.entry, port, BRIDGE_SERVE_ARGS)),
       workDir: paths.repoRoot,
-      description: "mxstudio の橋渡し（ローカル）",
+      description: "MX Stage の橋渡し（ローカル）",
       windowStyle: 7, // 最小化して起動する
     });
     if (made.ok) {
@@ -1799,9 +1834,9 @@ async function install(opts, paths, out) {
         target: browser.exe,
         args: quoteArgs([`--app=${result.appUrl}`]),
         workDir: paths.repoRoot,
-        description: "mxstudio の作業画面",
+        description: "MX Stage の作業画面",
         windowStyle: 1,
-        // ブラウザを指すショートカットなので、mxstudio のアイコンを付ける（無いとブラウザのアイコンになる）
+        // ブラウザを指すショートカットなので、MX Stage のアイコンを付ける（無いとブラウザのアイコンになる）
         icon: writeAppIcon(paths.stateDir),
       });
       if (made.ok) {
@@ -1820,7 +1855,7 @@ async function install(opts, paths, out) {
     }
   }
 
-  // --- 橋渡しが 1 つ動いているか（/_mxstudio/health で確かめる）---
+  // --- 橋渡しが 1 つ動いているか（/_mxstage/health で確かめる）---
   // 橋渡しは 1 つだけで、Claude Code / Claude Desktop が起動する橋渡しはこのポートの橋渡しに中継する。
   // 最後にもう一度ポートに聞いて、いま本当に応えているかを出す（起動したあとに落ちていることもある）。
   if (!dry) {
@@ -1882,21 +1917,21 @@ export function previousEntrySteps(id, previousEntry, classification, backup) {
     return [step("warn", `${id}_prev`, `置き換えた前の設定（値は伏せています）: ${summary}`, "戻すときは --uninstall を実行してください（控えから戻します）。")];
   }
   if (classification.kind === "ours") {
-    return [step("ok", `${id}_prev`, "置き換えた前の mxstudio の設定は、前回この導入が書いたものなので、取り消し（--uninstall）で戻す先としては記録しません。")];
+    return [step("ok", `${id}_prev`, "置き換えた前の MX Stage の設定は、前回この導入が書いたものなので、取り消し（--uninstall）で戻す先としては記録しません。")];
   }
   return [
     step(
       "warn",
       `${id}_prev`,
-      `置き換えた前の mxstudio の設定は、指しているファイルが見つからないので（${classification.missing.join(" / ")}）、取り消し（--uninstall）で戻す先としては記録しません（値は伏せています: ${summary}）。`,
-      backup ? `取り消すと mxstudio の設定は外れるだけになります。前の設定が必要なら、控えから手で戻してください: ${backup}` : "取り消すと mxstudio の設定は外れるだけになります。",
+      `置き換えた前の MX Stage の設定は、指しているファイルが見つからないので（${classification.missing.join(" / ")}）、取り消し（--uninstall）で戻す先としては記録しません（値は伏せています: ${summary}）。`,
+      backup ? `取り消すと MX Stage の設定は外れるだけになります。前の設定が必要なら、控えから手で戻してください: ${backup}` : "取り消すと MX Stage の設定は外れるだけになります。",
     ),
   ];
 }
 
 /** 登録の行に付ける「何を置き換えたか」 */
 function replacedNote(kind) {
-  if (kind === "user") return "（前の mxstudio の設定を置き換えました）";
+  if (kind === "user") return "（前の MX Stage の設定を置き換えました）";
   if (kind === "ours") return "（前回の導入の設定を書き直しました）";
   if (kind === "broken") return "（見つからないファイルを指していた前の設定を置き換えました）";
   return "";
@@ -1933,13 +1968,13 @@ function registerCode(opts, paths, entry, bridgeEntry, lastWritten, result, out)
   const classification = classifyPrevious(merged.previous, { bridgeEntry, lastWritten });
   result.previous = rememberPrevious(result.previous, "claudeCode", merged.previous, backup, bridgeEntry, classification);
 
-  // claude コマンドを使えるときはそれで登録する（`claude mcp add --scope user mxstudio -- <node> <入口> --port <番号>`）。
+  // claude コマンドを使えるときはそれで登録する（`claude mcp add --scope user mxstage -- <node> <入口> --port <番号>`）。
   // 無い・失敗した・書けていないときは、同じ内容を自分で書く。
   //
   // claude コマンドが書くのは自分の既定の設定ファイルだけで、こちらが指定したパスではない。
   // 書き先が既定のファイルでないとき（--claude-code-config で差し替えたとき）は claude コマンドを使わない。
   // これを守らないと、別のファイルを直すつもりで本物の ~/.claude.json を書き換えてしまう（実際に起きた）。
-  // 試験中（MXSTUDIO_SETUP_TEST=1）は本物の claude コマンドを探さず、一時フォルダの偽物だけを使う（chooseClaudeCli）。
+  // 試験中（MXSTAGE_SETUP_TEST=1）は本物の claude コマンドを探さず、一時フォルダの偽物だけを使う（chooseClaudeCli）。
   // 環境変数（CLAUDE_CONFIG_DIR）はそのまま引き継ぎ、こちらからは変えない。
   const chosen = chooseClaudeCli({
     explicit: opts.claudeCli,
@@ -1991,13 +2026,13 @@ function registerAntigravity(opts, paths, entry, bridgeEntry, lastWritten, resul
     label: "Antigravity",
     key: "antigravity",
     configPath: paths.antigravityConfig,
-    hint: "2.0・IDE・agy CLI が同じ設定を読みます。新しい会話から mxstudio のツールが使えます（出てこなければ Antigravity を開き直してください）。",
+    hint: "2.0・IDE・agy CLI が同じ設定を読みます。新しい会話から MX Stage のツールが使えます（出てこなければ Antigravity を開き直してください）。",
   };
   registerMcpConfigFile(opts, paths, target, entry, bridgeEntry, lastWritten, result, out);
 }
 
 /**
- * Codex（~/.codex/config.toml の [mcp_servers.mxstudio]。デスクトップ版・CLI・IDE 拡張が共有する）に登録する。
+ * Codex（~/.codex/config.toml の [mcp_servers.mxstage]。デスクトップ版・CLI・IDE 拡張が共有する）に登録する。
  * JSON の設定と同じく、読めないものには触らず、書き換える前に控えを取り、置き換えた前の設定は取り消しで戻せるように覚える。
  */
 function registerCodex(opts, paths, nodePath, bridgeEntry, port, lastWritten, result, out) {
@@ -2051,14 +2086,14 @@ function registerCodex(opts, paths, nodePath, bridgeEntry, port, lastWritten, re
     return false;
   }
   result.installed.codex = true;
-  const hints = [backup ? `書き換える前の控え: ${backup}` : null, "デスクトップ版・CLI・IDE 拡張が同じ設定を読みます。新しい会話から mxstudio のツールが使えます（出てこなければ Codex を開き直してください）。"].filter(Boolean);
+  const hints = [backup ? `書き換える前の控え: ${backup}` : null, "デスクトップ版・CLI・IDE 拡張が同じ設定を読みます。新しい会話から MX Stage のツールが使えます（出てこなければ Codex を開き直してください）。"].filter(Boolean);
   out.push(step("ok", id, `Codex に ${MCP_NAME} を登録しました${replacedNote(classification.kind)}（${configPath}）。`, hints.join(" ")));
   out.push(...previousEntrySteps(id, previousEntry, classification, backup));
   return true;
 }
 
 /**
- * mcpServers を持つ JSON の設定ファイルに mxstudio を 1 ブロックだけ書く（Claude Desktop・Antigravity）。
+ * mcpServers を持つ JSON の設定ファイルに MX Stage を 1 ブロックだけ書く（Claude Desktop・Antigravity）。
  * 読めないファイルには触らず、書き換える前に控えを取り、置き換えた前の設定は取り消しで戻せるように覚える。
  * 書いた（書くことになった）ときだけ true を返す。
  */
@@ -2110,7 +2145,7 @@ function registerMcpConfigFile(opts, paths, target, entry, bridgeEntry, lastWrit
 
 const SKILL_FILE = "SKILL.md";
 const SKILL_NAME_PATTERN = /^[a-z0-9-]{1,64}$/;
-/** 利用者の Skill の置き場所（状態フォルダ ~/.config/mxstudio の下。橋渡しの src/bridge/skills.ts と同じ） */
+/** 利用者の Skill の置き場所（状態フォルダ ~/.config/mxstage の下。橋渡しの src/bridge/skills.ts と同じ） */
 export const USER_SKILLS_DIR_NAME = "skills";
 
 /** BOM を除き、改行を LF にそろえる（scripts/build-skills.ts の normalizeText と同じ） */
@@ -2149,7 +2184,7 @@ export function skillFrontmatterName(text) {
 }
 
 /**
- * 利用者の Skill（~/.config/mxstudio/skills/<name>/SKILL.md）。
+ * 利用者の Skill（~/.config/mxstage/skills/<name>/SKILL.md）。
  * 既定と同じ名前、frontmatter の name がフォルダ名と違うものは入れない（problems に理由を返す）。
  */
 export function readUserSkills(stateDir, defaultNames) {
@@ -2510,6 +2545,352 @@ function openApp(url, cwd) {
 }
 
 // ---------------------------------------------------------------------------
+// 改名前（mxstudio）からの移行
+// ---------------------------------------------------------------------------
+
+/** パスを比べるための形（Windows は大文字と小文字を区別しない） */
+function pathKey(p) {
+  const resolved = path.resolve(p);
+  return IS_WINDOWS ? resolved.toLowerCase() : resolved;
+}
+
+/** 改名前の記録の置き場所（~/.config/mxstudio）。--legacy-state-dir で差し替えられる（試験用） */
+export function legacyStateDirOf(opts, home = os.homedir()) {
+  return opts.legacyStateDir ? path.resolve(opts.legacyStateDir) : path.join(home, ".config", LEGACY.stateDirName);
+}
+
+/**
+ * そのポートで改名前の橋渡しが動いていれば、その /_mxstudio/health の本文（name が mxstudio-bridge）を返す。
+ * 動いていなければ（別のもの・何も無い）null。
+ */
+export async function probeLegacyBridge(port, timeoutMs = PROBE_TIMEOUT_MS) {
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}${LEGACY.healthPath}`, { signal: AbortSignal.timeout(timeoutMs), headers: { accept: "application/json" } });
+    if (!res.ok) {
+      await discardBody(res);
+      return null;
+    }
+    const body = await res.json().catch(() => null);
+    return body && typeof body === "object" && !Array.isArray(body) && body.name === LEGACY.bridgeName ? body : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 改名前の橋渡しの health が done（本文か null を受ける）を満たすまで待つ。満たしたときの health（null もある）を返し、時間切れなら undefined */
+async function waitForLegacyBridge(port, done, timeoutMs = 5_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const health = await probeLegacyBridge(port);
+    if (done(health)) return health;
+    await new Promise((resolve) => setTimeout(resolve, PROBE_INTERVAL_MS));
+  }
+  return undefined;
+}
+
+/** 改名前の既定の Skill の写しを探す場所（今の導入が知っている Skill の置き場所） */
+function knownSkillDirs(paths) {
+  return [paths.claudeSkillsDir, paths.antigravitySkillsDir, paths.antigravityLegacySkillsDir, paths.codexSkillsDir];
+}
+
+/**
+ * 改名前（mxstudio）の導入が残したもの（記録・各クライアントの登録・既定の Skill の写し・自動起動・ショートカット）を探す。
+ * 何も書き換えない。見つかったものの一覧を返す（空なら片付けるものは無い）。
+ */
+export function findLegacyLeftovers(paths, legacyDir) {
+  const found = [];
+  const statePath = path.join(legacyDir, "setup.json");
+  if (isFile(statePath)) found.push({ kind: "state", path: statePath });
+  for (const [id, label, file] of [
+    ["claude_code", "Claude Code", paths.claudeCodeConfig],
+    ["claude_desktop", "Claude Desktop", paths.claudeDesktopConfig],
+    ["antigravity", "Antigravity", paths.antigravityConfig],
+  ]) {
+    const read = readJsonFile(file);
+    if (read.exists && !read.error && read.json?.mcpServers?.[LEGACY.mcpName]) found.push({ kind: "mcp", id, label, path: file });
+  }
+  if (isFile(paths.codexConfig)) {
+    try {
+      if (findCodexTable(readFileSync(paths.codexConfig, "utf8"), LEGACY.mcpName).start >= 0) found.push({ kind: "mcp", id: "codex", label: "Codex", path: paths.codexConfig });
+    } catch {
+      // 読めなければ見ない（Codex への登録の手順が、読めないことを知らせる）
+    }
+  }
+  const seen = new Set();
+  for (const dir of knownSkillDirs(paths)) {
+    const file = path.join(dir, LEGACY.defaultSkill, SKILL_FILE);
+    if (seen.has(pathKey(file))) continue;
+    seen.add(pathKey(file));
+    if (isFile(file)) found.push({ kind: "skill", path: file });
+  }
+  for (const file of [path.join(paths.startupDir, LEGACY.startupShortcut), ...LEGACY.desktopShortcuts.map((name) => path.join(paths.desktopDir, name))]) {
+    if (existsSync(file)) found.push({ kind: "shortcut", path: file });
+  }
+  return found;
+}
+
+/** --status の行: 改名前（mxstudio）の導入が残したもの（無ければ null） */
+export function legacyStatusStep(leftovers, bridgeRunning, port) {
+  const parts = leftovers.map((l) => (l.kind === "mcp" ? `${l.label} の登録（${l.path}）` : l.path));
+  if (bridgeRunning) parts.unshift(`ポート ${port} で動いている改名前の橋渡し`);
+  if (parts.length === 0) return null;
+  return step("warn", "legacy", `改名前（mxstudio）の導入が残したものがあります: ${parts.join(" / ")}`, "LLM のアプリをすべて終了してから導入をもう一度実行すると、片付けて MX Stage に移します（mxstage.cmd）。");
+}
+
+/** 改名前の置き場所から写すもの（利用者の Skill と公開前の検査の語の一覧）のうち、新しい置き場所にまだ無いもの */
+function pendingLegacyCopies(paths, legacyDir) {
+  const from = path.join(legacyDir, USER_SKILLS_DIR_NAME);
+  let skills = [];
+  try {
+    skills = isDir(from) ? readdirSync(from).filter((name) => isDir(path.join(from, name)) && !existsSync(path.join(paths.stateDir, USER_SKILLS_DIR_NAME, name))) : [];
+  } catch {
+    // 読めなければ写さない（改名前の置き場所は残るので、手で写せる）
+  }
+  const terms = isFile(path.join(legacyDir, LEGACY.publishTerms)) && !existsSync(path.join(paths.stateDir, LEGACY.publishTerms));
+  return { skills, terms };
+}
+
+/** 改名前の置き場所から写し終えた印を書く。写したあとに利用者が消したものを、次の導入や橋渡しの起動で写し直さないため */
+function writeLegacyMarker(marker, legacyDir, copied) {
+  try {
+    writeJsonFileAtomic(marker, { from: legacyDir, copied, at: new Date().toISOString() });
+  } catch {
+    // 書けなくても困らない（新しい置き場所に既にあるものは写さない）
+  }
+}
+
+/**
+ * ポートで動いている改名前の橋渡しを止める。導入を止めるべきなら true を返す。
+ * - 画面用の橋渡し（--no-mcp。改名前の導入と自動起動が起動したもの）は止める。止めたあと、Claude などが起動した
+ *   改名前の橋渡しがポートを引き継いだら（本物の橋渡しで約 1.3 秒後に起きた）、導入では止まる
+ * - Claude などの LLM のアプリが起動したもの（--no-mcp なし）は止めない（使っている最中のツールを切らないため）。
+ *   導入では止まって LLM のアプリの終了を頼み（新しい橋渡しがポートを取れないため）、取り消しでは知らせるだけにする
+ */
+async function stopLegacyBridge(opts, port, entries, install, out) {
+  const quitApps = "Claude Desktop・Claude Code・Codex などの LLM のアプリをすべて終了してから（Claude Desktop はタスクトレイのアイコンから終了）、もう一度実行してください。";
+  if (opts.dryRun) {
+    out.push(step("skip", "legacy_bridge", `ポート ${port} で改名前（mxstudio）の橋渡しが動いています。止めます（--dry-run なので止めていません）。`));
+    return false;
+  }
+  const owner = inspectProcess({ port });
+  const pid = owner.ok && owner.pid > 0 ? owner.pid : null;
+  const serveEntry = pid ? [...new Set(entries.filter((e) => typeof e === "string" && e !== ""))].find((e) => isServeBridgeCommandLine(owner.commandLine, e)) : undefined;
+  if (serveEntry) {
+    const stopped = stopBridgeByPid(pid, serveEntry);
+    // 止まった（応えなくなった）か、別のプロセスが応えるようになった（引き継いだ）まで待つ
+    const tookOver = (health) => health !== null && Number.isInteger(health.pid) && health.pid !== pid;
+    const after = stopped.ok ? await waitForLegacyBridge(port, (health) => health === null || tookOver(health)) : undefined;
+    if (after === undefined) {
+      out.push(
+        step(
+          install ? "error" : "warn",
+          "legacy_bridge",
+          `ポート ${port} の改名前の橋渡し（プロセス ${pid}）を止められませんでした（${stopped.ok ? "応答が続いています" : stopped.reason}）。${install ? "設定は何も書き換えずに止めます。" : ""}`,
+          "タスクマネージャーの「詳細」タブで node.exe（コマンドラインに src\\bridge\\cli.ts と --no-mcp を含むもの）を終了してから、もう一度実行してください。",
+        ),
+      );
+      return install;
+    }
+    // 止まったあとも少し見張る（Claude などが起動した改名前の橋渡しが、空いたポートを引き継ぐことがある）
+    if (after !== null || (await waitForLegacyBridge(port, (health) => health !== null, TAKEOVER_WATCH_MS)) !== undefined) {
+      out.push(
+        step(
+          install ? "error" : "warn",
+          "legacy_bridge",
+          `ポート ${port} の改名前の橋渡し（プロセス ${pid}）を止めましたが、LLM のアプリが起動した改名前の橋渡しがポートを引き継ぎました。${install ? "設定は何も書き換えずに止めます。" : ""}`,
+          quitApps,
+        ),
+      );
+      return install;
+    }
+    out.push(step("ok", "legacy_bridge", `ポート ${port} の改名前の橋渡しを止めました（プロセス ${pid}）。`));
+    return false;
+  }
+  const who = pid ? `（プロセス ${pid}）` : "";
+  if (install) {
+    out.push(
+      step(
+        "error",
+        "legacy_bridge",
+        `ポート ${port} では、LLM のアプリが起動した（または手で起動した）改名前（mxstudio）の橋渡し${who}が動いています。新しい橋渡しがポートを取れないので、設定は何も書き換えずに止めます。`,
+        `${quitApps}手で起動したものなら、そのウィンドウを閉じてください。`,
+      ),
+    );
+    return true;
+  }
+  out.push(step("warn", "legacy_bridge", `ポート ${port} の改名前（mxstudio）の橋渡し${who}は LLM のアプリが起動したものなので、止めていません。`, "LLM のアプリを終了すると止まります（登録はこのあと外します）。"));
+  return false;
+}
+
+/**
+ * 改名前の導入が写した Skill を片付ける。消すのは、改名前の導入が写した中身のまま（記録のハッシュと一致）のものだけ。
+ * - 既定の Skill（mxstudio-workbench）はいつも片付ける（新しい既定は mxstage-workbench）
+ * - 利用者の Skill は、新しい導入が同じ場所へ同じ名前で写し直すもの（provided にある）だけ残し、ほかは片付ける
+ *   （取り消し・写す先が変わった・--no-skills・元を消した。残したものは、新しい導入が写し直して記録する）
+ * 記録に無い写し（記録を無くした・手で写した）は中身を確かめられないので、消さずに知らせる。
+ */
+function retireLegacySkills(opts, paths, legacyState, leftovers, install, provided, out) {
+  const known = new Set(knownSkillDirs(paths).map(pathKey));
+  const rewritten = new Set(install && opts.skills ? skillTargets(opts, paths).map((t) => pathKey(t.dir)) : []);
+  const covered = new Set();
+  for (const t of [
+    { id: "legacy_skills", label: "Claude Code（改名前の mxstudio の分）", dir: paths.claudeSkillsDir, record: "skills" },
+    { id: "legacy_antigravity_skills", label: "Antigravity（改名前の mxstudio の分）", dir: paths.antigravitySkillsDir, legacyDir: paths.antigravityLegacySkillsDir, record: "antigravitySkills" },
+    { id: "legacy_codex_skills", label: "Codex（改名前の mxstudio の分）", dir: paths.codexSkillsDir, record: "codexSkills" },
+  ]) {
+    const recorded = recordedSkills(legacyState, t.record);
+    if (recorded.length === 0) continue;
+    const dir = previousSkillDir(legacyState, t);
+    if (!known.has(pathKey(dir))) {
+      out.push(step("warn", t.id, `改名前の導入が Skill を写した場所（${dir}）は今の置き場所と違うので、触りません。`, `要らなければ手で消してください（${recorded.map((sk) => sk.name).join(", ")}）。`));
+      continue;
+    }
+    const rewrites = rewritten.has(pathKey(dir));
+    const list = recorded.filter((sk) => !(rewrites && sk.origin === "user" && provided.has(sk.name)) && isFile(path.join(dir, sk.name, SKILL_FILE)));
+    if (recorded.some((sk) => sk.name === LEGACY.defaultSkill)) covered.add(pathKey(dir));
+    if (list.length > 0) uninstallSkillsFrom({ ...t, dir }, opts, paths, { installed: { [t.record]: list } }, out);
+  }
+  const unrecorded = leftovers.filter((l) => l.kind === "skill" && !covered.has(pathKey(path.dirname(path.dirname(l.path)))));
+  if (unrecorded.length > 0) {
+    out.push(
+      step(
+        "warn",
+        "legacy_skill_copies",
+        `改名前の既定の Skill の写しが残っています（改名前の導入の記録に無いので、中身を確かめられず消していません）: ${unrecorded.map((l) => path.dirname(l.path)).join(" / ")}`,
+        `新しい既定の Skill（mxstage-workbench）が入るので要りません。書き換えていなければ、手で消してください。`,
+      ),
+    );
+  }
+}
+
+/** 改名前の置き場所から、利用者の Skill と公開前の検査の語の一覧を写す（新しい置き場所に無いものだけ。写し終えたら印を書く） */
+function copyLegacyFiles(paths, legacyDir, pending, marker, dry, out) {
+  const names = [...pending.skills, ...(pending.terms ? [LEGACY.publishTerms] : [])];
+  if (dry) {
+    if (names.length > 0) out.push(step("skip", "legacy_copy", `改名前の置き場所（${legacyDir}）から新しい置き場所（${paths.stateDir}）へ写します: ${names.join(", ")}。--dry-run なので写していません。`));
+    return;
+  }
+  const failed = [];
+  for (const name of pending.skills) {
+    try {
+      cpSync(path.join(legacyDir, USER_SKILLS_DIR_NAME, name), path.join(paths.stateDir, USER_SKILLS_DIR_NAME, name), { recursive: true, errorOnExist: true, force: false });
+    } catch (err) {
+      failed.push(`${name}（${err instanceof Error ? err.message : String(err)}）`);
+    }
+  }
+  if (pending.terms) {
+    try {
+      mkdirSync(paths.stateDir, { recursive: true });
+      copyFileSync(path.join(legacyDir, LEGACY.publishTerms), path.join(paths.stateDir, LEGACY.publishTerms));
+    } catch (err) {
+      failed.push(`${LEGACY.publishTerms}（${err instanceof Error ? err.message : String(err)}）`);
+    }
+  }
+  if (failed.length > 0) {
+    out.push(step("warn", "legacy_copy", `改名前の置き場所から写せなかったものがあります: ${failed.join(" / ")}`, `手で ${legacyDir} から ${paths.stateDir} へ写してください（次の導入でも、もう一度写します）。`));
+    return;
+  }
+  writeLegacyMarker(marker, legacyDir, names);
+  if (names.length > 0) {
+    out.push(step("ok", "legacy_copy", `改名前の置き場所（${legacyDir}）から新しい置き場所（${paths.stateDir}）へ写しました: ${names.join(", ")}`, "中身は書き換えていません。改名前の置き場所も残してあります。"));
+  }
+}
+
+/** 改名前の自動起動とデスクトップのショートカットを消す */
+function removeLegacyShortcuts(leftovers, dry, out) {
+  const files = leftovers.filter((l) => l.kind === "shortcut").map((l) => l.path);
+  if (files.length === 0) return;
+  if (dry) {
+    out.push(step("skip", "legacy_shortcut", `改名前の自動起動・ショートカットを消します（${files.join(" / ")}）。--dry-run なので消していません。`));
+    return;
+  }
+  const failed = [];
+  for (const file of files) {
+    try {
+      rmSync(file, { force: true });
+    } catch (err) {
+      failed.push(`${file}（${err instanceof Error ? err.message : String(err)}）`);
+    }
+  }
+  const removed = files.filter((file) => !existsSync(file));
+  if (removed.length > 0) out.push(step("ok", "legacy_shortcut", `改名前の自動起動・ショートカットを消しました（${removed.join(" / ")}）。`));
+  if (failed.length > 0) out.push(step("warn", "legacy_shortcut", `改名前の自動起動・ショートカットを消せませんでした: ${failed.join(" / ")}`, "エクスプローラーで手で消してください。"));
+}
+
+/**
+ * 改名前（mxstudio）の導入が残したものを片付けて、MX Stage（mxstage）へ移す。何度実行しても同じ結果になる。
+ * 導入（mode "install"）ではポートを確かめる前に、取り消し（mode "uninstall"）では記録を消す前に呼ぶ。
+ * 1) ポートの改名前の橋渡しを止める（stopLegacyBridge。LLM のアプリが起動したものなら、導入はここで止まる）
+ * 2) 各クライアントの設定から、改名前の導入が書いた mxstudio の登録を外す（控えを取る。利用者が書いた登録は残して知らせる）
+ * 3) 改名前の導入が写した Skill を片付ける（retireLegacySkills）
+ * 4) 導入では、利用者の Skill と公開前の検査の語の一覧を新しい置き場所へ写す（1 回だけ。中身は書き換えず、改名前の置き場所は残す）
+ * 5) 改名前の自動起動とデスクトップのショートカットを消す
+ * 6) 改名前の記録（setup.json）を setup.migrated.json に改める（次からは片付け済みと分かる）
+ * 試験中（MXSTAGE_SETUP_TEST=1）は、--legacy-state-dir を指定したときだけ行う。
+ * 返す: { blocked, migratedFrom }。blocked なら導入はそこで止める。migratedFrom は改名前の記録を移した置き場所
+ */
+async function migrateLegacy(opts, paths, out, { port, bridgeEntry, mode }) {
+  const none = { blocked: false, migratedFrom: null };
+  if (isTestGuard() && !opts.legacyStateDir) return none;
+  const dry = opts.dryRun;
+  const install = mode === "install";
+  const legacyDir = legacyStateDirOf(opts);
+  const statePath = path.join(legacyDir, "setup.json");
+  const legacyState = readState(statePath);
+  const leftovers = findLegacyLeftovers(paths, legacyDir);
+  const legacyBridge = Number.isInteger(port) && (await probeLegacyBridge(port)) !== null;
+  const marker = path.join(paths.stateDir, LEGACY.migratedMarker);
+  const copying = install && isDir(legacyDir) && !existsSync(marker);
+  const pending = copying ? pendingLegacyCopies(paths, legacyDir) : { skills: [], terms: false };
+  if (leftovers.length === 0 && !legacyBridge && pending.skills.length === 0 && !pending.terms) {
+    if (copying && !dry) writeLegacyMarker(marker, legacyDir, []);
+    return none;
+  }
+  const first = out.length;
+  out.push(step("ok", "legacy", `改名前（mxstudio）の導入が残したものを片付けて、MX Stage（mxstage）に移します（改名前の置き場所: ${legacyDir}）。`));
+
+  // 1) ポートの改名前の橋渡し
+  if (legacyBridge && (await stopLegacyBridge(opts, port, [legacyState?.bridgeEntry, bridgeEntry], install, out))) return { blocked: true, migratedFrom: null };
+
+  // 2) 各クライアントの登録（改名前の記録にある「置き換える前の設定」は、利用者のものなら戻す）
+  const legacyEntry = typeof legacyState?.bridgeEntry === "string" ? legacyState.bridgeEntry : bridgeEntry;
+  const lastWritten = lastWrittenEntries(legacyState);
+  const previousKey = { claude_code: "claudeCode", claude_desktop: "claudeDesktop", antigravity: "antigravity", codex: "codex" };
+  for (const item of leftovers.filter((l) => l.kind === "mcp")) {
+    const previous = legacyState?.previous?.[previousKey[item.id]] ?? null;
+    if (item.id === "codex") unregisterCodex(opts, paths, previous, legacyEntry, lastWritten, out, LEGACY.mcpName, "legacy_codex");
+    else unregister(opts, paths, item.path, previous, legacyEntry, lastWritten, `legacy_${item.id}`, item.label, out, LEGACY.mcpName);
+  }
+
+  // 3) 改名前の導入が写した Skill（新しい導入が写し直す利用者の Skill は残す）
+  const provided = new Set([...readSkillsIn(path.join(paths.stateDir, USER_SKILLS_DIR_NAME)).map((sk) => sk.name), ...pending.skills]);
+  retireLegacySkills(opts, paths, legacyState, leftovers, install, provided, out);
+
+  // 4) 利用者の Skill と公開前の検査の語の一覧
+  if (copying) copyLegacyFiles(paths, legacyDir, pending, marker, dry, out);
+
+  // 5) 自動起動とショートカット
+  removeLegacyShortcuts(leftovers, dry, out);
+
+  // 6) 改名前の記録
+  if (legacyState) {
+    if (dry) {
+      out.push(step("skip", "legacy_state", `改名前の記録を setup.migrated.json に改めます（${legacyDir}）。--dry-run なので改めていません。`));
+    } else if (out.slice(first).some((s) => s.level === "error")) {
+      out.push(step("warn", "legacy_state", `片付けられなかったものがあるので、改名前の記録は残しました（${statePath}）。`, "上の NG の行を直してから、もう一度実行してください。"));
+    } else {
+      try {
+        renameSync(statePath, path.join(legacyDir, "setup.migrated.json"));
+        out.push(step("ok", "legacy_state", `改名前の記録を setup.migrated.json に改めました（${legacyDir}）。`, "改名前のフォルダ（控えを含む）は残してあります。MX Stage で動くのを確かめたら、フォルダごと消してかまいません。"));
+      } catch (err) {
+        out.push(step("warn", "legacy_state", `改名前の記録を改められませんでした: ${err instanceof Error ? err.message : String(err)}`));
+      }
+    }
+  }
+  return { blocked: false, migratedFrom: legacyState && !dry ? legacyDir : null };
+}
+
+// ---------------------------------------------------------------------------
 // 取り消し
 // ---------------------------------------------------------------------------
 
@@ -2578,7 +2959,7 @@ async function uninstall(opts, paths, out) {
           "warn",
           "bridge_stop",
           `ポート ${port} の橋渡しは Claude Code / Claude Desktop が起動したもの（プロセス ${claudeOwned}）なので、止めていません${reasons.length > 0 ? `（${reasons.join(" / ")}）` : ""}。`,
-          "Claude の中で使っている最中のツールを切らないためです。Claude Code / Claude Desktop を終了すると止まります（Claude の設定からは、このあと mxstudio を外します）。",
+          "Claude の中で使っている最中のツールを切らないためです。Claude Code / Claude Desktop を終了すると止まります（Claude の設定からは、このあと MX Stage を外します）。",
         ),
       );
     } else if (reasons.length > 0) out.push(step("ok", "bridge_stop", `橋渡しを止めました（${reasons.join(" / ")}）。`));
@@ -2589,7 +2970,7 @@ async function uninstall(opts, paths, out) {
           "warn",
           "bridge_takeover",
           `止めたあと、別の橋渡し（プロセス ${takeover}）がポート ${port} を引き継ぎました。止めていません。`,
-          "Claude Code / Claude Desktop が起動したものなら、Claude を終了すると止まります（Claude の設定からは、このあと mxstudio を外します）。",
+          "Claude Code / Claude Desktop が起動したものなら、Claude を終了すると止まります（Claude の設定からは、このあと MX Stage を外します）。",
         ),
       );
     }
@@ -2641,6 +3022,9 @@ async function uninstall(opts, paths, out) {
     else out.push(step("warn", id, `${label}を消せませんでした: ${failed.join(" / ")}`, "エクスプローラーで手で消してください。"));
   }
 
+  // --- 改名前（mxstudio）の導入が残したもの（登録・Skill の写し・ショートカット）も外す ---
+  await migrateLegacy(opts, paths, out, { port, bridgeEntry, mode: "uninstall" });
+
   // --- 記録 ---
   if (!dry && existsSync(paths.statePath)) {
     try {
@@ -2653,8 +3037,8 @@ async function uninstall(opts, paths, out) {
   return state ?? {};
 }
 
-/** 設定から mxstudio を外す。置き換える前の設定があれば控えから戻す */
-function unregister(opts, paths, configPath, previous, bridgeEntry, lastWritten, id, label, out) {
+/** 設定から mxstage を外す（name を渡すとその名前を外す。改名前の mxstudio の片付けに使う）。置き換える前の設定があれば控えから戻す */
+function unregister(opts, paths, configPath, previous, bridgeEntry, lastWritten, id, label, out, name = MCP_NAME) {
   const read = readJsonFile(configPath);
   if (!read.exists) {
     out.push(step("ok", id, `${label} の設定ファイルはありません（${configPath}）。`));
@@ -2664,16 +3048,16 @@ function unregister(opts, paths, configPath, previous, bridgeEntry, lastWritten,
     out.push(step("warn", id, `${label} の設定を読めないので触りません（${read.error}）。`));
     return;
   }
-  const current = read.json?.mcpServers?.[MCP_NAME];
+  const current = read.json?.mcpServers?.[name];
   if (!current) {
-    out.push(step("ok", id, `${label} に ${MCP_NAME} の設定はありません。`));
+    out.push(step("ok", id, `${label} に ${name} の設定はありません。`));
     return;
   }
   if (!isOurEntry(current, bridgeEntry)) {
-    out.push(step("warn", id, `${label} の ${MCP_NAME} は、この導入が作ったものではないようなので残します: ${JSON.stringify(redactEntry(current))}`, "外すなら手で消してください。"));
+    out.push(step("warn", id, `${label} の ${name} は、この導入が作ったものではないようなので残します: ${JSON.stringify(redactEntry(current))}`, "外すなら手で消してください。"));
     return;
   }
-  let restore = previous ? entryFromBackup(previous.backup, MCP_NAME) : null;
+  let restore = previous ? entryFromBackup(previous.backup, name) : null;
   if (previous && !restore) {
     out.push(step("warn", id, `${label} の前の設定を控えから読めませんでした（${previous.backup ?? "控え無し"}）。外すだけにします。`));
   }
@@ -2696,24 +3080,23 @@ function unregister(opts, paths, configPath, previous, bridgeEntry, lastWritten,
     }
   }
   if (opts.dryRun) {
-    out.push(step("skip", id, `${label} から ${MCP_NAME} を${restore ? "前の設定に戻します" : "外します"}（${configPath}）。--dry-run なので書いていません。`));
+    out.push(step("skip", id, `${label} から ${name} を${restore ? "前の設定に戻します" : "外します"}（${configPath}）。--dry-run なので書いていません。`));
     return;
   }
   let backup = null;
   try {
     backup = backupFile(configPath, paths.backupDir);
-    writeJsonFileAtomic(configPath, removeMcpServer(read.json, MCP_NAME, restore).next);
+    writeJsonFileAtomic(configPath, removeMcpServer(read.json, name, restore).next);
   } catch (err) {
     out.push(step("error", id, `${label} の設定を書けませんでした: ${err instanceof Error ? err.message : String(err)}`, backup ? `控え: ${backup}` : undefined));
     return;
   }
-  out.push(step("ok", id, `${label} から ${MCP_NAME} を${restore ? "外し、前の設定に戻しました" : "外しました"}（${configPath}）。`, backup ? `書き換える前の控え: ${backup}` : undefined));
+  out.push(step("ok", id, `${label} から ${name} を${restore ? "外し、前の設定に戻しました" : "外しました"}（${configPath}）。`, backup ? `書き換える前の控え: ${backup}` : undefined));
   if (id === "claude_desktop") out.push(step("warn", "claude_desktop_restart", "Claude Desktop は再起動するまで設定の変更を読みません。"));
 }
 
-/** Codex の設定（config.toml）から mxstudio の表を外す。置き換える前の設定があれば控えから戻す */
-function unregisterCodex(opts, paths, previous, bridgeEntry, lastWritten, out) {
-  const id = "codex";
+/** Codex の設定（config.toml）から mxstage の表を外す（name を渡すとその名前の表）。置き換える前の設定があれば控えから戻す */
+function unregisterCodex(opts, paths, previous, bridgeEntry, lastWritten, out, name = MCP_NAME, id = "codex") {
   const configPath = paths.codexConfig;
   if (!existsSync(configPath)) {
     out.push(step("ok", id, `Codex の設定ファイルはありません（${configPath}）。`));
@@ -2726,19 +3109,19 @@ function unregisterCodex(opts, paths, previous, bridgeEntry, lastWritten, out) {
     out.push(step("warn", id, `Codex の設定を読めないので触りません（${err instanceof Error ? err.message : String(err)}）。`));
     return;
   }
-  const found = findCodexTable(text);
+  const found = findCodexTable(text, name);
   if (found.start < 0) {
-    out.push(step("ok", id, `Codex に ${MCP_NAME} の設定はありません。`));
+    out.push(step("ok", id, `Codex に ${name} の設定はありません。`));
     return;
   }
   if (found.entry?.unreadable || !isOurEntry(found.entry, bridgeEntry)) {
-    out.push(step("warn", id, `Codex の ${MCP_NAME} は、この導入が作ったものではないようなので残します: ${JSON.stringify(redactEntry(found.entry))}`, "外すなら手で消してください。"));
+    out.push(step("warn", id, `Codex の ${name} は、この導入が作ったものではないようなので残します: ${JSON.stringify(redactEntry(found.entry))}`, "外すなら手で消してください。"));
     return;
   }
   let restore = null;
   if (previous) {
     try {
-      const saved = findCodexTable(readFileSync(previous.backup, "utf8"));
+      const saved = findCodexTable(readFileSync(previous.backup, "utf8"), name);
       if (saved.block !== null && !saved.entry?.unreadable) {
         const kind = classifyPrevious(saved.entry, { bridgeEntry, lastWritten });
         if (kind.kind === "user") restore = saved.block.join("\n");
@@ -2750,18 +3133,18 @@ function unregisterCodex(opts, paths, previous, bridgeEntry, lastWritten, out) {
     if (restore === null) out.push(step("warn", id, `Codex の前の設定を控えから戻せませんでした（${previous.backup ?? "控え無し"}）。外すだけにします。`));
   }
   if (opts.dryRun) {
-    out.push(step("skip", id, `Codex から ${MCP_NAME} を${restore ? "前の設定に戻します" : "外します"}（${configPath}）。--dry-run なので書いていません。`));
+    out.push(step("skip", id, `Codex から ${name} を${restore ? "前の設定に戻します" : "外します"}（${configPath}）。--dry-run なので書いていません。`));
     return;
   }
   let backup = null;
   try {
     backup = backupFile(configPath, paths.backupDir);
-    writeTextFileAtomic(configPath, removeCodexTable(text, restore).next);
+    writeTextFileAtomic(configPath, removeCodexTable(text, restore, name).next);
   } catch (err) {
     out.push(step("error", id, `Codex の設定を書けませんでした: ${err instanceof Error ? err.message : String(err)}`, backup ? `控え: ${backup}` : undefined));
     return;
   }
-  out.push(step("ok", id, `Codex から ${MCP_NAME} を${restore ? "外し、前の設定に戻しました" : "外しました"}（${configPath}）。`, backup ? `書き換える前の控え: ${backup}` : undefined));
+  out.push(step("ok", id, `Codex から ${name} を${restore ? "外し、前の設定に戻しました" : "外しました"}（${configPath}）。`, backup ? `書き換える前の控え: ${backup}` : undefined));
 }
 
 // ---------------------------------------------------------------------------
@@ -2776,7 +3159,7 @@ async function status(opts, paths, out) {
     out.push(step("ok", "state", `記録: ${paths.statePath}（ポート ${state.port}・入口 ${state.bridgeEntry}）`));
   }
   const port = opts.port ?? (Number.isInteger(state?.port) ? state.port : DEFAULT_PORT);
-  // 橋渡しが 1 つ動いているか（/_mxstudio/health で確かめる）。隣のポートに残っている古い版も知らせる
+  // 橋渡しが 1 つ動いているか（/_mxstage/health で確かめる）。隣のポートに残っている古い版も知らせる
   const entryForProtocol = typeof state?.bridgeEntry === "string" ? state.bridgeEntry : resolveBridgeEntry(paths.repoRoot, opts.bridge).entry;
   const probe = await probeBridge(port);
   out.push(singleBridgeStep(port, probe, true, expectedPeerProtocol(entryForProtocol)));
@@ -2785,6 +3168,11 @@ async function status(opts, paths, out) {
   out.push(buildStatusStep(paths.repoRoot));
   const others = await findOtherBridges(port);
   if (others.length > 0) out.push(otherBridgesStep(others));
+  // 改名前（mxstudio）の導入が残したもの（試験中は --legacy-state-dir を指定したときだけ見る）
+  if (!isTestGuard() || opts.legacyStateDir) {
+    const legacy = legacyStatusStep(findLegacyLeftovers(paths, legacyStateDirOf(opts)), (await probeLegacyBridge(port)) !== null, port);
+    if (legacy) out.push(legacy);
+  }
 
   const antigravity = antigravityWanted(opts, paths);
   for (const [id, label, configPath] of [
@@ -2837,7 +3225,7 @@ async function status(opts, paths, out) {
 // ---------------------------------------------------------------------------
 
 function printText(mode, steps, result, paths, dryRun) {
-  const title = mode === "uninstall" ? "mxstudio の取り消し" : mode === "status" ? "mxstudio の状態" : "mxstudio をこの PC に入れる";
+  const title = mode === "uninstall" ? "MX Stage の取り消し" : mode === "status" ? "MX Stage の状態" : "MX Stage をこの PC に入れる";
   const lines = [title, ""];
   for (const s of steps) {
     lines.push(`[${LABEL[s.level]}] ${s.message}`);
@@ -2845,7 +3233,7 @@ function printText(mode, steps, result, paths, dryRun) {
   }
   const errors = steps.filter((s) => s.level === "error").length;
   const warns = steps.filter((s) => s.level === "warn").length;
-  const undo = IS_WINDOWS ? `"${path.join(paths.repoRoot, "mxstudio.cmd")}" --uninstall` : `node "${path.join(paths.repoRoot, "scripts", "setup-local.mjs")}" --uninstall`;
+  const undo = IS_WINDOWS ? `"${path.join(paths.repoRoot, "mxstage.cmd")}" --uninstall` : `node "${path.join(paths.repoRoot, "scripts", "setup-local.mjs")}" --uninstall`;
   lines.push("");
   if (dryRun && mode !== "status") {
     lines.push(`--dry-run なので、何も書き換えていません（上は実際に行う手順です。警告 ${warns} 件・NG ${errors} 件）。`);
@@ -2854,10 +3242,10 @@ function printText(mode, steps, result, paths, dryRun) {
       lines.push(warns === 0 ? "導入できました。" : `導入できました（警告 ${warns} 件。上の [警告] の行を読んでください）。`);
       if (result.appUrl) lines.push(`  作業画面: ${result.appUrl}${result.installed?.desktopShortcut ? "（デスクトップのショートカットからも開けます）" : ""}`);
       if (result.port) lines.push(`  橋渡し: ポート ${result.port} の 1 つだけ（作業画面と Claude Code / Claude Desktop / Antigravity / Codex で共有します）`);
-      if (result.installed?.claudeCode) lines.push("  Claude Code: 起動し直すと mxstudio のツールが使えます。");
+      if (result.installed?.claudeCode) lines.push("  Claude Code: 起動し直すと MX Stage のツールが使えます。");
       if (result.installed?.claudeDesktop) lines.push("  Claude Desktop: いったん終了して開き直してください（再起動するまで設定を読みません）。");
-      if (result.installed?.antigravity) lines.push("  Antigravity: 新しい会話から mxstudio のツールが使えます（2.0・IDE・agy CLI 共通。出てこなければ開き直してください）。");
-      if (result.installed?.codex) lines.push("  Codex: 新しい会話から mxstudio のツールが使えます（デスクトップ・CLI・IDE 拡張共通。出てこなければ開き直してください）。");
+      if (result.installed?.antigravity) lines.push("  Antigravity: 新しい会話から MX Stage のツールが使えます（2.0・IDE・agy CLI 共通。出てこなければ開き直してください）。");
+      if (result.installed?.codex) lines.push("  Codex: 新しい会話から MX Stage のツールが使えます（デスクトップ・CLI・IDE 拡張共通。出てこなければ開き直してください）。");
       lines.push(`  取り消す: ${undo}`);
       if (result.installed?.startup) lines.push(`  自動起動だけやめる: ${result.installed.startup} を消す`);
     } else {
@@ -2888,7 +3276,9 @@ export async function main(argv) {
     return 0;
   }
   // claude コマンドの場所は、引数が無ければ環境変数から
+  // 改名前の名前（MXSTUDIO_CLAUDE_CLI）も、新しい名前が無いときだけ読む
   if (!opts.claudeCli && process.env[CLAUDE_CLI_ENV]) opts.claudeCli = process.env[CLAUDE_CLI_ENV];
+  else if (!opts.claudeCli && process.env[LEGACY.claudeCliEnv]) opts.claudeCli = process.env[LEGACY.claudeCliEnv];
   // 試験中は、本物の設定・フォルダ・橋渡しに触れうる指定なら、場所を調べる前に止める
   if (isTestGuard()) {
     const problem = testSandboxProblem(opts);

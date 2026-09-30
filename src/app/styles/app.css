@@ -1,4 +1,4 @@
-/* mxstudio の画面の配置。見た目は IBM Carbon Design System（White テーマ）に合わせる（docs/design.md）。
+/* MX Stage の画面の配置。見た目は IBM Carbon Design System（White テーマ）に合わせる（docs/design.md）。
    - 部品は @carbon/react。色・余白・文字の変数は styles/carbon.scss が :root に出す --cds-*（とこのアプリの --mx-*）を使う。
    - ここに書くのは、画面の配置と、Carbon に無い部品（シートタブ・ペイン・行の詳細・変更履歴など）だけ。
    - .cds-- で始まるセレクタは、末尾の「Carbon の部品への意図した上書き」の欄にだけ書く。

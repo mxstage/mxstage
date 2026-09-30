@@ -2,13 +2,13 @@
 //
 //   npm run test:setup
 //
-// 実在の設定ファイル（~/.claude.json・Claude Desktop・Antigravity（~/.gemini）・スタートアップ・デスクトップ・~/.config/mxstudio）には一切触らない。
+// 実在の設定ファイル（~/.claude.json・Claude Desktop・Antigravity（~/.gemini）・スタートアップ・デスクトップ・~/.config/mxstage）には一切触らない。
 // - 書き先はすべて一時フォルダに差し替える。
-// - MXSTUDIO_SETUP_TEST=1 を立てる。setup-local.mjs はこの印があると、書き先が一時フォルダでない・--port / --bridge /
+// - MXSTAGE_SETUP_TEST=1 を立てる。setup-local.mjs はこの印があると、書き先が一時フォルダでない・--port / --bridge /
 //   --no-open が無いときは何もせずに止まり、本物の claude コマンドを**探しもしない**。
 // - claude コマンドを試すときは、一時フォルダに置いた偽物（呼ばれた引数を記録し、差し替えた書き先に書く）を使う。
 // - 最後の試験で、本物の設定ファイルとフォルダの更新時刻が、この試験の前後で変わっていないことを確かめる。
-// 橋渡しの代わりに、/_mxstudio/health と /ws だけを返す小さなサーバを使う。
+// 橋渡しの代わりに、/_mxstage/health と /ws だけを返す小さなサーバを使う。
 // ポートは OS に割り当てさせる（利用者が 8788 で動かしている橋渡しに触れないため）。
 // vitest の projects（tests/worker・tests/app・tests/bridge）には含まれないので、npx vitest run では動かない。
 
@@ -30,6 +30,9 @@ import {
   codexPaths,
   codexWanted,
   findCodexTable,
+  findLegacyLeftovers,
+  legacyStateDirOf,
+  legacyStatusStep,
   removeCodexTable,
   tomlTableKey,
   tomlValue,
@@ -87,7 +90,7 @@ import {
 import { buildIco, needsBuild, needsInstall, nodeVersionOk, npmEnv } from "../../scripts/setup-local.mjs";
 
 // 試験中の印（setup-local.mjs の main() が見る）
-process.env.MXSTUDIO_SETUP_TEST = "1";
+process.env.MXSTAGE_SETUP_TEST = "1";
 
 const IS_WINDOWS = process.platform === "win32";
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -135,13 +138,19 @@ function realTargets() {
     { path: path.join(process.env.CODEX_HOME || path.join(home, ".codex"), "config.toml"), type: "toml", owner: "Codex" },
     { path: path.join(home, ".agents", "skills"), type: "dir", owner: "Codex などのエージェント" },
     // ほかに書くプログラムが無い場所。更新時刻が変わったらそれだけで失敗にする
-    { path: path.join(home, ".config", "mxstudio"), type: "strict", owner: null },
+    { path: path.join(home, ".config", "mxstage"), type: "strict", owner: null },
     // 導入の記録と控え。控えのフォルダが既にあると、中に控えが増えても親フォルダの更新時刻は変わらないので、別に見る
-    { path: path.join(home, ".config", "mxstudio", "setup.json"), type: "strict", owner: null },
-    { path: path.join(home, ".config", "mxstudio", "backup"), type: "strict", owner: null },
+    { path: path.join(home, ".config", "mxstage", "setup.json"), type: "strict", owner: null },
+    { path: path.join(home, ".config", "mxstage", "backup"), type: "strict", owner: null },
     // 本物の橋渡しが作る鍵。試験中に起動する橋渡しは一時フォルダの鍵を使うので、ここは変わらないはず
-    { path: path.join(home, ".config", "mxstudio", "bridge.key"), type: "strict", owner: null },
-    // 以前の版の置き場所（%LOCALAPPDATA%\mxstudio）。残っている PC があるので、ここも見る
+    { path: path.join(home, ".config", "mxstage", "bridge.key"), type: "strict", owner: null },
+    // 改名前（mxstudio）の置き場所。移行は、試験では --legacy-state-dir の一時フォルダにしか触れないはず
+    // （フォルダそのものは改名前の橋渡しがログを書くことがあるので、更新時刻が変わっても名前の増減だけを見る）
+    { path: path.join(home, ".config", "mxstudio"), type: "dir", owner: "改名前の mxstudio の橋渡し（ログ）" },
+    { path: path.join(home, ".config", "mxstudio", "setup.json"), type: "strict", owner: null },
+    { path: path.join(home, ".config", "mxstudio", "skills"), type: "dir", owner: "改名前の mxstudio の橋渡し（save_skill）" },
+    { path: path.join(home, ".config", "mxstudio", "publish-terms.txt"), type: "strict", owner: null },
+    // それより前の版の置き場所（%LOCALAPPDATA%\mxstudio）。残っている PC があるので、ここも見る
     { path: path.join(localAppData, "mxstudio"), type: "strict", owner: null },
     { path: path.join(localAppData, "mxstudio", "setup.json"), type: "strict", owner: null },
     { path: path.join(localAppData, "mxstudio", "backup"), type: "strict", owner: null },
@@ -156,21 +165,22 @@ function realTargets() {
   });
 }
 
-/** mcpServers.mxstudio だけを読む（中身は画面に出さず、比べるだけ） */
-/** Codex の config.toml の [mcp_servers.mxstudio] の表（読むだけ） */
+/** Codex の config.toml の [mcp_servers.mxstage] と、改名前の [mcp_servers.mxstudio] の表（読むだけ） */
 function codexTableOf(file) {
   try {
-    return JSON.stringify(findCodexTable(readFileSync(file, "utf8")).block);
+    const text = readFileSync(file, "utf8");
+    return JSON.stringify([findCodexTable(text).block, findCodexTable(text, "mxstudio").block]);
   } catch (err) {
     return err && err.code === "ENOENT" ? "(無い)" : "(読めない)";
   }
 }
 
-function mxstudioEntryOf(file) {
+/** mcpServers.mxstage \u3068\u3001\u6539\u540D\u524D\u306E mcpServers.mxstudio \u3060\u3051\u3092\u8AAD\u3080\uFF08\u4E2D\u8EAB\u306F\u753B\u9762\u306B\u51FA\u3055\u305A\u3001\u6BD4\u3079\u308B\u3060\u3051\uFF09 */
+function mxstageEntryOf(file) {
   for (let i = 0; i < 10; i++) {
     try {
       const json = JSON.parse(readFileSync(file, "utf8").replace(/^\uFEFF/, ""));
-      return JSON.stringify(json?.mcpServers?.mxstudio ?? null);
+      return JSON.stringify([json?.mcpServers?.mxstage ?? null, json?.mcpServers?.mxstudio ?? null]);
     } catch (err) {
       if (err && err.code === "ENOENT") return "(無い)";
       sleepSync(50); // 持ち主のプログラムが書いている途中かもしれない
@@ -189,16 +199,16 @@ function snapshotReal(targets) {
     }
     const snap = { ...t, exists: Boolean(st), mtimeMs: st ? st.mtimeMs : null };
     if (st && t.type === "json") {
-      snap.entry = mxstudioEntryOf(t.path);
-      snap.tmp = existsSync(`${t.path}.mxstudio.tmp`);
+      snap.entry = mxstageEntryOf(t.path);
+      snap.tmp = existsSync(`${t.path}.mxstage.tmp`);
     }
     if (st && t.type === "toml") {
       snap.entry = codexTableOf(t.path);
-      snap.tmp = existsSync(`${t.path}.mxstudio.tmp`);
+      snap.tmp = existsSync(`${t.path}.mxstage.tmp`);
     }
     if (st && st.isDirectory()) {
       try {
-        snap.names = readdirSync(t.path).filter((n) => /mxstudio/i.test(n)).sort();
+        snap.names = readdirSync(t.path).filter((n) => /mxstage|mxstudio/i.test(n)).sort();
       } catch {
         snap.names = null;
       }
@@ -322,9 +332,9 @@ test("antigravityPaths / antigravityWanted / skillTargets: ~/.gemini がある�
 
 test("bridgeCodeStep / buildStatusStep: 動いている橋渡しの古さ（health の stale）と、作業画面のビルドの古さを出す", () => {
   assert.equal(bridgeCodeStep({ state: "down", health: null }), null);
-  assert.equal(bridgeCodeStep({ state: "bridge", health: { name: "mxstudio-bridge", version: "0.1.0", protocol: 1 } }), null, "stale を載せない古い版には何も言わない");
-  assert.equal(bridgeCodeStep({ state: "bridge", health: { name: "mxstudio-bridge", version: "0.1.0", protocol: 1, stale: false } }).level, "ok");
-  const stale = bridgeCodeStep({ state: "bridge", health: { name: "mxstudio-bridge", version: "0.1.0", protocol: 1, stale: true } });
+  assert.equal(bridgeCodeStep({ state: "bridge", health: { name: "mxstage-bridge", version: "0.1.0", protocol: 1 } }), null, "stale を載せない古い版には何も言わない");
+  assert.equal(bridgeCodeStep({ state: "bridge", health: { name: "mxstage-bridge", version: "0.1.0", protocol: 1, stale: false } }).level, "ok");
+  const stale = bridgeCodeStep({ state: "bridge", health: { name: "mxstage-bridge", version: "0.1.0", protocol: 1, stale: true } });
   assert.equal(stale.level, "warn");
   assert.match(stale.hint, /起動し直して/);
 
@@ -376,7 +386,7 @@ test("Antigravity: 入っていれば登録し Skill も写す（ほかのサー
     assert.equal(first.code, 0, first.stdout);
     const written = JSON.parse(readFileSync(agConfig, "utf8"));
     assert.deepEqual(written.mcpServers["chrome-devtools-mcp"], other, "ほかの MCP サーバを消していない");
-    assert.deepEqual(written.mcpServers.mxstudio, { command: process.execPath, args: [bridge, "--port", String(port)] });
+    assert.deepEqual(written.mcpServers.mxstage, { command: process.execPath, args: [bridge, "--port", String(port)] });
     assert.equal(stepOf(first.json, "antigravity")[0].level, "ok");
     assert.ok(first.json.result.installed.antigravity);
     for (const skill of repoSkills) {
@@ -385,7 +395,7 @@ test("Antigravity: 入っていれば登録し Skill も写す（ほかのサー
     assert.equal(stepOf(first.json, "antigravity_skills")[0].level, "ok");
     const state = JSON.parse(readFileSync(path.join(dir, "state", "setup.json"), "utf8"));
     assert.deepEqual(state.installed.antigravitySkills.map((sk) => sk.name), repoSkills.map((sk) => sk.name));
-    assert.equal(state.previous.antigravity, null, "前に mxstudio は無かったので戻す先は無い");
+    assert.equal(state.previous.antigravity, null, "前に MX Stage は無かったので戻す先は無い");
 
     // 写した先を記録する（橋渡しが写しの古さを見るのに使う）
     assert.deepEqual(state.skillDirs, { skills: path.join(dir, "claude-skills"), antigravitySkills: agSkills });
@@ -424,7 +434,7 @@ test("Antigravity: 入っていれば登録し Skill も写す（ほかのサー
     // --- 取り消し ---
     assert.equal(await quietMain([...common, "--uninstall"]), 0);
     const after = JSON.parse(readFileSync(agConfig, "utf8"));
-    assert.equal("mxstudio" in after.mcpServers, false, "Antigravity から外れる");
+    assert.equal("mxstage" in after.mcpServers, false, "Antigravity から外れる");
     assert.deepEqual(after.mcpServers["chrome-devtools-mcp"], other);
     for (const skill of repoSkills) assert.equal(existsSync(path.join(agSkills, skill.name)), false, `${skill.name} は消す`);
     assert.equal(existsSync(path.join(agSkills, "cloudflare", "SKILL.md")), true, "利用者の Skill は消さない");
@@ -527,7 +537,7 @@ test("codexPaths / codexWanted / skillTargets: ~/.codex があるときだけ Co
   );
 });
 
-test("Codex の config.toml: mxstudio の表だけを足す・置き換える・外す（ほかの表・コメント・改行コードは変えない）", () => {
+test("Codex の config.toml: MX Stage の表だけを足す・置き換える・外す（ほかの表・コメント・改行コードは変えない）", () => {
   const base = [
     "# 利用者の設定",
     'model = "gpt-5"',
@@ -547,7 +557,7 @@ test("Codex の config.toml: mxstudio の表だけを足す・置き換える・
   assert.equal(
     block,
     [
-      "[mcp_servers.mxstudio]",
+      "[mcp_servers.mxstage]",
       'command = "C:\\\\Program Files\\\\nodejs\\\\node.exe"',
       `args = [${bridgeArgs("C:\\r\\src\\bridge\\cli.ts", 8788).map((a) => JSON.stringify(a)).join(", ")}]`,
       "startup_timeout_sec = 30",
@@ -562,23 +572,23 @@ test("Codex の config.toml: mxstudio の表だけを足す・置き換える・
   assert.equal(removeCodexTable(added).next, base, "外すと元に戻る");
   assert.equal(removeCodexTable(base).changed, false);
 
-  // 利用者が手で書いた mxstudio（複数行の配列・env 付き）: 読めて、置き換え、外すときは元の表に戻せる
-  const user = ["[mcp_servers.mxstudio]", 'command = "npx"', "args = [", '  "mxstudio-mcp",', "]", "", "[mcp_servers.mxstudio.env]", 'TOKEN = "secret"', "", "[windows]", 'sandbox = "x"', ""].join("\n");
+  // 利用者が手で書いた MX Stage（複数行の配列・env 付き）: 読めて、置き換え、外すときは元の表に戻せる
+  const user = ["[mcp_servers.mxstage]", 'command = "npx"', "args = [", '  "mxstage-mcp",', "]", "", "[mcp_servers.mxstage.env]", 'TOKEN = "secret"', "", "[windows]", 'sandbox = "x"', ""].join("\n");
   const userFound = findCodexTable(user);
-  assert.deepEqual(userFound.entry, { command: "npx", args: ["mxstudio-mcp"], env: { TOKEN: "" } });
+  assert.deepEqual(userFound.entry, { command: "npx", args: ["mxstage-mcp"], env: { TOKEN: "" } });
   const replaced = upsertCodexTable(user, block);
   assert.equal(findCodexTable(replaced).block.join("\n"), block);
   assert.match(replaced, /\[windows\]/, "後ろの表は残す");
   assert.equal(removeCodexTable(replaced, userFound.block.join("\n")).next, user);
 
-  // 表ではない書き方の mxstudio には触らない（呼び出し側が otherForm を見て止まる）
-  assert.equal(findCodexTable('mcp_servers.mxstudio.command = "x"\n').otherForm, true);
-  assert.equal(findCodexTable('[mcp_servers]\nmxstudio = { command = "x" }\n').otherForm, true);
-  assert.equal(findCodexTable('[mcp_servers.mxstudio.env]\nA = "1"\n').otherForm, true);
+  // 表ではない書き方の MX Stage には触らない（呼び出し側が otherForm を見て止まる）
+  assert.equal(findCodexTable('mcp_servers.mxstage.command = "x"\n').otherForm, true);
+  assert.equal(findCodexTable('[mcp_servers]\nmxstage = { command = "x" }\n').otherForm, true);
+  assert.equal(findCodexTable('[mcp_servers.mxstage.env]\nA = "1"\n').otherForm, true);
   assert.equal(findCodexTable(added).otherForm, false);
 
   // 見出しと値の読み取り
-  assert.deepEqual(tomlTableKey('[mcp_servers."mxstudio"]'), ["mcp_servers", "mxstudio"]);
+  assert.deepEqual(tomlTableKey('[mcp_servers."mxstage"]'), ["mcp_servers", "mxstage"]);
   assert.deepEqual(tomlTableKey("[projects.'c:/users/x']"), ["projects", "c:/users/x"]);
   assert.equal(tomlTableKey("[[array]]"), null);
   assert.deepEqual(tomlValue('[\n "a", \'b\' ,\n 3]'), ["a", "b", 3]);
@@ -605,8 +615,8 @@ test("Codex: 入っていれば config.toml に登録し ~/.agents/skills に Sk
     assert.equal(existsSync(codexDir), false, "入れていない PC に ~/.codex を作らない");
     assert.equal(existsSync(agentsSkills), false, "~/.agents/skills も作らない");
 
-    // --- 入っている: 利用者の設定（ほかの表と、手で書いた mxstudio）がある ---
-    const userBlock = ['[mcp_servers.mxstudio]', 'command = "npx"', 'args = ["mxstudio-mcp"]'].join("\r\n");
+    // --- 入っている: 利用者の設定（ほかの表と、手で書いた MX Stage）がある ---
+    const userBlock = ['[mcp_servers.mxstage]', 'command = "npx"', 'args = ["mxstage-mcp"]'].join("\r\n");
     const original = ["# 利用者の設定", 'model = "gpt-5"', "", "[mcp_servers.node_repl]", 'command = "node"', "", userBlock, "", "[windows]", 'sandbox = "elevated"', ""].join("\r\n");
     mkdirSync(codexDir, { recursive: true });
     writeFileSync(config, original, "utf8");
@@ -614,7 +624,7 @@ test("Codex: 入っていれば config.toml に登録し ~/.agents/skills に Sk
     const first = await runJson(common);
     assert.equal(first.code, 0, first.stdout);
     assert.equal(stepOf(first.json, "codex")[0].level, "ok");
-    assert.match(stepOf(first.json, "codex")[0].message, /前の mxstudio の設定を置き換えました/);
+    assert.match(stepOf(first.json, "codex")[0].message, /前の MX Stage の設定を置き換えました/);
     assert.ok(first.json.result.installed.codex);
     const written = readFileSync(config, "utf8");
     const found = findCodexTable(written);
@@ -626,7 +636,7 @@ test("Codex: 入っていれば config.toml に登録し ~/.agents/skills に Sk
     }
     const state = JSON.parse(readFileSync(path.join(dir, "state", "setup.json"), "utf8"));
     assert.deepEqual(state.installed.codexSkills.map((sk) => sk.name), repoSkills.map((sk) => sk.name));
-    assert.ok(state.previous.codex?.backup, "利用者の前の mxstudio を戻す先として控えごと覚える");
+    assert.ok(state.previous.codex?.backup, "利用者の前の MX Stage を戻す先として控えごと覚える");
 
     // --- 状態を見る・もう一度（冪等）---
     const status = await runJson([...common, "--status"]);
@@ -636,7 +646,7 @@ test("Codex: 入っていれば config.toml に登録し ~/.agents/skills に Sk
     assert.match(stepOf(again.json, "codex")[0].message, /既に同じ設定/);
     assert.equal(readFileSync(config, "utf8"), written, "2 回目は何も変えない");
 
-    // --- 取り消し: mxstudio の表を利用者の前の設定に戻し、Skill を消す ---
+    // --- 取り消し: MX Stage の表を利用者の前の設定に戻し、Skill を消す ---
     assert.equal(await quietMain([...common, "--uninstall"]), 0);
     assert.equal(readFileSync(config, "utf8"), original, "元の config.toml に戻る");
     for (const skill of repoSkills) assert.equal(existsSync(path.join(agentsSkills, skill.name)), false, `${skill.name} は消す`);
@@ -700,43 +710,43 @@ test("mergeMcpServer: ほかのサーバとほかの設定を残したまま 1 �
     mcpServers: { other: { type: "http", url: "https://example.test/mcp", headers: { Authorization: "Bearer KEEP" } } },
   };
   const entry = buildCodeEntry(NODE, ENTRY, 7777);
-  const { next, previous, changed } = mergeMcpServer(before, "mxstudio", entry);
+  const { next, previous, changed } = mergeMcpServer(before, "mxstage", entry);
   assert.equal(changed, true);
   assert.equal(previous, null);
   assert.equal(next.numStartups, 12);
   assert.deepEqual(next.projects, { "C:\\work": {} });
   assert.deepEqual(next.mcpServers.other, before.mcpServers.other);
-  assert.deepEqual(next.mcpServers.mxstudio, entry);
+  assert.deepEqual(next.mcpServers.mxstage, entry);
   // 元のオブジェクトは変えない
-  assert.equal("mxstudio" in before.mcpServers, false);
+  assert.equal("mxstage" in before.mcpServers, false);
 });
 
 test("mergeMcpServer: 同じ内容なら changed は false（何度実行しても書き換えない）", () => {
   const entry = buildCodeEntry(NODE, ENTRY, 7777);
-  const { changed } = mergeMcpServer({ mcpServers: { mxstudio: entry } }, "mxstudio", entry);
+  const { changed } = mergeMcpServer({ mcpServers: { mxstage: entry } }, "mxstage", entry);
   assert.equal(changed, false);
 });
 
 test("mergeMcpServer: mcpServers が無い設定にも足せる", () => {
   const entry = buildDesktopEntry(NODE, ENTRY, 7777);
-  const { next } = mergeMcpServer({ preferences: { a: 1 } }, "mxstudio", entry);
+  const { next } = mergeMcpServer({ preferences: { a: 1 } }, "mxstage", entry);
   assert.deepEqual(next.preferences, { a: 1 });
-  assert.deepEqual(next.mcpServers.mxstudio, entry);
+  assert.deepEqual(next.mcpServers.mxstage, entry);
 });
 
 test("removeMcpServer: 外す・前の設定に戻す・ほかは残す", () => {
   const ours = buildCodeEntry(NODE, ENTRY, 7777);
-  const before = { mcpServers: { other: { type: "http" }, mxstudio: ours } };
-  const removed = removeMcpServer(before, "mxstudio", null);
+  const before = { mcpServers: { other: { type: "http" }, mxstage: ours } };
+  const removed = removeMcpServer(before, "mxstage", null);
   assert.equal(removed.changed, true);
-  assert.equal("mxstudio" in removed.next.mcpServers, false);
+  assert.equal("mxstage" in removed.next.mcpServers, false);
   assert.deepEqual(removed.next.mcpServers.other, { type: "http" });
 
   const old = { type: "http", url: "https://example.test/mcp" };
-  const restored = removeMcpServer(before, "mxstudio", old);
-  assert.deepEqual(restored.next.mcpServers.mxstudio, old);
+  const restored = removeMcpServer(before, "mxstage", old);
+  assert.deepEqual(restored.next.mcpServers.mxstage, old);
 
-  const none = removeMcpServer({ mcpServers: {} }, "mxstudio", null);
+  const none = removeMcpServer({ mcpServers: {} }, "mxstage", null);
   assert.equal(none.changed, false);
 });
 
@@ -765,10 +775,10 @@ test("canUseClaudeCli: claude コマンドに任せてよいのは、書き先�
 
 test("redactUrl / redactArgs: 秘密リンクのトークン・クエリ・利用者情報・トークンらしい引数を伏せる", () => {
   assert.equal(redactUrl("https://example.test/mcp"), "https://example.test/mcp");
-  const link = redactUrl("https://mxstudio.example.workers.dev/w/Zx81kQ2vN7pLr4TtY9uWc3/app?key=SECRETQ#frag");
+  const link = redactUrl("https://mxstage.example.workers.dev/w/Zx81kQ2vN7pLr4TtY9uWc3/app?key=SECRETQ#frag");
   assert.equal(link.includes("Zx81kQ2vN7pLr4TtY9uWc3"), false);
   assert.equal(link.includes("SECRETQ"), false);
-  assert.ok(link.startsWith("https://mxstudio.example.workers.dev/w/"));
+  assert.ok(link.startsWith("https://mxstage.example.workers.dev/w/"));
   assert.equal(redactUrl("https://user:pw-SECRET@example.test/mcp").includes("SECRET"), false);
   assert.equal(redactUrl("これは URL ではない"), "<伏せ>");
 
@@ -806,8 +816,8 @@ test("rememberPrevious: 指しているファイルが無い登録（壊れた�
 });
 
 test("isSetupShapedEntry: この導入が書く形なら、入口の場所が違っても（消えていても）自分のものと見なす", () => {
-  assert.equal(isSetupShapedEntry(buildCodeEntry(NODE, "D:\\old\\mxstudio\\src\\bridge\\cli.ts", 8788)), true);
-  assert.equal(isSetupShapedEntry({ command: "/usr/bin/node", args: ["/home/a/mxstudio/bin/mxstudio-bridge.mjs", "--port", "8788"] }), true);
+  assert.equal(isSetupShapedEntry(buildCodeEntry(NODE, "D:\\old\\mxstage\\src\\bridge\\cli.ts", 8788)), true);
+  assert.equal(isSetupShapedEntry({ command: "/usr/bin/node", args: ["/home/a/mxstage/bin/mxstage-bridge.mjs", "--port", "8788"] }), true);
   assert.equal(isSetupShapedEntry({ command: "node", args: ["C:\\work\\server.mjs", "--port", "8788"] }), false);
   assert.equal(isSetupShapedEntry({ command: "npx", args: ["-y", "some-mcp"] }), false);
   assert.equal(isSetupShapedEntry({ type: "http", url: "https://example.test/mcp" }), false);
@@ -884,7 +894,7 @@ test("isBridgeCommandLine: 入口の絶対パスを含むときだけ橋渡し�
   const line = `"C:\\Program Files\\nodejs\\node.exe" --experimental-strip-types C:\\Repo\\src\\bridge\\cli.ts --no-mcp --port 8788`;
   assert.equal(isBridgeCommandLine(line, "C:\\repo\\src\\bridge\\cli.ts"), true);
   assert.equal(isBridgeCommandLine(`node C:\\other-tool\\cli.ts --port 8788`, "C:\\repo\\src\\bridge\\cli.ts"), false);
-  assert.equal(isBridgeCommandLine(`node C:\\mxstudio-notes\\run.mjs`, "C:\\repo\\src\\bridge\\cli.ts"), false);
+  assert.equal(isBridgeCommandLine(`node C:\\mxstage-notes\\run.mjs`, "C:\\repo\\src\\bridge\\cli.ts"), false);
   assert.equal(isBridgeCommandLine("", "C:\\repo\\src\\bridge\\cli.ts"), false);
   assert.equal(isBridgeCommandLine(line, null), false);
   // 画面用（--no-mcp 付き）か、Claude が MCP サーバとして起動したものか
@@ -934,24 +944,24 @@ test("chooseClaudeCli: 試験中は本物の claude を探さず、一時フォ�
 
 test("bridgeTestEnv: 試験中に起動する橋渡しの鍵ファイルを、記録の置き場所（一時フォルダ）に向ける", () => {
   const paths = { stateDir: path.join(os.tmpdir(), "mxs-key", "state") };
-  assert.deepEqual(bridgeTestEnv(paths, { MXSTUDIO_SETUP_TEST: "1" }), { MXSTUDIO_BRIDGE_KEY_FILE: path.join(paths.stateDir, "bridge.key") });
+  assert.deepEqual(bridgeTestEnv(paths, { MXSTAGE_SETUP_TEST: "1" }), { MXSTAGE_BRIDGE_KEY_FILE: path.join(paths.stateDir, "bridge.key") });
   // ふだんは何も足さない（本物の橋渡しと同じ既定の場所を使う）
   assert.deepEqual(bridgeTestEnv(paths, {}), {});
   // 既に差し替えてあれば、それを使う
-  assert.deepEqual(bridgeTestEnv(paths, { MXSTUDIO_SETUP_TEST: "1", MXSTUDIO_BRIDGE_KEY_FILE: path.join(os.tmpdir(), "k") }), {});
+  assert.deepEqual(bridgeTestEnv(paths, { MXSTAGE_SETUP_TEST: "1", MXSTAGE_BRIDGE_KEY_FILE: path.join(os.tmpdir(), "k") }), {});
 });
 
-test("keyFileEnvStep: ふだんの導入で MXSTUDIO_BRIDGE_KEY_FILE が設定されていたら、鍵が食い違うと警告する（値は出さない）", () => {
+test("keyFileEnvStep: ふだんの導入で MXSTAGE_BRIDGE_KEY_FILE が設定されていたら、鍵が食い違うと警告する（値は出さない）", () => {
   const secretPath = path.join(os.tmpdir(), "mxs-key-SECRETPATH", "bridge.key");
-  const warn = keyFileEnvStep({ MXSTUDIO_BRIDGE_KEY_FILE: secretPath });
+  const warn = keyFileEnvStep({ MXSTAGE_BRIDGE_KEY_FILE: secretPath });
   assert.equal(warn.level, "warn");
   assert.equal(warn.id, "bridge_key_env");
   assert.match(warn.hint, /認証に失敗/);
   assert.equal(JSON.stringify(warn).includes("SECRETPATH"), false);
   assert.equal(keyFileEnvStep({}), null);
-  assert.equal(keyFileEnvStep({ MXSTUDIO_BRIDGE_KEY_FILE: " " }), null);
+  assert.equal(keyFileEnvStep({ MXSTAGE_BRIDGE_KEY_FILE: " " }), null);
   // 試験中は、囲いが一時フォルダの鍵に向けるので警告しない
-  assert.equal(keyFileEnvStep({ MXSTUDIO_SETUP_TEST: "1", MXSTUDIO_BRIDGE_KEY_FILE: secretPath }), null);
+  assert.equal(keyFileEnvStep({ MXSTAGE_SETUP_TEST: "1", MXSTAGE_BRIDGE_KEY_FILE: secretPath }), null);
 });
 
 test("testSandboxProblem: 書き先が一時フォルダの外・--port / --bridge / --no-open が無いときは止める", () => {
@@ -993,7 +1003,7 @@ test("testSandboxProblem: TEMP がホームフォルダに向いていても、�
     "--bridge",
     "b.mjs",
     "--state-dir",
-    path.join(home, ".config", "mxstudio"),
+    path.join(home, ".config", "mxstage"),
     "--claude-code-config",
     path.join(home, ".claude.json"),
     "--claude-desktop-config",
@@ -1016,9 +1026,11 @@ test("testSandboxProblem: TEMP がホームフォルダに向いていても、�
   // ホームの中でも、本物の書き先でない場所は通す
   const ok = parseArgs([...sandboxArgs(path.join(home, "work")), "--port", "19001", "--bridge", "b.mjs"]);
   assert.equal(testSandboxProblem(ok, home, real), null);
-  // 以前の版の置き場所（%LOCALAPPDATA%\mxstudio）も、残っている PC があるので拒む
-  const legacy = parseArgs([...sandboxArgs(path.join(home, "work")), "--port", "19001", "--bridge", "b.mjs", "--state-dir", path.join(home, "AppData", "Local", "mxstudio")]);
-  assert.match(testSandboxProblem(legacy, home, real), /--state-dir が本物の書き先です/);
+  // 改名前の置き場所（~/.config/mxstudio）と、それより前の版の置き場所（%LOCALAPPDATA%\mxstudio）も、残っている PC があるので拒む
+  for (const old of [path.join(home, ".config", "mxstudio"), path.join(home, "AppData", "Local", "mxstudio")]) {
+    const legacy = parseArgs([...sandboxArgs(path.join(home, "work")), "--port", "19001", "--bridge", "b.mjs", "--state-dir", old]);
+    assert.match(testSandboxProblem(legacy, home, real) ?? "", /--state-dir が本物の書き先です/, old);
+  }
   // CLAUDE_CONFIG_DIR が一時フォルダの外なら、その .claude.json も本物として拒む。中なら試験の差し替えなので含めない
   assert.ok(realWriteLocations({ CLAUDE_CONFIG_DIR: "D:\\cfg" }, "C:\\h", "C:\\t").some((p) => p === path.join("D:\\cfg", ".claude.json")));
   assert.equal(realWriteLocations({ CLAUDE_CONFIG_DIR: path.join(home, "cfg") }, "C:\\h", home).some((p) => p.includes("cfg")), false);
@@ -1035,7 +1047,7 @@ test("main: 試験中に書き先を差し替え忘れたら、何もせずに�
     const withoutDesktop = sandboxArgs(dir).filter((a, i, all) => a !== "--claude-desktop-config" && all[i - 1] !== "--claude-desktop-config");
     const run = await runMain([...withoutDesktop, ...base]);
     assert.equal(run.code, 2);
-    assert.match(run.stderr, /MXSTUDIO_SETUP_TEST/);
+    assert.match(run.stderr, /MXSTAGE_SETUP_TEST/);
     assert.match(run.stderr, /--claude-desktop-config がありません/);
     assert.equal(run.stdout, "", "手順を 1 つも実行していない");
     assert.deepEqual(readdirSync(dir), [], "一時フォルダにも何も作っていない");
@@ -1073,10 +1085,10 @@ test("entryFromBackup: 控えから、その名前の設定だけを読み直す
   const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-bak-"));
   try {
     const backup = path.join(dir, ".claude.json.bak");
-    writeFileSync(backup, JSON.stringify({ mcpServers: { mxstudio: { type: "http", url: "https://example.test/mcp" } } }), "utf8");
-    assert.deepEqual(entryFromBackup(backup, "mxstudio"), { type: "http", url: "https://example.test/mcp" });
+    writeFileSync(backup, JSON.stringify({ mcpServers: { mxstage: { type: "http", url: "https://example.test/mcp" } } }), "utf8");
+    assert.deepEqual(entryFromBackup(backup, "mxstage"), { type: "http", url: "https://example.test/mcp" });
     assert.equal(entryFromBackup(backup, "ない"), null);
-    assert.equal(entryFromBackup(path.join(dir, "ない.bak"), "mxstudio"), null);
+    assert.equal(entryFromBackup(path.join(dir, "ない.bak"), "mxstage"), null);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1116,16 +1128,16 @@ test("buildInternetShortcut と引用", () => {
 // 偽の橋渡し・偽の claude コマンド
 // ---------------------------------------------------------------------------
 
-/** 偽の橋渡し（取り決めどおり）。/_mxstudio/health と /ws だけに応える */
+/** 偽の橋渡し（取り決めどおり）。/_mxstage/health と /ws だけに応える */
 const FAKE_BRIDGE = `import { createServer } from "node:http";
 const args = process.argv.slice(2);
 const port = Number(args[args.indexOf("--port") + 1]);
 createServer((req, res) => {
-  if (req.url === "/_mxstudio/health") {
+  if (req.url === "/_mxstage/health") {
     res.writeHead(200, { "content-type": "application/json" });
     // keyFile: 起動したときに受け取った鍵ファイルの場所（本物の橋渡しはここに鍵を作る。試験で本物の場所に向いていないかを見る）
     // protocol: 本物（src/bridge/peer.ts）と同じく取り決めの版を返す。FAKE_PROTOCOL を書き換えて版違いを作れる
-    res.end(JSON.stringify({ ok: true, name: "mxstudio-bridge", protocol: Number(process.env.FAKE_PROTOCOL ?? "1"), pid: process.pid, keyFile: process.env.MXSTUDIO_BRIDGE_KEY_FILE ?? null }));
+    res.end(JSON.stringify({ ok: true, name: "mxstage-bridge", protocol: Number(process.env.FAKE_PROTOCOL ?? "1"), pid: process.pid, keyFile: process.env.MXSTAGE_BRIDGE_KEY_FILE ?? null }));
     return;
   }
   // 本物（src/bridge/server.ts）と同じ: /ws は 426 と upgrade_required を返す
@@ -1139,8 +1151,8 @@ createServer((req, res) => {
 }).listen(port, "127.0.0.1");
 `;
 
-/** 古い版の偽の橋渡し（/_mxstudio/health が無い） */
-const LEGACY_BRIDGE = FAKE_BRIDGE.replace('req.url === "/_mxstudio/health"', 'req.url === "/_no_health_in_legacy"');
+/** 古い版の偽の橋渡し（/_mxstage/health が無い） */
+const LEGACY_BRIDGE = FAKE_BRIDGE.replace('req.url === "/_mxstage/health"', 'req.url === "/_no_health_in_legacy"');
 
 /**
  * 偽の client 役の橋渡し。ポートが塞がっている間は待ち、空いたら引き継いで応える
@@ -1150,8 +1162,8 @@ const TAKEOVER_BRIDGE = `import { createServer } from "node:http";
 const args = process.argv.slice(2);
 const port = Number(args[args.indexOf("--port") + 1]);
 const handler = (req, res) => {
-  res.writeHead(req.url === "/_mxstudio/health" ? 200 : 404, { "content-type": "application/json" });
-  res.end(JSON.stringify(req.url === "/_mxstudio/health" ? { name: "mxstudio-bridge", pid: process.pid } : { ok: false }));
+  res.writeHead(req.url === "/_mxstage/health" ? 200 : 404, { "content-type": "application/json" });
+  res.end(JSON.stringify(req.url === "/_mxstage/health" ? { name: "mxstage-bridge", pid: process.pid } : { ok: false }));
 };
 function tryListen() {
   const server = createServer(handler);
@@ -1282,7 +1294,7 @@ function sandboxArgs(dir, extra = []) {
 
 /**
  * 試験の途中で失敗したときに、導入が裏で起動した偽の橋渡し（detached で残る）を止める。
- * 偽の橋渡しは /_mxstudio/health に自分の pid を載せるので、それを止める（本物の橋渡しは pid を返さないので触れない）。
+ * 偽の橋渡しは /_mxstage/health に自分の pid を載せるので、それを止める（本物の橋渡しは pid を返さないので触れない）。
  */
 async function stopFakeBridgeOn(port) {
   try {
@@ -1303,19 +1315,19 @@ async function waitFor(check, timeoutMs = 15_000) {
 }
 
 // ---------------------------------------------------------------------------
-// 橋渡しが 1 つ動いているかを /_mxstudio/health で確かめる
+// 橋渡しが 1 つ動いているかを /_mxstage/health で確かめる
 // ---------------------------------------------------------------------------
 
-test("isBridgeHealth / singleBridgeStep: /_mxstudio/health の応答で「橋渡しが 1 つ動いている」と出す", () => {
-  assert.equal(isBridgeHealth({ name: "mxstudio-bridge" }), true);
+test("isBridgeHealth / singleBridgeStep: /_mxstage/health の応答で「橋渡しが 1 つ動いている」と出す", () => {
+  assert.equal(isBridgeHealth({ name: "mxstage-bridge" }), true);
   assert.equal(isBridgeHealth({ name: "other" }), false);
   assert.equal(isBridgeHealth(null), false);
   assert.equal(isBridgeHealth([]), false);
 
-  const ok = singleBridgeStep(8788, { state: "bridge", health: { name: "mxstudio-bridge", pid: 1234 }, legacy: false });
+  const ok = singleBridgeStep(8788, { state: "bridge", health: { name: "mxstage-bridge", pid: 1234 }, legacy: false });
   assert.equal(ok.level, "ok");
   assert.match(ok.message, /1 つ動いています/);
-  assert.match(ok.message, /\/_mxstudio\/health/);
+  assert.match(ok.message, /\/_mxstage\/health/);
   assert.match(ok.message, /プロセス 1234/);
   assert.match(ok.hint, /中継/);
 
@@ -1329,9 +1341,9 @@ test("isBridgeHealth / singleBridgeStep: /_mxstudio/health の応答で「橋渡
 });
 
 test("decidePort: 橋渡しが居れば使い、空いていれば使い、ほかのものが使っていれば busy（ずらさない）", async () => {
-  const bridge = async () => ({ state: "bridge", health: { name: "mxstudio-bridge" }, legacy: false });
+  const bridge = async () => ({ state: "bridge", health: { name: "mxstage-bridge" }, legacy: false });
   const down = async () => ({ state: "down", health: null, legacy: false });
-  assert.deepEqual(await decidePort(19001, bridge, async () => false), { port: 19001, reused: true, busy: false, health: { name: "mxstudio-bridge" }, legacy: false });
+  assert.deepEqual(await decidePort(19001, bridge, async () => false), { port: 19001, reused: true, busy: false, health: { name: "mxstage-bridge" }, legacy: false });
   assert.deepEqual(await decidePort(19001, down, async () => true), { port: 19001, reused: false, busy: false, health: null, legacy: false });
   const busy = await decidePort(19001, async () => ({ state: "other", health: null, legacy: false }), async () => false);
   assert.equal(busy.busy, true);
@@ -1355,7 +1367,7 @@ test("expectedPeerProtocol / singleBridgeStep: 動いている橋渡しと取り
   );
   assert.equal(expectedPeerProtocol(null), null);
 
-  const health = (protocol) => ({ state: "bridge", health: { name: "mxstudio-bridge", version: "0.1.0", protocol }, legacy: false });
+  const health = (protocol) => ({ state: "bridge", health: { name: "mxstage-bridge", version: "0.1.0", protocol }, legacy: false });
   assert.equal(singleBridgeStep(8788, health(1), true, 1).level, "ok");
   const mismatch = singleBridgeStep(8788, health(1), true, 2);
   assert.equal(mismatch.level, "warn");
@@ -1389,7 +1401,7 @@ test("probeBridge: 今の橋渡し・古い版・ほかのもの・何も無い�
 
     const a = await probeBridge(pCurrent);
     assert.equal(a.legacy, false);
-    assert.equal(a.health.name, "mxstudio-bridge");
+    assert.equal(a.health.name, "mxstage-bridge");
     assert.equal(a.health.pid, children[0].pid);
     const b = await probeBridge(pLegacy);
     assert.equal(b.legacy, true);
@@ -1415,9 +1427,9 @@ test("導入 → もう一度導入 → 取り消し（設定は壊れず、前�
     writeFileSync(bridge, FAKE_BRIDGE, "utf8");
     const codeConfig = path.join(dir, "claude-code.json");
     const desktopConfig = path.join(dir, "claude_desktop_config.json");
-    const oldEntry = { type: "http", url: "https://mxstudio.example.workers.dev/mcp", headers: { Authorization: "Bearer OLD-PAT" } };
+    const oldEntry = { type: "http", url: "https://mxstage.example.workers.dev/mcp", headers: { Authorization: "Bearer OLD-PAT" } };
     const otherEntry = { type: "http", url: "https://example.test/mcp", headers: { Authorization: "Bearer KEEP-ME" } };
-    writeFileSync(codeConfig, JSON.stringify({ numStartups: 3, mcpServers: { other: otherEntry, mxstudio: oldEntry } }, null, 2), "utf8");
+    writeFileSync(codeConfig, JSON.stringify({ numStartups: 3, mcpServers: { other: otherEntry, mxstage: oldEntry } }, null, 2), "utf8");
     writeFileSync(desktopConfig, JSON.stringify({ preferences: { sidebarMode: "epitaxy" } }, null, 2), "utf8");
 
     // 利用者の Skill（状態フォルダの skills の下）。既定と同じ名前のものは入れない
@@ -1428,8 +1440,8 @@ test("導入 → もう一度導入 → 取り消し（設定は壊れず、前�
       writeFileSync(path.join(userSkillsDir, "my-flow", "SKILL.md"), userSkillText, "utf8");
     };
     putUserSkill();
-    mkdirSync(path.join(userSkillsDir, "mxstudio-workbench"), { recursive: true });
-    writeFileSync(path.join(userSkillsDir, "mxstudio-workbench", "SKILL.md"), userSkillText.replace("my-flow", "mxstudio-workbench"), "utf8");
+    mkdirSync(path.join(userSkillsDir, "mxstage-workbench"), { recursive: true });
+    writeFileSync(path.join(userSkillsDir, "mxstage-workbench", "SKILL.md"), userSkillText.replace("my-flow", "mxstage-workbench"), "utf8");
 
     port = await freePort();
     const common = [...sandboxArgs(dir), "--no-autostart", "--no-shortcut", "--port", String(port), "--bridge", bridge];
@@ -1441,12 +1453,12 @@ test("導入 → もう一度導入 → 取り消し（設定は壊れず、前�
     const afterInstall = JSON.parse(readFileSync(codeConfig, "utf8"));
     assert.deepEqual(afterInstall.mcpServers.other, otherEntry, "ほかの MCP サーバを消していない");
     assert.equal(afterInstall.numStartups, 3, "MCP 以外の設定を消していない");
-    assert.equal(afterInstall.mcpServers.mxstudio.command, process.execPath);
-    assert.deepEqual(afterInstall.mcpServers.mxstudio.args, [bridge, "--port", String(port)]);
+    assert.equal(afterInstall.mcpServers.mxstage.command, process.execPath);
+    assert.deepEqual(afterInstall.mcpServers.mxstage.args, [bridge, "--port", String(port)]);
 
     const afterDesktop = JSON.parse(readFileSync(desktopConfig, "utf8"));
     assert.deepEqual(afterDesktop.preferences, { sidebarMode: "epitaxy" });
-    assert.deepEqual(afterDesktop.mcpServers.mxstudio.args, [bridge, "--port", String(port)]);
+    assert.deepEqual(afterDesktop.mcpServers.mxstage.args, [bridge, "--port", String(port)]);
 
     const state = JSON.parse(readFileSync(path.join(dir, "state", "setup.json"), "utf8"));
     assert.equal(state.port, port);
@@ -1456,7 +1468,7 @@ test("導入 → もう一度導入 → 取り消し（設定は壊れず、前�
     assert.ok(existsSync(state.previous.claudeCode.backup), "書き換える前の控えがある");
     assert.equal(first.stdout.includes("OLD-PAT"), false, "画面にもトークンを出さない");
 
-    // 橋渡しが 1 つ動いていることを /_mxstudio/health で確かめて出す。「2 つ動く」警告はもう出さない
+    // 橋渡しが 1 つ動いていることを /_mxstage/health で確かめて出す。「2 つ動く」警告はもう出さない
     const single = stepOf(first.json, "bridge_single");
     assert.equal(single.length, 1);
     assert.equal(single[0].level, "ok");
@@ -1520,10 +1532,10 @@ test("導入 → もう一度導入 → 取り消し（設定は壊れず、前�
     assert.equal(existsSync(path.join(skillsDir, "my-flow")), false, "入れたままの利用者の Skill は消す");
     assert.equal(existsSync(path.join(userSkillsDir, "my-flow", "SKILL.md")), true, "利用者の Skill の元は消さない");
     const afterUninstall = JSON.parse(readFileSync(codeConfig, "utf8"));
-    assert.deepEqual(afterUninstall.mcpServers.mxstudio, oldEntry, "置き換える前の設定に戻る（トークンごと）");
+    assert.deepEqual(afterUninstall.mcpServers.mxstage, oldEntry, "置き換える前の設定に戻る（トークンごと）");
     assert.deepEqual(afterUninstall.mcpServers.other, otherEntry);
     const desktopAfterUninstall = JSON.parse(readFileSync(desktopConfig, "utf8"));
-    assert.equal("mxstudio" in (desktopAfterUninstall.mcpServers ?? {}), false, "Claude Desktop からは外れる");
+    assert.equal("mxstage" in (desktopAfterUninstall.mcpServers ?? {}), false, "Claude Desktop からは外れる");
     assert.deepEqual(desktopAfterUninstall.preferences, { sidebarMode: "epitaxy" });
     assert.equal(existsSync(path.join(dir, "state", "setup.json")), false, "記録は消える");
 
@@ -1550,8 +1562,8 @@ test("壊れた既存登録（指すファイルが無い）は戻す先とし�
     const missingExe = path.join(dir, "no-such-node", "node.exe");
     const brokenDesktop = { command: missingExe, args: [] };
     const other = { type: "http", url: "https://example.test/mcp" };
-    writeFileSync(codeConfig, JSON.stringify({ mcpServers: { other, mxstudio: brokenCode } }), "utf8");
-    writeFileSync(desktopConfig, JSON.stringify({ mcpServers: { mxstudio: brokenDesktop } }), "utf8");
+    writeFileSync(codeConfig, JSON.stringify({ mcpServers: { other, mxstage: brokenCode } }), "utf8");
+    writeFileSync(desktopConfig, JSON.stringify({ mcpServers: { mxstage: brokenDesktop } }), "utf8");
     const port = await freePort();
     const args = [...sandboxArgs(dir), "--no-start", "--no-autostart", "--no-shortcut", "--port", String(port), "--bridge", bridge];
 
@@ -1573,10 +1585,10 @@ test("壊れた既存登録（指すファイルが無い）は戻す先とし�
 
     assert.equal(await quietMain([...args, "--uninstall"]), 0);
     const code = JSON.parse(readFileSync(codeConfig, "utf8"));
-    assert.equal("mxstudio" in code.mcpServers, false, "壊れた登録には戻さず、外すだけ");
+    assert.equal("mxstage" in code.mcpServers, false, "壊れた登録には戻さず、外すだけ");
     assert.deepEqual(code.mcpServers.other, other);
     const desktop = JSON.parse(readFileSync(desktopConfig, "utf8"));
-    assert.equal("mxstudio" in desktop.mcpServers, false);
+    assert.equal("mxstage" in desktop.mcpServers, false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1590,13 +1602,13 @@ test("古い版の導入が壊れた登録を記録していても、取り消�
     const port = await freePort();
     const codeConfig = path.join(dir, "claude-code.json");
     const ours = buildCodeEntry(process.execPath, bridge, port);
-    writeFileSync(codeConfig, JSON.stringify({ mcpServers: { mxstudio: ours } }), "utf8");
+    writeFileSync(codeConfig, JSON.stringify({ mcpServers: { mxstage: ours } }), "utf8");
     // 古い版の導入が残した記録と控え（控えの中身は、今は無いファイルを指す登録）
     const backupDir = path.join(dir, "state", "backup");
     mkdirSync(backupDir, { recursive: true });
     const backup = path.join(backupDir, "claude-code.json.old.bak");
     const gone = path.join(dir, "gone", "server.mjs");
-    writeFileSync(backup, JSON.stringify({ mcpServers: { mxstudio: { command: process.execPath, args: [gone] } } }), "utf8");
+    writeFileSync(backup, JSON.stringify({ mcpServers: { mxstage: { command: process.execPath, args: [gone] } } }), "utf8");
     writeFileSync(
       path.join(dir, "state", "setup.json"),
       JSON.stringify({ version: 1, bridgeEntry: bridge, nodePath: process.execPath, port, previous: { claudeCode: { backup, entry: { command: process.execPath } } } }),
@@ -1606,7 +1618,7 @@ test("古い版の導入が壊れた登録を記録していても、取り消�
     const run = await runJson([...sandboxArgs(dir), "--uninstall", "--port", String(port), "--bridge", bridge]);
     assert.equal(run.code, 0, run.stdout);
     const code = JSON.parse(readFileSync(codeConfig, "utf8"));
-    assert.equal("mxstudio" in code.mcpServers, false, "壊れた登録に戻していない");
+    assert.equal("mxstage" in code.mcpServers, false, "壊れた登録に戻していない");
     assert.ok(stepOf(run.json, "claude_code").some((s) => s.level === "warn" && /戻しません/.test(s.message)));
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -1643,7 +1655,7 @@ test("ポートを橋渡しではないものが使っていると、ずらさ�
   }
 });
 
-test("古い版の橋渡し（/_mxstudio/health が無い）が動いていると、そう知らせる", { timeout: 60_000 }, async () => {
+test("古い版の橋渡し（/_mxstage/health が無い）が動いていると、そう知らせる", { timeout: 60_000 }, async () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-legacy-"));
   let child = null;
   try {
@@ -1670,7 +1682,7 @@ test("claude コマンドは差し替えられる（一時フォルダの偽物�
     writeFileSync(bridge, FAKE_BRIDGE, "utf8");
     const codeConfig = path.join(dir, ".claude.json");
     const cloud = { type: "http", url: "https://example.test/mcp", headers: { Authorization: "Bearer CLOUD-PAT" } };
-    writeFileSync(codeConfig, JSON.stringify({ mcpServers: { mxstudio: cloud } }, null, 2), "utf8");
+    writeFileSync(codeConfig, JSON.stringify({ mcpServers: { mxstage: cloud } }, null, 2), "utf8");
     const fake = makeFakeClaude(path.join(dir, "bin"), codeConfig);
     const port = await freePort();
 
@@ -1690,11 +1702,11 @@ test("claude コマンドは差し替えられる（一時フォルダの偽物�
     ]);
     assert.equal(run.code, 0, run.stdout);
     assert.deepEqual(fake.calls(), [
-      ["mcp", "remove", "--scope", "user", "mxstudio"],
-      ["mcp", "add", "--scope", "user", "mxstudio", "--", process.execPath, bridge, "--port", String(port)],
+      ["mcp", "remove", "--scope", "user", "mxstage"],
+      ["mcp", "add", "--scope", "user", "mxstage", "--", process.execPath, bridge, "--port", String(port)],
     ]);
     const after = JSON.parse(readFileSync(codeConfig, "utf8"));
-    assert.equal(isSameEntry(after.mcpServers.mxstudio, buildCodeEntry(process.execPath, bridge, port)), true);
+    assert.equal(isSameEntry(after.mcpServers.mxstage, buildCodeEntry(process.execPath, bridge, port)), true);
     assert.match(stepOf(run.json, "claude_code")[0].message, /claude コマンド/);
     const state = JSON.parse(readFileSync(path.join(dir, "state", "setup.json"), "utf8"));
     assert.ok(state.previous.claudeCode.backup, "置き換える前の利用者の設定は戻す先として記録する");
@@ -1738,7 +1750,7 @@ test(
         APPDATA: path.join(home, "AppData", "Roaming"),
         LOCALAPPDATA: path.join(home, "AppData", "Local"),
         CLAUDE_CONFIG_DIR: configDir,
-        MXSTUDIO_SETUP_TEST: "1",
+        MXSTAGE_SETUP_TEST: "1",
       };
       if (IS_WINDOWS) {
         // 対照: この PATH なら claude として偽物が見つかる（場所を調べるだけで、claude は呼ばない）
@@ -1773,7 +1785,7 @@ test(
       assert.equal(json.paths.claudeCodeConfigDefault.toLowerCase(), codeConfig.toLowerCase(), "書き先は、この環境での既定の場所だった");
       assert.doesNotMatch(stepOf(json, "claude_code")[0].message, /claude コマンド/, "自分で書いた");
       const after = JSON.parse(readFileSync(codeConfig, "utf8"));
-      assert.equal(isSameEntry(after.mcpServers.mxstudio, buildCodeEntry(process.execPath, bridge, port)), true);
+      assert.equal(isSameEntry(after.mcpServers.mxstage, buildCodeEntry(process.execPath, bridge, port)), true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -1800,7 +1812,7 @@ test("記録を無くしてから入れ直しても、取り消しで古い自�
 
     assert.equal(await quietMain(sandboxArgs(dir, [...base, "--uninstall", "--port", String(portB)])), 0);
     const after = JSON.parse(readFileSync(codeConfig, "utf8"));
-    assert.equal("mxstudio" in after.mcpServers, false, "外れる（ポート A の設定に戻っていない）");
+    assert.equal("mxstage" in after.mcpServers, false, "外れる（ポート A の設定に戻っていない）");
     assert.deepEqual(after.mcpServers.other, { type: "http", url: "https://example.test/mcp" });
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -1917,6 +1929,343 @@ test(
   },
 );
 
+// ---------------------------------------------------------------------------
+// 改名前（mxstudio）からの移行
+// ---------------------------------------------------------------------------
+
+/** 改名前の偽の橋渡し。/_mxstudio/health に mxstudio-bridge と応え、ポートが塞がっていれば空くまで待って引き継ぐ */
+const RENAMED_BRIDGE = `import { createServer } from "node:http";
+const args = process.argv.slice(2);
+const port = Number(args[args.indexOf("--port") + 1]);
+const handler = (req, res) => {
+  if (req.url === "/_mxstudio/health") {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ ok: true, name: "mxstudio-bridge", protocol: 1, pid: process.pid }));
+    return;
+  }
+  if (req.url === "/ws") {
+    res.writeHead(426, { "content-type": "application/json" });
+    res.end(JSON.stringify({ ok: false, error: "upgrade_required" }));
+    return;
+  }
+  // 改名前の橋渡しは、知らない経路に画面の HTML を返す
+  res.writeHead(200, { "content-type": "text/html" });
+  res.end("<!doctype html><title>mxstudio</title>");
+};
+function tryListen() {
+  const server = createServer(handler);
+  server.once("error", () => setTimeout(tryListen, 200));
+  server.listen(port, "127.0.0.1");
+}
+tryListen();
+`;
+
+const sha256 = (text) => createHash("sha256").update(text, "utf8").digest("hex");
+
+test("parseArgs / legacyStateDirOf: --legacy-state-dir を受け、無ければ ~/.config/mxstudio", () => {
+  assert.equal(parseArgs([]).legacyStateDir, null);
+  assert.equal(parseArgs(["--legacy-state-dir", "x"]).legacyStateDir, "x");
+  assert.equal(legacyStateDirOf(parseArgs([]), path.join("C:", "home")), path.join("C:", "home", ".config", "mxstudio"));
+  assert.equal(legacyStateDirOf(parseArgs(["--legacy-state-dir", path.join(os.tmpdir(), "old")])), path.join(os.tmpdir(), "old"));
+});
+
+test("testSandboxProblem: --legacy-state-dir も一時フォルダの中で、本物の置き場所（~/.config/mxstudio）は拒む", () => {
+  const tmp = path.join(os.tmpdir(), "mxs-guard");
+  const base = { ...parseArgs([]), stateDir: path.join(tmp, "s"), claudeCodeConfig: path.join(tmp, "a.json"), claudeDesktopConfig: path.join(tmp, "b.json"), startupDir: path.join(tmp, "st"), desktopDir: path.join(tmp, "d"), skills: false, antigravity: false, codex: false, port: 1234, bridge: "x", open: false, install: false, build: false };
+  assert.equal(testSandboxProblem(base, os.tmpdir(), []), null);
+  assert.match(testSandboxProblem({ ...base, legacyStateDir: path.join(os.homedir(), "elsewhere") }, os.tmpdir(), []) ?? "", /--legacy-state-dir が一時フォルダ/);
+  const real = path.join(tmp, ".config", "mxstudio");
+  assert.match(testSandboxProblem({ ...base, legacyStateDir: real }, os.tmpdir(), [real]) ?? "", /--legacy-state-dir が本物の書き先/);
+  assert.ok(realWriteLocations({}, path.join("C:", "home"), os.tmpdir()).includes(path.join("C:", "home", ".config", "mxstudio")));
+});
+
+test("findLegacyLeftovers / legacyStatusStep: 改名前の登録・既定の Skill の写し・ショートカット・記録を見つける（何も書き換えない）", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-leftovers-"));
+  try {
+    const paths = {
+      claudeCodeConfig: path.join(dir, "claude-code.json"),
+      claudeDesktopConfig: path.join(dir, "desktop.json"),
+      ...antigravityPaths(path.join(dir, "gemini")),
+      ...codexPaths(path.join(dir, "codex")),
+      claudeSkillsDir: path.join(dir, "claude-skills"),
+      codexSkillsDir: path.join(dir, "agents-skills"),
+      startupDir: path.join(dir, "startup"),
+      desktopDir: path.join(dir, "desktop"),
+    };
+    const legacyDir = path.join(dir, "legacy");
+    assert.deepEqual(findLegacyLeftovers(paths, legacyDir), []);
+    assert.equal(legacyStatusStep([], false, 8788), null);
+
+    writeFileSync(paths.claudeCodeConfig, JSON.stringify({ mcpServers: { mxstudio: { command: "node" }, mxstage: { command: "node" } } }), "utf8");
+    writeFileSync(paths.claudeDesktopConfig, "{ 壊れた JSON", "utf8");
+    mkdirSync(paths.codexDir, { recursive: true });
+    writeFileSync(paths.codexConfig, '[mcp_servers.mxstudio]\ncommand = "node"\n', "utf8");
+    mkdirSync(path.join(paths.claudeSkillsDir, "mxstudio-workbench"), { recursive: true });
+    writeFileSync(path.join(paths.claudeSkillsDir, "mxstudio-workbench", "SKILL.md"), "x", "utf8");
+    mkdirSync(paths.startupDir, { recursive: true });
+    writeFileSync(path.join(paths.startupDir, "mxstudio-bridge.lnk"), "x", "utf8");
+    mkdirSync(legacyDir, { recursive: true });
+    writeFileSync(path.join(legacyDir, "setup.json"), "{}", "utf8");
+    const before = readFileSync(paths.claudeCodeConfig, "utf8");
+
+    const found = findLegacyLeftovers(paths, legacyDir);
+    assert.deepEqual(
+      found.map((l) => [l.kind, l.id ?? path.basename(l.path)]),
+      [
+        ["state", "setup.json"],
+        ["mcp", "claude_code"],
+        ["mcp", "codex"],
+        ["skill", "SKILL.md"],
+        ["shortcut", "mxstudio-bridge.lnk"],
+      ],
+      "読めない設定（Claude Desktop）は見ない",
+    );
+    assert.equal(readFileSync(paths.claudeCodeConfig, "utf8"), before, "何も書き換えない");
+    const status = legacyStatusStep(found, true, 8788);
+    assert.equal(status.level, "warn");
+    assert.match(status.message, /ポート 8788 で動いている改名前の橋渡し/);
+    assert.match(status.message, /Claude Code の登録/);
+    assert.match(status.hint, /mxstage\.cmd/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("改名前（mxstudio）の導入が残したものを片付けて移す（登録・Skill の写し・ショートカット・利用者の Skill・語の一覧）。2 回目は何も変えず、取り消しでも外す", { timeout: 180_000 }, async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-migrate-"));
+  let port = null;
+  try {
+    const bridge = path.join(dir, "fake-bridge.mjs");
+    writeFileSync(bridge, FAKE_BRIDGE, "utf8");
+    port = await freePort();
+    const oldEntry = path.join(dir, "old-repo", "src", "bridge", "cli.ts");
+    const legacyCode = { type: "stdio", command: process.execPath, args: [oldEntry, "--port", String(port)], env: {} };
+    const legacyDesktop = { command: process.execPath, args: [oldEntry, "--port", String(port)] };
+    const otherEntry = { type: "http", url: "https://example.test/mcp" };
+    const someoneElse = { command: "npx", args: ["-y", "someone-elses-mxstudio"] };
+    const codeConfig = path.join(dir, "claude-code.json");
+    const desktopConfig = path.join(dir, "claude_desktop_config.json");
+    const antigravityConfig = path.join(dir, "gemini", "config", "mcp_config.json");
+    const codexConfig = path.join(dir, "codex", "config.toml");
+    writeFileSync(codeConfig, JSON.stringify({ mcpServers: { other: otherEntry, mxstudio: legacyCode } }, null, 2), "utf8");
+    writeFileSync(desktopConfig, JSON.stringify({ mcpServers: { mxstudio: legacyDesktop } }, null, 2), "utf8");
+    mkdirSync(path.dirname(antigravityConfig), { recursive: true });
+    // 利用者が自分で書いた同じ名前の登録（改名前の導入のものではない）は残す
+    writeFileSync(antigravityConfig, JSON.stringify({ mcpServers: { mxstudio: someoneElse } }, null, 2), "utf8");
+    mkdirSync(path.dirname(codexConfig), { recursive: true });
+    writeFileSync(
+      codexConfig,
+      ["[mcp_servers.other]", 'command = "other"', "", "[mcp_servers.mxstudio]", `command = ${JSON.stringify(process.execPath)}`, `args = [${JSON.stringify(oldEntry)}, "--port", "${port}"]`, ""].join("\n"),
+      "utf8",
+    );
+
+    // 改名前の導入が写した Skill（Antigravity は前の置き場所 ~/.gemini/skills に写していた）
+    const defaultText = "---\nname: mxstudio-workbench\ndescription: old\n---\n\n# old\n";
+    const userText = '---\nname: my-flow\ndescription: "業務の手順"\n---\n\n# 業務の手順\n';
+    const claudeSkills = path.join(dir, "claude-skills");
+    const oldGeminiSkills = path.join(dir, "gemini", "skills");
+    const agentsSkills = path.join(dir, "agents-skills");
+    const put = (root, name, text) => {
+      mkdirSync(path.join(root, name), { recursive: true });
+      writeFileSync(path.join(root, name, "SKILL.md"), text, "utf8");
+    };
+    put(claudeSkills, "mxstudio-workbench", defaultText);
+    put(claudeSkills, "my-flow", userText);
+    put(oldGeminiSkills, "mxstudio-workbench", defaultText);
+    put(oldGeminiSkills, "my-flow", userText);
+    put(agentsSkills, "mxstudio-workbench", `${defaultText}\n利用者のメモ\n`);
+    const recorded = [
+      { name: "mxstudio-workbench", sha256: sha256(defaultText), origin: "default" },
+      { name: "my-flow", sha256: sha256(userText), origin: "user" },
+    ];
+
+    // 改名前の記録・利用者の Skill・語の一覧
+    const legacyDir = path.join(dir, "legacy");
+    put(path.join(legacyDir, "skills"), "my-flow", userText);
+    writeFileSync(path.join(legacyDir, "publish-terms.txt"), "客先の名前\n", "utf8");
+    writeFileSync(
+      path.join(legacyDir, "setup.json"),
+      JSON.stringify({
+        version: 1,
+        nodePath: process.execPath,
+        bridgeEntry: oldEntry,
+        port,
+        installed: { skills: recorded, antigravitySkills: recorded, codexSkills: [recorded[0]] },
+        skillDirs: { skills: claudeSkills, antigravitySkills: oldGeminiSkills, codexSkills: agentsSkills },
+        previous: { claudeCode: null, claudeDesktop: null, antigravity: null, codex: null },
+      }),
+      "utf8",
+    );
+    // 改名前の自動起動とデスクトップのショートカット
+    mkdirSync(path.join(dir, "startup"), { recursive: true });
+    mkdirSync(path.join(dir, "desktop"), { recursive: true });
+    writeFileSync(path.join(dir, "startup", "mxstudio-bridge.lnk"), "x", "utf8");
+    writeFileSync(path.join(dir, "desktop", "mxstudio.url"), "x", "utf8");
+
+    const common = [...sandboxArgs(dir), "--legacy-state-dir", legacyDir, "--no-autostart", "--no-shortcut", "--port", String(port), "--bridge", bridge];
+
+    // --- 導入（移行）---
+    const first = await runJson(common);
+    assert.equal(first.code, 0, first.stdout);
+    const ids = first.json.steps.map((s) => s.id);
+    assert.ok(ids.indexOf("legacy") < ids.indexOf("port"), "ポートを確かめる前に移す");
+    const level = (id) => stepOf(first.json, id).map((s) => s.level);
+    assert.deepEqual(level("legacy_claude_code"), ["ok"]);
+    assert.deepEqual(level("legacy_claude_desktop"), ["ok"]);
+    assert.deepEqual(level("legacy_antigravity"), ["warn"], "利用者の登録は残して知らせる");
+    assert.deepEqual(level("legacy_codex"), ["ok"]);
+    assert.deepEqual(level("legacy_codex_skills"), ["warn"], "書き換えられた写しは残して知らせる");
+    assert.deepEqual(level("legacy_copy"), ["ok"]);
+    assert.deepEqual(level("legacy_shortcut"), ["ok"]);
+    assert.deepEqual(level("legacy_state"), ["ok"]);
+
+    const code = JSON.parse(readFileSync(codeConfig, "utf8"));
+    assert.equal("mxstudio" in code.mcpServers, false, "Claude Code から改名前の登録を外す");
+    assert.deepEqual(code.mcpServers.other, otherEntry, "ほかの登録は残す");
+    assert.deepEqual(code.mcpServers.mxstage.args, [bridge, "--port", String(port)]);
+    const desktop = JSON.parse(readFileSync(desktopConfig, "utf8"));
+    assert.equal("mxstudio" in desktop.mcpServers, false);
+    assert.ok(desktop.mcpServers.mxstage);
+    const antigravity = JSON.parse(readFileSync(antigravityConfig, "utf8"));
+    assert.deepEqual(antigravity.mcpServers.mxstudio, someoneElse, "利用者の登録は残す");
+    assert.ok(antigravity.mcpServers.mxstage);
+    const codexText = readFileSync(codexConfig, "utf8");
+    assert.equal(findCodexTable(codexText, "mxstudio").start, -1, "Codex からも外す");
+    assert.ok(findCodexTable(codexText).block, "Codex に mxstage を登録する");
+    assert.match(codexText, /\[mcp_servers\.other\]\ncommand = "other"/, "ほかの表は残す");
+
+    // Skill: 改名前の既定は消し、利用者の Skill は新しい導入が写し直す。前の置き場所の写しは片付ける
+    assert.equal(existsSync(path.join(claudeSkills, "mxstudio-workbench")), false);
+    assert.equal(readFileSync(path.join(claudeSkills, "my-flow", "SKILL.md"), "utf8"), userText);
+    assert.ok(existsSync(path.join(claudeSkills, "mxstage-workbench", "SKILL.md")), "新しい既定の Skill が入る");
+    assert.equal(existsSync(path.join(oldGeminiSkills, "mxstudio-workbench")), false);
+    assert.equal(existsSync(path.join(oldGeminiSkills, "my-flow")), false);
+    assert.ok(existsSync(path.join(dir, "gemini", "config", "skills", "my-flow", "SKILL.md")), "Antigravity には今の置き場所に写す");
+    assert.ok(existsSync(path.join(agentsSkills, "mxstudio-workbench", "SKILL.md")), "書き換えられた写しは消さない");
+
+    // 利用者の Skill と語の一覧を新しい置き場所へ写し、改名前の置き場所は残す
+    const stateDir = path.join(dir, "state");
+    assert.equal(readFileSync(path.join(stateDir, "skills", "my-flow", "SKILL.md"), "utf8"), userText);
+    assert.equal(readFileSync(path.join(stateDir, "publish-terms.txt"), "utf8"), "客先の名前\n");
+    assert.ok(existsSync(path.join(stateDir, "migrated-from-mxstudio.json")), "写し終えた印");
+    assert.ok(existsSync(path.join(legacyDir, "skills", "my-flow", "SKILL.md")), "改名前の置き場所は消さない");
+    assert.equal(existsSync(path.join(legacyDir, "setup.json")), false);
+    assert.ok(existsSync(path.join(legacyDir, "setup.migrated.json")), "改名前の記録は改める");
+    assert.equal(existsSync(path.join(dir, "startup", "mxstudio-bridge.lnk")), false);
+    assert.equal(existsSync(path.join(dir, "desktop", "mxstudio.url")), false);
+    const state = JSON.parse(readFileSync(path.join(stateDir, "setup.json"), "utf8"));
+    assert.equal(state.migratedFrom, legacyDir);
+
+    // --- もう一度（何も変えない。残したものは知らせ続ける。写したあとに消した Skill を写し直さない）---
+    rmSync(path.join(stateDir, "skills", "my-flow"), { recursive: true, force: true });
+    const configsBefore = [codeConfig, desktopConfig, antigravityConfig, codexConfig].map((f) => readFileSync(f, "utf8"));
+    const again = await runJson(common);
+    assert.equal(again.code, 0, again.stdout);
+    const configsAfter = [codeConfig, desktopConfig, antigravityConfig, codexConfig].map((f) => readFileSync(f, "utf8"));
+    assert.deepEqual(configsAfter, configsBefore);
+    assert.equal(existsSync(path.join(stateDir, "skills", "my-flow")), false, "消した利用者の Skill を写し直さない");
+    assert.deepEqual(stepOf(again.json, "legacy_copy"), []);
+    assert.deepEqual(stepOf(again.json, "legacy_antigravity").map((s) => s.level), ["warn"]);
+    assert.deepEqual(stepOf(again.json, "legacy_skill_copies").map((s) => s.level), ["warn"]);
+    assert.equal(JSON.parse(readFileSync(path.join(stateDir, "setup.json"), "utf8")).migratedFrom, legacyDir, "移した元を覚え続ける");
+
+    // --- 状態を見る ---
+    const status = await runJson([...common, "--status"]);
+    const legacyStatus = stepOf(status.json, "legacy");
+    assert.equal(legacyStatus.length, 1);
+    assert.match(legacyStatus[0].message, /Antigravity の登録/);
+
+    // --- 取り消し（改名前の登録が戻っていても外す）---
+    const code2 = JSON.parse(readFileSync(codeConfig, "utf8"));
+    writeFileSync(codeConfig, JSON.stringify({ ...code2, mcpServers: { ...code2.mcpServers, mxstudio: legacyCode } }, null, 2), "utf8");
+    const removed = await runJson([...common, "--uninstall"]);
+    assert.equal(removed.code, 0, removed.stdout);
+    const codeAfter = JSON.parse(readFileSync(codeConfig, "utf8"));
+    assert.deepEqual(Object.keys(codeAfter.mcpServers), ["other"], "mxstage も mxstudio も外す");
+  } finally {
+    if (port !== null) await stopFakeBridgeOn(port);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test(
+  "ポートの改名前の橋渡し: 画面用（--no-mcp）なら止めて移す。LLM のアプリが起動したもの・引き継いだものがいれば、何も書き換えずに止まる",
+  { timeout: 180_000, skip: !IS_WINDOWS && "プロセスの確認は Windows だけ" },
+  async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-renamed-"));
+    const children = [];
+    let port = null;
+    try {
+      const bridge = path.join(dir, "fake-bridge.mjs");
+      writeFileSync(bridge, FAKE_BRIDGE, "utf8");
+      const renamed = path.join(dir, "old-repo", "src", "bridge", "cli.mjs");
+      mkdirSync(path.dirname(renamed), { recursive: true });
+      writeFileSync(renamed, RENAMED_BRIDGE, "utf8");
+      const legacyDir = path.join(dir, "legacy");
+      mkdirSync(legacyDir, { recursive: true });
+      const codeConfig = path.join(dir, "claude-code.json");
+      const spawnRenamed = (extra) => {
+        const child = spawn(process.execPath, [renamed, ...extra, "--port", String(port)], { stdio: "ignore", windowsHide: true });
+        children.push(child);
+        return child;
+      };
+      const resetLegacy = () => {
+        writeFileSync(path.join(legacyDir, "setup.json"), JSON.stringify({ version: 1, nodePath: process.execPath, bridgeEntry: renamed, port }), "utf8");
+        writeFileSync(codeConfig, JSON.stringify({ mcpServers: { mxstudio: { type: "stdio", command: process.execPath, args: [renamed, "--port", String(port)], env: {} } } }, null, 2), "utf8");
+      };
+      const legacyUp = async () => (await fetch(`http://127.0.0.1:${port}/_mxstudio/health`).then((r) => r.json()).catch(() => null))?.name === "mxstudio-bridge";
+      port = await freePort();
+      const args = [...sandboxArgs(dir), "--legacy-state-dir", legacyDir, "--no-autostart", "--no-shortcut", "--no-skills", "--no-antigravity", "--no-codex", "--port", String(port), "--bridge", bridge];
+
+      // 1) LLM のアプリが起動したもの（--no-mcp なし）: 止めずに、何も書き換えずに止まる
+      resetLegacy();
+      const owned = spawnRenamed([]);
+      assert.ok(await waitFor(legacyUp));
+      const blocked = await runJson(args);
+      assert.equal(blocked.code, 1, blocked.stdout);
+      const stop = stepOf(blocked.json, "legacy_bridge");
+      assert.equal(stop[0].level, "error");
+      assert.match(stop[0].message, new RegExp(`プロセス ${owned.pid}`));
+      assert.match(stop[0].hint, /LLM のアプリをすべて終了/);
+      assert.ok(await legacyUp(), "止めていない");
+      assert.ok("mxstudio" in JSON.parse(readFileSync(codeConfig, "utf8")).mcpServers, "設定は書き換えていない");
+      assert.equal(existsSync(path.join(dir, "state", "setup.json")), false, "記録も書かない");
+      owned.kill();
+      assert.ok(await waitFor(async () => !(await legacyUp())));
+
+      // 2) 画面用（--no-mcp）を止めたあと、LLM のアプリが起動した改名前の橋渡しが引き継いだ: 止まる
+      resetLegacy();
+      const serve = spawnRenamed(["--no-mcp"]);
+      assert.ok(await waitFor(legacyUp));
+      const client = spawnRenamed([]);
+      const takenOver = await runJson(args);
+      assert.equal(takenOver.code, 1, takenOver.stdout);
+      assert.match(stepOf(takenOver.json, "legacy_bridge")[0].message, /引き継ぎました/);
+      assert.ok(await waitFor(async () => serve.exitCode !== null), "画面用の改名前の橋渡しは止めた");
+      assert.ok("mxstudio" in JSON.parse(readFileSync(codeConfig, "utf8")).mcpServers, "設定は書き換えていない");
+      client.kill();
+      assert.ok(await waitFor(async () => !(await legacyUp())));
+
+      // 3) 画面用（--no-mcp）だけ: 止めて移し、新しい橋渡しを起動する
+      resetLegacy();
+      const alone = spawnRenamed(["--no-mcp"]);
+      assert.ok(await waitFor(legacyUp));
+      const migrated = await runJson(args);
+      assert.equal(migrated.code, 0, migrated.stdout);
+      assert.equal(stepOf(migrated.json, "legacy_bridge")[0].level, "ok");
+      assert.ok(await waitFor(async () => alone.exitCode !== null), "改名前の橋渡しは止まった");
+      assert.equal((await probeBridge(port)).health?.name, "mxstage-bridge", "新しい橋渡しがポートを持つ");
+      const code = JSON.parse(readFileSync(codeConfig, "utf8"));
+      assert.equal("mxstudio" in code.mcpServers, false);
+      assert.ok(code.mcpServers.mxstage);
+    } finally {
+      for (const child of children) if (child.exitCode === null) child.kill();
+      if (port !== null) await stopFakeBridgeOn(port);
+      rmSync(dir, { recursive: true, force: true });
+    }
+  },
+);
+
 test("動いている橋渡しの取り決めの版（protocol）が、このリポジトリの橋渡しと違えば --status で警告する", { timeout: 60_000 }, async () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-protocol-"));
   let child = null;
@@ -1958,7 +2307,7 @@ test(
       const args = [...sandboxArgs(dir), "--startup-dir", startupDir, "--desktop-dir", desktopDir, "--bridge", bridge, "--port", String(port)];
       assert.equal(await quietMain([...args, "--no-start"]), 0);
 
-      const startup = path.join(startupDir, "mxstudio-bridge.lnk");
+      const startup = path.join(startupDir, "mxstage-bridge.lnk");
       assert.ok(existsSync(startup), "スタートアップにショートカットがある");
       const read = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", "-"], {
         input: "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\n$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:MXS_LNK); @{ target = $s.TargetPath; args = $s.Arguments; style = $s.WindowStyle } | ConvertTo-Json -Compress\n",
@@ -1971,8 +2320,8 @@ test(
       assert.ok(lnk.args.includes(bridge) && lnk.args.includes("--no-mcp") && lnk.args.includes(`--port ${port}`), lnk.args);
       assert.equal(lnk.style, 7, "最小化で起動する");
 
-      const desktopLnk = path.join(desktopDir, "mxstudio.lnk");
-      const desktopUrl = path.join(desktopDir, "mxstudio.url");
+      const desktopLnk = path.join(desktopDir, "mxstage.lnk");
+      const desktopUrl = path.join(desktopDir, "mxstage.url");
       assert.ok(existsSync(desktopLnk) || existsSync(desktopUrl), "デスクトップにショートカットがある");
       if (existsSync(desktopUrl)) assert.match(readFileSync(desktopUrl, "utf8"), new RegExp(`URL=http://127\\.0\\.0\\.1:${port}/app`));
 
@@ -2085,7 +2434,7 @@ test("npmEnv:npm には IBM のテレメトリを止める変数を渡し、ほ�
   assert.equal(npmEnv().IBM_TELEMETRY_DISABLED, "true");
 });
 
-test("本物の ~/.claude.json・Claude Desktop・Antigravity・Codex・スタートアップ・デスクトップ・~/.config/mxstudio に触れていない（更新時刻を比べる）", (t) => {
+test("本物の ~/.claude.json・Claude Desktop・Antigravity・Codex・スタートアップ・デスクトップ・~/.config/mxstage・改名前の ~/.config/mxstudio に触れていない（更新時刻を比べる）", (t) => {
   const after = snapshotReal(REAL_TARGETS);
   const problems = [];
   const notes = [];
@@ -2097,11 +2446,11 @@ test("本物の ~/.claude.json・Claude Desktop・Antigravity・Codex・スタ�
     }
     if (!before.exists) continue;
     if ((before.type === "json" || before.type === "toml") && (before.entry !== now.entry || now.tmp)) {
-      problems.push(`${before.path}: mxstudio の設定が変わった、または書きかけの一時ファイルがある`);
+      problems.push(`${before.path}: MX Stage の設定が変わった、または書きかけの一時ファイルがある`);
       continue;
     }
     if (before.names !== undefined && JSON.stringify(before.names) !== JSON.stringify(now.names)) {
-      problems.push(`${before.path}: 名前に mxstudio を含むファイルが増減した（${JSON.stringify(before.names)} → ${JSON.stringify(now.names)}）`);
+      problems.push(`${before.path}: 名前に mxstage か mxstudio を含むファイルが増減した（${JSON.stringify(before.names)} → ${JSON.stringify(now.names)}）`);
       continue;
     }
     if (before.mtimeMs === now.mtimeMs) continue;
@@ -2109,8 +2458,8 @@ test("本物の ~/.claude.json・Claude Desktop・Antigravity・Codex・スタ�
       problems.push(`${before.path}: 更新時刻が変わった（ほかに書くプログラムの無い場所）`);
       continue;
     }
-    // 更新時刻は変わったが、mxstudio に関わる中身は同じ。持ち主（試験の外で動いているプログラム）の書き込みと見なして知らせる
-    notes.push(`${before.path}: 更新時刻が変わりました（${new Date(before.mtimeMs).toISOString()} → ${new Date(now.mtimeMs).toISOString()}）。mxstudio に関わる中身は同じなので、${before.owner} 自身の書き込みと見なします。`);
+    // 更新時刻は変わったが、MX Stage に関わる中身は同じ。持ち主（試験の外で動いているプログラム）の書き込みと見なして知らせる
+    notes.push(`${before.path}: 更新時刻が変わりました（${new Date(before.mtimeMs).toISOString()} → ${new Date(now.mtimeMs).toISOString()}）。MX Stage に関わる中身は同じなので、${before.owner} 自身の書き込みと見なします。`);
   }
   for (const note of notes) t.diagnostic(note);
   t.diagnostic(`比べた場所: ${REAL_BEFORE.length} 件（うち存在 ${REAL_BEFORE.filter((b) => b.exists).length} 件）・更新時刻が同じ: ${REAL_BEFORE.filter((b) => b.exists && after.find((a) => a.path === b.path).mtimeMs === b.mtimeMs).length} 件`);

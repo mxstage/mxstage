@@ -8,7 +8,7 @@ import { createBridgeLogger, LOG_FILE_NAME, LOG_MAX_BYTES } from "../../src/brid
 
 const dirs: string[] = [];
 function tempDir(): string {
-  const d = mkdtempSync(join(tmpdir(), "mxstudio-log-"));
+  const d = mkdtempSync(join(tmpdir(), "mxstage-log-"));
   dirs.push(d);
   return d;
 }
@@ -22,11 +22,11 @@ describe("createBridgeLogger", () => {
     const dir = tempDir();
     const out: string[] = [];
     const log = createBridgeLogger({ stateDir: join(dir, "state"), write: (t) => out.push(t), now: () => new Date("2026-09-18T01:02:03.000Z") });
-    log("mxstudio bridge listening on http://127.0.0.1:8788");
-    log("mxstudio bridge stopping");
-    expect(out).toEqual(["mxstudio bridge listening on http://127.0.0.1:8788\n", "mxstudio bridge stopping\n"]);
+    log("mxstage bridge listening on http://127.0.0.1:8788");
+    log("mxstage bridge stopping");
+    expect(out).toEqual(["mxstage bridge listening on http://127.0.0.1:8788\n", "mxstage bridge stopping\n"]);
     const text = readFileSync(join(dir, "state", LOG_FILE_NAME), "utf8");
-    expect(text).toBe("2026-09-18T01:02:03.000Z mxstudio bridge listening on http://127.0.0.1:8788\n2026-09-18T01:02:03.000Z mxstudio bridge stopping\n");
+    expect(text).toBe("2026-09-18T01:02:03.000Z mxstage bridge listening on http://127.0.0.1:8788\n2026-09-18T01:02:03.000Z mxstage bridge stopping\n");
   });
 
   it("大きくなったら 1 つ前に送る（際限なく増やさない）", () => {

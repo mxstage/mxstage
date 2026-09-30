@@ -29,7 +29,7 @@ import { makeChildRowKey, makeParentKey, type MaximoRecord, type SheetMeta, type
 import type { ToolName } from "../../src/shared/toolDefs";
 import { createFakeMaximo, sampleSeed, type FakeMaximo, type FakeRecordSeed, type FakeSeed } from "../fakes/fake-maximo";
 
-const APP_URL = "https://mxstudio.test/app";
+const APP_URL = "https://mxstage.test/app";
 const PERMIT_SHEET = "許可申請";
 const NEW_DATE = "2027-03-31";
 const SELECT = [

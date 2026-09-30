@@ -398,7 +398,7 @@ export const TOOL_DEFS = {
   get_skill: tool({
     name: "get_skill",
     title: "Skill の本文",
-    description: "Skill の本文（SKILL.md）を返す。作業を始める前に mxstudio-workbench を読む。",
+    description: "Skill の本文（SKILL.md）を返す。作業を始める前に mxstage-workbench を読む。",
     inputSchema: z.strictObject({ name: z.string().min(1) }),
     annotations: RO,
     runAt: "worker",
@@ -407,12 +407,12 @@ export const TOOL_DEFS = {
     name: "save_skill",
     title: "利用者の Skill を保存",
     description:
-      "会話でまとまった業務の手順を、利用者の Skill としてこの PC（~/.config/mxstudio/skills/<name>/SKILL.md）に保存する。" +
+      "会話でまとまった業務の手順を、利用者の Skill としてこの PC（~/.config/mxstage/skills/<name>/SKILL.md）に保存する。" +
       "**利用者が頼んだときだけ、保存する name・description・本文を利用者に見せて了承を得てから呼ぶ。** 保存した Skill は次の会話から list_skills・get_skill で読める。" +
       "既にある利用者の Skill を書き換えるときは overwrite: true（これも了承を得る）。アプリ既定の Skill と同じ名前にはできない。本文に API キーやパスワードを書かない。",
     inputSchema: z.strictObject({
       name: z.string().min(1).max(64).describe("英小文字・数字・ハイフン（例 permit-date-update）"),
-      description: z.string().min(1).max(200).describe("いつ使う手順か（200 文字まで。例 mxstudio で、作業指示の子の許可申請の完了日を一括で変えるときに使う）"),
+      description: z.string().min(1).max(200).describe("いつ使う手順か（200 文字まで。例 MX Stage で、作業指示の子の許可申請の完了日を一括で変えるときに使う）"),
       body: z.string().min(1).describe("手順の本文（Markdown。8,000 バイト未満）"),
       version: z.string().regex(/^\d+\.\d+\.\d+$/).optional().describe("版（省くと 0.1.0。書き換えるときは上げる）"),
       overwrite: z.boolean().optional().describe("既にある利用者の Skill を書き換える"),

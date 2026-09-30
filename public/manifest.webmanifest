@@ -1,7 +1,7 @@
 {
   "id": "/app",
-  "name": "mxstudio",
-  "short_name": "mxstudio",
+  "name": "MX Stage",
+  "short_name": "MX Stage",
   "description": "Maximo（MAS Manage）のデータ整備を行う作業画面",
   "lang": "ja",
   "dir": "ltr",

@@ -215,7 +215,7 @@ export interface BatchOpState {
   reverted: boolean;
 }
 
-export const WORKSPACE_FORMAT = "mxstudio.workspace.v1";
+export const WORKSPACE_FORMAT = "mxstage.workspace.v1";
 
 export interface WorkspaceJSON {
   format: typeof WORKSPACE_FORMAT;

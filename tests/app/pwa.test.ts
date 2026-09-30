@@ -48,7 +48,7 @@ describe("manifest", () => {
   const manifest = JSON.parse(manifestRaw) as Record<string, unknown>;
 
   it("standalone で名前とアイコンがある", () => {
-    expect(manifest.name).toBe("mxstudio");
+    expect(manifest.name).toBe("MX Stage");
     expect(manifest.display).toBe("standalone");
     expect(manifest.start_url).toBe("/app");
     expect(manifest.scope).toBe("/");
@@ -87,7 +87,7 @@ describe("manifest", () => {
 
 describe("キャッシュしないもの", () => {
   it("Maximo の応答・中継・取り込み・橋渡しの状態と Skill の一覧は保存しない", () => {
-    for (const p of ["/mx", "/mx/maximo/api/os/mxapiwo", "/ws", "/import/abc", "/_mxstudio/skills", "/_mxstudio/health"]) {
+    for (const p of ["/mx", "/mx/maximo/api/os/mxapiwo", "/ws", "/import/abc", "/_mxstage/skills", "/_mxstage/health", "/_mxstage/license", "/_mxstudio/skills"]) {
       expect(isNeverCached(p)).toBe(true);
     }
   });
@@ -111,7 +111,7 @@ describe("要求の扱い方", () => {
 
   it("Maximo の応答・ツールの結果・中継には触らない", () => {
     expect(planFor(req(`${ORIGIN}/mx/maximo/api/os/mxapiasset?oslc.select=*`), ORIGIN)).toBe("network-only");
-    expect(planFor(req(`${ORIGIN}/_mxstudio/skills`), ORIGIN)).toBe("network-only");
+    expect(planFor(req(`${ORIGIN}/_mxstage/skills`), ORIGIN)).toBe("network-only");
     expect(planFor(req(`${ORIGIN}/ws`), ORIGIN)).toBe("network-only");
   });
 
@@ -122,7 +122,7 @@ describe("要求の扱い方", () => {
   });
 
   it("取り込みや橋渡しの URL への遷移には枠を返さない", () => {
-    for (const p of ["/import/abc", "/_mxstudio/health"]) {
+    for (const p of ["/import/abc", "/_mxstage/health"]) {
       expect(planFor(req(`${ORIGIN}${p}`, { mode: "navigate" }), ORIGIN)).toBe("network-only");
     }
     // 画面が持っているパスの遷移は、これまでどおりネットワーク優先（オフラインのときだけ枠を返す）
@@ -196,6 +196,8 @@ describe("先読みする一覧", () => {
     expect(isStaleCache(cacheNameOf("bbbb2222"), current)).toBe(true);
     expect(isStaleCache(current, current)).toBe(false);
     expect(isStaleCache("other-app-cache", current)).toBe(false);
+    // 改名前（mxstudio）のキャッシュも消す
+    expect(isStaleCache("mxstudio-app-aaaa1111", current)).toBe(true);
   });
 
   it("差し込み前の値でも壊れない", () => {

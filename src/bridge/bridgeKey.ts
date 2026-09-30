@@ -1,9 +1,9 @@
 // 橋渡し同士の認証に使う鍵（利用者ごとのファイル）。
-// - 置き場所: どの OS でも ~/.config/mxstudio/bridge.key（Windows は %USERPROFILE%\.config\mxstudio\bridge.key。パーミッション 600）。
+// - 置き場所: どの OS でも ~/.config/mxstage/bridge.key（Windows は %USERPROFILE%\.config\mxstage\bridge.key。パーミッション 600）。
 //   Windows で %LOCALAPPDATA% に置かないのは、Claude Desktop（MSIX パッケージ）が起動した橋渡しの書き込みが
 //   パッケージ専用の場所（%LOCALAPPDATA%\Packages\Claude_…\LocalCache\Local）に振り替えられ、
 //   ログイン時の自動起動（パッケージの外）の橋渡しと別々の鍵を持ってしまうため。ホーム直下は振り替えられない。
-//   環境変数 MXSTUDIO_BRIDGE_KEY_FILE で差し替えられる（試験で本物の置き場所に作らないため）。
+//   環境変数 MXSTAGE_BRIDGE_KEY_FILE で差し替えられる（試験で本物の置き場所に作らないため）。
 // - primary（ポートを取れた橋渡し）が、無ければ 256 ビットの乱数で作る。client は読むだけ。
 // - 照合は定数時間で行う。鍵の値は console にもエラー文にも出さない。
 
@@ -13,10 +13,12 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
 /** 鍵ファイルの場所を差し替える環境変数 */
-export const BRIDGE_KEY_FILE_ENV = "MXSTUDIO_BRIDGE_KEY_FILE";
+export const BRIDGE_KEY_FILE_ENV = "MXSTAGE_BRIDGE_KEY_FILE";
+/** 改名前（mxstudio）の名前。新しい名前が無いときだけ読む */
+export const LEGACY_BRIDGE_KEY_FILE_ENV = "MXSTUDIO_BRIDGE_KEY_FILE";
 
-/** 内部経路（/_mxstudio/*）で鍵を載せるヘッダ（小文字） */
-export const BRIDGE_KEY_HEADER = "x-mxstudio-bridge-key";
+/** 内部経路（/_mxstage/*）で鍵を載せるヘッダ（小文字） */
+export const BRIDGE_KEY_HEADER = "x-mxstage-bridge-key";
 
 /** 鍵の長さ（バイト）。16 進で 64 文字になる */
 export const BRIDGE_KEY_BYTES = 32;
@@ -31,9 +33,11 @@ export interface KeyPathInputs {
 /** 鍵ファイルの既定の場所 */
 export function defaultBridgeKeyPath(inputs: KeyPathInputs = {}): string {
   const env = inputs.env ?? process.env;
-  const override = env[BRIDGE_KEY_FILE_ENV];
-  if (typeof override === "string" && override.trim() !== "") return resolve(override.trim());
-  return join(inputs.home ?? homedir(), ".config", "mxstudio", "bridge.key");
+  for (const name of [BRIDGE_KEY_FILE_ENV, LEGACY_BRIDGE_KEY_FILE_ENV]) {
+    const override = env[name];
+    if (typeof override === "string" && override.trim() !== "") return resolve(override.trim());
+  }
+  return join(inputs.home ?? homedir(), ".config", "mxstage", "bridge.key");
 }
 
 /** ファイルの中身を鍵として読む。形が正しくなければ null */

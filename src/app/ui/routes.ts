@@ -9,7 +9,7 @@ export const SETTINGS_PATH = "/settings";
 /** 読み込んだオブジェクト構造を見る画面 */
 export const STRUCTURES_PATH = "/structures";
 /** history.pushState は popstate を出さないので、自前のイベントで画面に知らせる */
-export const NAVIGATE_EVENT = "mxstudio:navigate";
+export const NAVIGATE_EVENT = "mxstage:navigate";
 
 export function resolveRoute(pathname: string): Route {
   const p = pathname.replace(/\/+$/, "") || "/";

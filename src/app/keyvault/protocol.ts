@@ -4,7 +4,7 @@
 import type { MaximoVia } from "../maximo/client";
 
 /** MaximoClient に API キーの代わりに渡す文字列。Worker が送信直前に本物のキーへ置き換える（秘密ではない） */
-export const VAULT_SENTINEL = "mxstudio-vault-sentinel";
+export const VAULT_SENTINEL = "mxstage-vault-sentinel";
 
 /** 利用者の操作がこの時間無ければ、Worker がキーを消す */
 export const VAULT_IDLE_MS = 30 * 60 * 1000;

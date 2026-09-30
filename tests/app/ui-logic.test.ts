@@ -275,12 +275,12 @@ describe("保存する設定", () => {
   });
 });
 
-describe("Skill の一覧（橋渡しの /_mxstudio/skills）", () => {
+describe("Skill の一覧（橋渡しの /_mxstage/skills）", () => {
   it("アプリ既定と利用者の Skill を出どころ付きで読み、形の合わない項目は捨てる", () => {
     const list = parseSkillList({
-      userSkillsDir: "/home/u/.config/mxstudio/skills",
+      userSkillsDir: "/home/u/.config/mxstage/skills",
       skills: [
-        { name: "mxstudio-workbench", version: "0.7.0", description: "基本手順", origin: "default" },
+        { name: "mxstage-workbench", version: "0.7.0", description: "基本手順", origin: "default" },
         { name: "my-flow", version: "0.1.0", description: "業務の手順", origin: "user" },
         { name: "Bad Name", origin: "user" },
         { name: "no-origin" },
@@ -289,14 +289,14 @@ describe("Skill の一覧（橋渡しの /_mxstudio/skills）", () => {
       problems: [{ name: "broken", level: "error", message: "SKILL.md がありません。" }, { name: "w", level: "warn", message: "注意" }, { name: "n" }],
     });
     expect(list.skills.map((s) => [s.name, s.origin])).toEqual([
-      ["mxstudio-workbench", "default"],
+      ["mxstage-workbench", "default"],
       ["my-flow", "user"],
     ]);
     expect(list.problems).toEqual([
       { name: "broken", level: "error", message: "SKILL.md がありません。" },
       { name: "w", level: "warn", message: "注意" },
     ]);
-    expect(list.userSkillsDir).toBe("/home/u/.config/mxstudio/skills");
+    expect(list.userSkillsDir).toBe("/home/u/.config/mxstage/skills");
   });
 
   it("壊れた応答でも空の一覧にする", () => {
@@ -498,7 +498,7 @@ describe("反映パネル", () => {
   });
 
   it("ログのファイル名と BOM", () => {
-    expect(writeLogFileName(new Date(2026, 8, 16, 10, 30, 5))).toBe("mxstudio-writelog-20260916-103005.csv");
+    expect(writeLogFileName(new Date(2026, 8, 16, 10, 30, 5))).toBe("mxstage-writelog-20260916-103005.csv");
     const csv = withBom("a,b\n1,2");
     expect(csv.charCodeAt(0)).toBe(0xfeff);
     expect(withBom(csv)).toBe(csv);

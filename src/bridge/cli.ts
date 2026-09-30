@@ -6,12 +6,12 @@
 //
 // 橋渡しは PC に 1 つにする（Claude Code・Claude Desktop・自動起動がそれぞれ起動しても Hub を分けない）。
 //   - ポートを取れたら primary として 1〜4 を受け持つ。
-//   - ポートを既に mxstudio の橋渡しが使っていたら client になり、2 のツール呼び出しをその橋渡しへ渡す。
+//   - ポートを既に MX Stage の橋渡しが使っていたら client になり、2 のツール呼び出しをその橋渡しへ渡す。
 //   - ポートを別のアプリが使っていたら、ずらさずに終了コード 1 で終わる。
 //   役割決めと引き継ぎは src/bridge/coordinator.ts。
 //
 // stdio は MCP のものなので、標準出力には MCP のメッセージ以外を書かない。ログは stderr と
-// <状態フォルダ>/bridge.log（既定 ~/.config/mxstudio）に書く。Claude が終了しても後から原因を追えるようにするため。
+// <状態フォルダ>/bridge.log（既定 ~/.config/mxstage）に書く。Claude が終了しても後から原因を追えるようにするため。
 // API キー・作業データは console にもファイルにも書かない。
 
 import { spawn } from "node:child_process";
@@ -19,9 +19,10 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
-import { BridgeKeyStore, defaultBridgeKeyPath } from "./bridgeKey.ts";
+import { BRIDGE_KEY_FILE_ENV, BridgeKeyStore, LEGACY_BRIDGE_KEY_FILE_ENV, defaultBridgeKeyPath } from "./bridgeKey.ts";
 import { BridgeCoordinator, CLIENT_WATCH_INTERVAL_MS } from "./coordinator.ts";
 import { CodeFingerprint, checkUpdates, isDefaultAppDir } from "./freshness.ts";
+import { migrateLegacyFiles } from "./legacy.ts";
 import { createBridgeLogger } from "./logFile.ts";
 import { buildBridgeMcpServer } from "./mcp.ts";
 import { userSkillsDirOf } from "./skills.ts";
@@ -95,8 +96,11 @@ export async function main(argv: readonly string[]): Promise<number> {
     record(`警告: 作業画面が見つかりません（${root}）。先に npm run build を実行してください。`);
   }
   const version = bridgeVersion();
-  // 利用者の Skill は橋渡しの状態フォルダ（~/.config/mxstudio）の下。リポジトリの外なので更新でも消えない
+  // 利用者の Skill は橋渡しの状態フォルダ（~/.config/mxstage）の下。リポジトリの外なので更新でも消えない
   const userSkillsDir = userSkillsDirOf(dirname(keyPath));
+  // 改名前（~/.config/mxstudio）にだけある利用者の Skill と語の一覧を 1 回だけ写す。状態フォルダを差し替えているとき（試験など）は触らない
+  const keyPathOverridden = [BRIDGE_KEY_FILE_ENV, LEGACY_BRIDGE_KEY_FILE_ENV].some((name) => (process.env[name] ?? "").trim() !== "");
+  migrateLegacyFiles({ stateDir: dirname(keyPath), enabled: !keyPathOverridden, log: record });
   // 起動したときのコードを覚えておき、あとでリポジトリが更新されたら知らせる（src/bridge/freshness.ts）
   const code = new CodeFingerprint(ROOT);
   const coordinator = new BridgeCoordinator({
@@ -104,7 +108,7 @@ export async function main(argv: readonly string[]): Promise<number> {
     root,
     allowedHosts: opts.allowHosts,
     insecure: opts.insecure,
-    // 鍵ファイルの場所は環境変数 MXSTUDIO_BRIDGE_KEY_FILE で差し替えられる（値はログに出さない）
+    // 鍵ファイルの場所は環境変数 MXSTAGE_BRIDGE_KEY_FILE で差し替えられる（値はログに出さない）
     keyStore: new BridgeKeyStore(keyPath),
     version,
     userSkillsDir,
@@ -125,17 +129,17 @@ export async function main(argv: readonly string[]): Promise<number> {
       return 1;
     case "primary":
       // 実際に使ったポートを 1 行だけ出す（stdout は MCP のもの）
-      record(`mxstudio bridge ${version} listening on ${started.bridge.origin} (app: ${started.bridge.origin}/app)`);
+      record(`mxstage bridge ${version} listening on ${started.bridge.origin} (app: ${started.bridge.origin}/app)`);
       break;
     case "client":
       if (!opts.mcp) {
         // 画面の配信だけを頼まれたが、既に同じポートで橋渡しが配っている。やることは無い
-        record(`mxstudio bridge ${version}: ポート ${coordinator.port} では既に mxstudio の橋渡し（${started.health.version.slice(0, 40)}）が動いています。そちらを使います。`);
+        record(`mxstage bridge ${version}: ポート ${coordinator.port} では既に MX Stage の橋渡し（${started.health.version.slice(0, 40)}）が動いています。そちらを使います。`);
         await coordinator.close();
         return 0;
       }
-      record(`mxstudio bridge ${version} relaying to ${coordinator.origin} (primary ${started.health.version.slice(0, 40)}; app: ${coordinator.origin}/app)`);
-      record("既に動いている mxstudio の橋渡しにツール呼び出しを渡します（この PC の Hub は 1 つです）。");
+      record(`mxstage bridge ${version} relaying to ${coordinator.origin} (primary ${started.health.version.slice(0, 40)}; app: ${coordinator.origin}/app)`);
+      record("既に動いている MX Stage の橋渡しにツール呼び出しを渡します（この PC の Hub は 1 つです）。");
       break;
   }
   if (opts.insecure) record("警告: --insecure が指定されています。Maximo の証明書を検証しません（このプロセスが primary のときだけ有効です）。");
@@ -166,7 +170,7 @@ export async function main(argv: readonly string[]): Promise<number> {
   const stop = (): void => {
     if (stopping) return;
     stopping = true;
-    record("mxstudio bridge stopping");
+    record("mxstage bridge stopping");
     void stdio?.close().catch(() => undefined);
     void coordinator.close().finally(() => process.exit(0));
   };

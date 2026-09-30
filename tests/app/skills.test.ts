@@ -9,8 +9,8 @@ import { SKILLS } from "../../src/bridge/defaultSkills";
 const RAW_FILES = import.meta.glob<string>("../../skills/*/SKILL.md", { query: "?raw", import: "default", eager: true });
 
 // リポジトリに置くのはアプリ既定の Skill だけ。業務や客先ごとの Skill は利用者のフォルダに置く（src/bridge/skills.ts）
-const EXPECTED_SKILLS = ["mxstudio-workbench"];
-const PRIMARY_SKILL = "mxstudio-workbench";
+const EXPECTED_SKILLS = ["mxstage-workbench"];
+const PRIMARY_SKILL = "mxstage-workbench";
 const BODY_MAX_BYTES = 8000;
 const SNAKE_CASE_PATTERN = /(?<![A-Za-z0-9_])[a-z][a-z0-9]*(?:_[a-z0-9]+)+(?![A-Za-z0-9_])/g;
 const CLIENT_SPECIFIC_SYNTAX = /\$ARGUMENTS|\$\{CLAUDE_[A-Z_]*\}|\$[0-9]\b|!`/;
@@ -182,7 +182,7 @@ describe("skills", () => {
   it("基本手順は利用者の Skill の置き場所と、読み方（get_skill）・チャットからの保存（save_skill）を案内する", () => {
     const body = parsed.find((s) => s.dirName === PRIMARY_SKILL)?.body ?? "";
     expect(body).toContain("利用者の Skill");
-    expect(body).toContain("~/.config/mxstudio/skills");
+    expect(body).toContain("~/.config/mxstage/skills");
     expect(body).toContain("get_skill");
     expect(body).toContain("save_skill");
   });

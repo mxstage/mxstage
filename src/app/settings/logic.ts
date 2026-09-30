@@ -7,7 +7,7 @@ import { MaximoError, MaximoNetworkError, type MaximoVia } from "../maximo/clien
 export const FORBIDDEN_ORIGIN_MESSAGE = "同一オリジンからの要求として受け付けられませんでした。作業画面の URL から開き直してください。";
 
 /** proxy 方式の中継役（このパソコンの橋渡し） */
-const PROXY = "橋渡し（このパソコンの mxstudio）";
+const PROXY = "橋渡し（このパソコンの MX Stage）";
 
 export interface SettingsFormInput {
   baseUrl: string;
@@ -165,7 +165,7 @@ export function connectErrorMessage(e: unknown, via: MaximoVia): string {
 // 保存する設定（API キーは保存しない）
 // ---------------------------------------------------------------------------
 
-export const STORAGE_KEYS = { baseUrl: "mxstudio.maximo.baseUrl", via: "mxstudio.maximo.via" } as const;
+export const STORAGE_KEYS = { baseUrl: "mxstage.maximo.baseUrl", via: "mxstage.maximo.via" } as const;
 
 export interface StorageLike {
   getItem(key: string): string | null;
@@ -204,7 +204,7 @@ export function saveSettings(storage: StorageLike | null, s: SavedSettings): voi
 // ---------------------------------------------------------------------------
 
 /** 橋渡しを登録するときの MCP サーバ名（Claude Code / Claude Desktop の一覧に出る名前） */
-export const LOCAL_MCP_SERVER_NAME = "mxstudio";
+export const LOCAL_MCP_SERVER_NAME = "mxstage";
 
 export interface LocalClientStatus {
   /** 画面に出す現状の一言 */
@@ -225,17 +225,17 @@ export function localClientStatus(): LocalClientStatus {
     summary: "Claude Code に登録済みです。",
     notes: [
       "Claude Code が起動する橋渡し（stdio の MCP サーバ）は、この画面を配っている橋渡しに中継します。URL もトークンも要りません。",
-      "Claude Code のツールの一覧に mxstudio が出てこないときは、Claude Code に「mxstudio を入れ直して」と頼むか、導入をもう一度実行してください。",
+      "Claude Code のツールの一覧に MX Stage が出てこないときは、Claude Code に「MX Stage を入れ直して」と頼むか、導入をもう一度実行してください。",
     ],
     checkCommand: `claude mcp list`,
   };
 }
 
 // ---------------------------------------------------------------------------
-// Skill の一覧（橋渡しの /_mxstudio/skills。アプリ既定と利用者の Skill を分けて返す）
+// Skill の一覧（橋渡しの /_mxstage/skills。アプリ既定と利用者の Skill を分けて返す）
 // ---------------------------------------------------------------------------
 
-export const SKILLS_LIST_URL = "/_mxstudio/skills";
+export const SKILLS_LIST_URL = "/_mxstage/skills";
 
 export type SkillOrigin = "default" | "user";
 
@@ -282,8 +282,16 @@ export function parseSkillList(json: unknown): SkillList {
   return { skills, problems, userSkillsDir: typeof obj.userSkillsDir === "string" ? obj.userSkillsDir : null };
 }
 
+/**
+ * 橋渡しがその場で作る JSON を取りに行く URL。更新の直後は改名前の Service Worker が 1 回だけ残り、
+ * 新しい経路（/_mxstage）を保存してよいものと見なすので、毎回違う URL にして保存した応答を返させない。
+ */
+export function bridgeJsonUrl(pathname: string, now: number = Date.now()): string {
+  return `${pathname}?t=${now}`;
+}
+
 export async function fetchSkillList(fetchImpl: typeof fetch = fetch): Promise<SkillList> {
-  const res = await fetchImpl(SKILLS_LIST_URL, { cache: "no-store" });
+  const res = await fetchImpl(bridgeJsonUrl(SKILLS_LIST_URL), { cache: "no-store" });
   if (!res.ok) throw new Error(`Skill の一覧を読めませんでした（${res.status}）。橋渡しの版が古い可能性があります。導入をやり直してください。`);
   return parseSkillList(await res.json());
 }

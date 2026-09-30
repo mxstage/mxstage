@@ -5,7 +5,7 @@
 //   - Claude Code・Antigravity の Skill は、導入（scripts/setup-local.mjs）が配った写し。導入し直すまで変わらない
 // どれも MCP のクライアントには知らせが届かない（ツールの一覧の変更通知も出していない）。
 // そこで get_status と会話で最初のツール呼び出しの結果に、古くなっているものと直し方を添える（src/bridge/mcp.ts）。
-// primary が古いかは /_mxstudio/health の stale で知らせ合う（src/bridge/peer.ts）。導入の --status も同じ値を読む。
+// primary が古いかは /_mxstage/health の stale で知らせ合う（src/bridge/peer.ts）。導入の --status も同じ値を読む。
 
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -275,7 +275,7 @@ export interface UpdateState {
   skillCopies: SkillCopyProblem[];
 }
 
-const SETUP_COMMAND = "mxstudio.cmd（または node scripts/setup-local.mjs）";
+const SETUP_COMMAND = "mxstage.cmd（または node scripts/setup-local.mjs）";
 
 export function updateNotices(state: UpdateState): UpdateNotice[] {
   const notices: UpdateNotice[] = [];
@@ -283,8 +283,8 @@ export function updateNotices(state: UpdateState): UpdateNotice[] {
     notices.push({
       kind: "mcp_code",
       message: state.isPrimary
-        ? "この会話の mxstudio（MCP と作業タブへの中継）は、起動したあとにリポジトリのコードが更新されました。ツールの定義・基本手順・中継は古いままです。"
-        : "この会話の mxstudio（MCP）は、起動したあとにリポジトリのコードが更新されました。ツールの定義と基本手順は古いままです。",
+        ? "この会話の MX Stage（MCP と作業タブへの中継）は、起動したあとにリポジトリのコードが更新されました。ツールの定義・基本手順・中継は古いままです。"
+        : "この会話の MX Stage（MCP）は、起動したあとにリポジトリのコードが更新されました。ツールの定義と基本手順は古いままです。",
       action: "会話を始め直してください（Claude Code・Antigravity は新しい会話、Claude Desktop はタスクトレイから終了して開き直す）。",
     });
   }
@@ -321,7 +321,7 @@ export function updateNotices(state: UpdateState): UpdateNotice[] {
 export function updatesText(notices: readonly UpdateNotice[]): string | null {
   if (notices.length === 0) return null;
   return [
-    "【mxstudio の更新】次のものが古くなっています。作業を始める前に、利用者にそのまま伝えてください。",
+    "【MX Stage の更新】次のものが古くなっています。作業を始める前に、利用者にそのまま伝えてください。",
     ...notices.map((n) => `- ${n.message} → ${n.action}`),
   ].join("\n");
 }
@@ -329,7 +329,7 @@ export function updatesText(notices: readonly UpdateNotice[]): string | null {
 /** 橋渡しの中で知らせを集める */
 export interface UpdateCheckerOptions {
   repoRoot: string;
-  /** ~/.config/mxstudio（setup.json がある場所） */
+  /** ~/.config/mxstage（setup.json がある場所） */
   stateDir: string;
   userSkillsDir: string | null;
   /** このプロセスのコード */

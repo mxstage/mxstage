@@ -19,8 +19,8 @@ import { makeChildRowKey, makeParentKey, type SheetMeta, type SheetRow } from ".
 import type { ToolName } from "../../src/shared/toolDefs";
 import { createFakeMaximo, sampleSeed, withDefinitions, type FakeOsSeed, type FakeRecordSeed, type FakeSeed } from "../fakes/fake-maximo";
 
-const APP_URL = "https://mxstudio.test/app";
-const SETTINGS_URL = "https://mxstudio.test/settings";
+const APP_URL = "https://mxstage.test/app";
+const SETTINGS_URL = "https://mxstage.test/settings";
 const PERMIT_SHEET = "許可申請";
 const SELECT = [
   "WONUM",
@@ -312,7 +312,7 @@ describe("メタデータのツール", () => {
     const res = await h.call("find_object_structures", { query: "申請完了日" });
     expect(res.partial).toBe(false);
     expect(res.sync).toMatchObject({ state: "done", failedCount: 0 });
-    expect(res.structuresUrl).toBe("https://mxstudio.test/structures");
+    expect(res.structuresUrl).toBe("https://mxstage.test/structures");
     const top = res.structures[0];
     expect(top.os).toBe("MXAPIWO");
     expect(top.columns).toContainEqual({ name: "EXT_WOPERMIT.EXT_PERMITDATE", title: "申請完了日", type: "date" });
@@ -567,7 +567,7 @@ describe("メタデータのツール", () => {
       definedCount: n + 1,
       notApiCount: 1,
       sync: { state: "done", done: n, total: n, failedCount: 0 },
-      structuresUrl: "https://mxstudio.test/structures",
+      structuresUrl: "https://mxstage.test/structures",
     });
   });
 

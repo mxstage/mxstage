@@ -188,7 +188,7 @@ describe("updateNotices", () => {
     expect(notices.map((n) => n.kind)).toEqual(["mcp_code", "bridge_code", "app_build", "skill_copies"]);
     expect(notices[3]?.message).toMatch(/中身が元と違う: a／まだ配っていない: b/);
     for (const n of notices) expect(n.action).not.toBe("");
-    expect(updatesText(notices)).toMatch(/^【mxstudio の更新】/);
+    expect(updatesText(notices)).toMatch(/^【MX Stage の更新】/);
   });
 
   it("checkUpdates: primary には primary の古さを聞かない。調べる途中の失敗では止まらない", async () => {
@@ -280,16 +280,16 @@ describe("MCP の結果に添える", () => {
       return [notice];
     });
     const first = await client.callTool({ name: "open_grid", arguments: {} });
-    expect(texts(first)).toMatch(/【mxstudio の更新】/);
-    expect(texts(first)).toMatch(/【mxstudio の基本手順と禁止事項/);
+    expect(texts(first)).toMatch(/【MX Stage の更新】/);
+    expect(texts(first)).toMatch(/【MX Stage の基本手順と禁止事項/);
     expect(first.structuredContent).not.toHaveProperty("updates");
 
     const second = await client.callTool({ name: "open_grid", arguments: {} });
-    expect(texts(second)).not.toMatch(/【mxstudio の更新】/);
+    expect(texts(second)).not.toMatch(/【MX Stage の更新】/);
 
     const status = await client.callTool({ name: "get_status", arguments: {} });
     expect(status.structuredContent).toMatchObject({ tabConnected: true, updates: [notice] });
-    expect(texts(status)).toMatch(/【mxstudio の更新】/);
+    expect(texts(status)).toMatch(/【MX Stage の更新】/);
     expect(calls).toBe(2);
     await client.close();
   });
@@ -299,12 +299,12 @@ describe("MCP の結果に添える", () => {
     const status = await client.callTool({ name: "get_status", arguments: {} });
     expect(status.isError).toBeFalsy();
     expect(status.structuredContent).toEqual({ tabConnected: true, tool: "get_status" });
-    expect(texts(status)).not.toMatch(/【mxstudio の更新】/);
+    expect(texts(status)).not.toMatch(/【MX Stage の更新】/);
     await client.close();
 
     const once = await connect(async () => [notice]);
     const r = await once.callTool({ name: "get_status", arguments: {} });
-    expect(texts(r).match(/【mxstudio の更新】/g)?.length).toBe(1);
+    expect(texts(r).match(/【MX Stage の更新】/g)?.length).toBe(1);
     await once.close();
   });
 });

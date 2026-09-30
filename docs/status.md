@@ -7,10 +7,10 @@
 | 部分 | 場所 | 役割 |
 |---|---|---|
 | 作業画面 | `src/app/` | ブラウザのタブ。シート（正本）・グリッド・反映パネル・設定・オブジェクト構造の画面。ツールはここで実行する |
-| 橋渡し | `src/bridge/` | この PC の Node のプロセス 1 つ。画面の配信・stdio の MCP サーバ・タブへの中継（`/ws`）・Maximo への中継（`/mx`）・取り込み（`/import`）・状態と Skill の一覧（`/_mxstudio`） |
+| 橋渡し | `src/bridge/` | この PC の Node のプロセス 1 つ。画面の配信・stdio の MCP サーバ・タブへの中継（`/ws`）・Maximo への中継（`/mx`）・取り込み（`/import`）・状態と Skill の一覧（`/_mxstage`） |
 | 共有 | `src/shared/` | ツールの定義・中継の取り決め・シートの型・SKILL.md の読み取りと検証 |
-| アプリ既定の Skill | `skills/` | 基本手順（`mxstudio-workbench`）。ビルドで `src/bridge/defaultSkills.ts` に同梱する |
-| 導入 | `scripts/setup-local.mjs`・`mxstudio.cmd` | 依存とビルド・橋渡しの起動・Claude への登録・Skill の配置・自動起動とショートカット |
+| アプリ既定の Skill | `skills/` | 基本手順（`mxstage-workbench`）。ビルドで `src/bridge/defaultSkills.ts` に同梱する |
+| 導入 | `scripts/setup-local.mjs`・`mxstage.cmd` | 依存とビルド・橋渡しの起動・Claude への登録・Skill の配置・自動起動とショートカット |
 
 ## 実装済み
 
@@ -113,18 +113,18 @@
 ### 橋渡し
 
 - PC に 1 つだけ。ポート `8788` を持つ橋渡しが primary で、Claude が起動した分は client として中継します（`src/bridge/coordinator.ts`）。
-- 起動・終了・中継・異常終了を `~/.config/mxstudio/bridge.log` に残します（API キーと作業データは書きません。`src/bridge/logFile.ts`）。
+- 起動・終了・中継・異常終了を `~/.config/mxstage/bridge.log` に残します（API キーと作業データは書きません。`src/bridge/logFile.ts`）。
 
 ### Skill（`src/bridge/skills.ts`）
 
 - **アプリ既定**: リポジトリの `skills/`。`npm run build:skills` が検証して `src/bridge/defaultSkills.ts` に同梱します。
-- **利用者の Skill**: `~/.config/mxstudio/skills/<名前>/SKILL.md`。橋渡しが読むたびに既定と同じ規則で検証します
+- **利用者の Skill**: `~/.config/mxstage/skills/<名前>/SKILL.md`。橋渡しが読むたびに既定と同じ規則で検証します
   （ツール名に無い語は注意にとどめ、読み込みは止めません）。アプリ既定と同じ名前は読み込みません。
 - `list_skills` / `get_skill` と作業画面の設定は、どちらの Skill かを `origin`（`default` / `user`）で示します。
-- **どのクライアントにも届けます。** 会話（MCP のセッション）で最初のツール呼び出しの結果に、基本手順（`mxstudio-workbench`）の本文と
+- **どのクライアントにも届けます。** 会話（MCP のセッション）で最初のツール呼び出しの結果に、基本手順（`mxstage-workbench`）の本文と
   利用者の Skill の一覧を添えます（`sessionGuide`）。Skill 機能の無いクライアント（Claude Desktop のチャット・Gemini など）にも、
   LLM がどのツールから始めても届きます。MCP の案内（`SERVER_INSTRUCTIONS`）にも同じ決まりの要点を書いています。
-- **チャットから保存できます**（`save_skill`）。会話でまとまった手順を、利用者の了承を得て `~/.config/mxstudio/skills/<名前>/SKILL.md` に保存します。
+- **チャットから保存できます**（`save_skill`）。会話でまとまった手順を、利用者の了承を得て `~/.config/mxstage/skills/<名前>/SKILL.md` に保存します。
   読むときと同じ規則で検証し、通らなければ保存しません。アプリ既定と同じ名前・無断の上書き（`overwrite` なし）はしません。
   保存した直後から `list_skills` / `get_skill` と作業画面の設定に出ます。
 - 導入は両方を Claude Code の `~/.claude/skills` に写し、利用者が消した Skill は（書き換えられていなければ）片付けます。
@@ -140,7 +140,7 @@
   （結果の `childFilterNote` に出します）。oslc.where に渡せるか確かめます。
 - **`load_sheet` で読んだマスタは画面で連動しません。** 連動するのは `load_master` で読んだシートだけです。
   記述から拾ったタグのように参照元の列が無い突き合わせでは、マスタが別のタブのままになります。
-- **Claude Desktop のチャットの Skill は、mxstudio のツールを通して届けています。** チャットには Skill のファイルが入らないので、
+- **Claude Desktop のチャットの Skill は、MX Stage のツールを通して届けています。** チャットには Skill のファイルが入らないので、
   会話で最初のツール呼び出しの結果に基本手順を添えています（Skill の節）。チャットでの実際の動きは、まだ確かめきれていません。
 - **Windows だけで確かめています。** Mac・Linux は試していません（自動起動とショートカットは Windows だけ）。
 
@@ -148,7 +148,7 @@
 
 - まだ GitHub へは送っていません。最初のコミットに客先の情報が入っていたため、2026-09-27 に履歴を作り直しました
   （古い履歴はローカルのブランチ `private/before-publish-2026-09-27` だけ）。
-- 送る前に `scripts/check-publish.mjs` が、送るコミットに客先の語（リポジトリの外の `~/.config/mxstudio/publish-terms.txt`）が
+- 送る前に `scripts/check-publish.mjs` が、送るコミットに客先の語（リポジトリの外の `~/.config/mxstage/publish-terms.txt`）が
   無いかを調べ、当たれば送りません（`.githooks/pre-push`。`git config core.hooksPath .githooks` で有効にする）。手順は [publish.md](publish.md)。
 
 ## 試験

@@ -97,7 +97,7 @@ describe("stdio の MCP サーバ", () => {
     await cli.waitForStderr("listening on");
 
     const init = await cli.initialize(1);
-    expect((init.result as { serverInfo: { name: string } }).serverInfo.name).toBe("mxstudio");
+    expect((init.result as { serverInfo: { name: string } }).serverInfo.name).toBe("mxstage");
     // Skill の入らないクライアント（Claude Desktop のチャット）にも、データを作業画面のシートに読み込む決まりが届く
     const instructions = (init.result as { instructions?: string }).instructions ?? "";
     expect(instructions).toContain("必ず作業画面のシートに読み込み");
@@ -118,12 +118,12 @@ describe("stdio の MCP サーバ", () => {
     expect(grid.appUrl).toBe(`http://127.0.0.1:${port}/app`);
     expect(grid.tabConnected).toBe(false);
     // 会話で最初のツール呼び出しには、基本手順の Skill を添える（Skill 機能の無いクライアントにも、どのツールから始めても届く）
-    // 更新の知らせ（【mxstudio の更新】）は、試験を動かしているリポジトリの状態（ビルドが古いなど）で付いたり付かなかったりするので外して比べる
-    const withoutUpdates = (content: ToolCallResult["content"]) => content.filter((c) => !c.text.startsWith("【mxstudio の更新】"));
+    // 更新の知らせ（【MX Stage の更新】）は、試験を動かしているリポジトリの状態（ビルドが古いなど）で付いたり付かなかったりするので外して比べる
+    const withoutUpdates = (content: ToolCallResult["content"]) => content.filter((c) => !c.text.startsWith("【MX Stage の更新】"));
     const firstContent = withoutUpdates((open.result as ToolCallResult).content);
     expect(firstContent).toHaveLength(2);
-    expect(firstContent[1]!.text).toContain("mxstudio の基本手順と禁止事項");
-    expect(firstContent[1]!.text).toContain("# mxstudio 作業の基本手順");
+    expect(firstContent[1]!.text).toContain("MX Stage の基本手順と禁止事項");
+    expect(firstContent[1]!.text).toContain("# MX Stage 作業の基本手順");
     expect(firstContent[1]!.text).toContain("save_skill");
 
     // タブが無いときの get_status は「つながっていない」と答える（エラーにしない）。2 回目からは添えない
@@ -135,7 +135,7 @@ describe("stdio の MCP サーバ", () => {
     expect((skills.result as { structuredContent: { skills: unknown[] } }).structuredContent.skills.length).toBeGreaterThan(0);
 
     // チャットから利用者の Skill を保存すると、隔離環境の状態フォルダの skills/ に入り、すぐ get_skill で読める
-    const saveArgs = { name: "permit-date-update", description: "mxstudio で許可申請の完了日を一括で変えるときに使う。", body: "# 手順\n\nget_status から始め、get_diff で確かめてから request_commit する。" };
+    const saveArgs = { name: "permit-date-update", description: "mxstage で許可申請の完了日を一括で変えるときに使う。", body: "# 手順\n\nget_status から始め、get_diff で確かめてから request_commit する。" };
     const saved = (await cli.call(6, "tools/call", { name: "save_skill", arguments: saveArgs })).result as ToolCallResult;
     expect(saved.isError ?? false).toBe(false);
     expect(saved.structuredContent).toMatchObject({ saved: "permit-date-update", created: true, version: "0.1.0" });

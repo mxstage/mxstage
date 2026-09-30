@@ -1,5 +1,5 @@
 // 公開の前の検査（scripts/check-publish.mjs）の試験。
-// 一時フォルダに試験用の git リポジトリと語の一覧を作って動かす（本物のリポジトリと ~/.config/mxstudio には触れない）。
+// 一時フォルダに試験用の git リポジトリと語の一覧を作って動かす（本物のリポジトリと ~/.config/mxstage には触れない）。
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -70,8 +70,16 @@ test("findTerms・isText・parsePrePushInput・parseArgs・defaultTermsPath", ()
   ]);
   assert.deepEqual(parseArgs(["--pre-push", "origin", "https://example.invalid/r.git"]), { all: false, worktree: false, prePush: true, remote: "origin", terms: null });
   assert.match(parseArgs(["--nope"]).error, /知らない引数/);
-  assert.equal(defaultTermsPath({ MXSTUDIO_PUBLISH_TERMS: " C:\\t\\x.txt " }, "C:\\h"), "C:\\t\\x.txt");
-  assert.equal(defaultTermsPath({}, "C:\\h"), path.join("C:\\h", ".config", "mxstudio", "publish-terms.txt"));
+  assert.equal(defaultTermsPath({ MXSTAGE_PUBLISH_TERMS: " C:\\t\\x.txt " }, "C:\\h"), "C:\\t\\x.txt");
+  const current = path.join("C:\\h", ".config", "mxstage", "publish-terms.txt");
+  const legacy = path.join("C:\\h", ".config", "mxstudio", "publish-terms.txt");
+  const none = () => false;
+  assert.equal(defaultTermsPath({}, "C:\\h", none), current);
+  // 改名前の名前も読む（移す前に送れなくならないように）。新しい名前があればそちらを使う
+  assert.equal(defaultTermsPath({ MXSTUDIO_PUBLISH_TERMS: "C:\\old.txt" }, "C:\\h", none), "C:\\old.txt");
+  assert.equal(defaultTermsPath({ MXSTAGE_PUBLISH_TERMS: "C:\\new.txt", MXSTUDIO_PUBLISH_TERMS: "C:\\old.txt" }, "C:\\h", none), "C:\\new.txt");
+  assert.equal(defaultTermsPath({}, "C:\\h", (p) => p === legacy), legacy);
+  assert.equal(defaultTermsPath({}, "C:\\h", (p) => p === legacy || p === current), current);
 });
 
 test("履歴のどこかのコミットに客先の情報があれば止め、どのコミットのどのファイルかを出す。履歴を作り直せば通る", () => {

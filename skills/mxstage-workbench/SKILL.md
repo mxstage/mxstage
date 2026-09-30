@@ -1,11 +1,11 @@
 ---
-name: mxstudio-workbench
-description: "mxstudio の MCP ツールで Maximo のデータ（WO・ASSET・SR・カスタムテーブルなど）を作業画面に読み込み、集計・変更・差分確認をして利用者の承認で反映するときに最初に読む基本手順と禁止事項。利用者の Skill より先に読む。"
+name: mxstage-workbench
+description: "MX Stage の MCP ツールで Maximo のデータ（WO・ASSET・SR・カスタムテーブルなど）を作業画面に読み込み、集計・変更・差分確認をして利用者の承認で反映するときに最初に読む基本手順と禁止事項。利用者の Skill より先に読む。"
 metadata:
   version: "0.9.0"
 ---
 
-# mxstudio 作業の基本手順
+# MX Stage 作業の基本手順
 
 Maximo のデータをブラウザの「作業画面」にシートとして読み込み、確認してから反映するツール。**Maximo への書き込みは、利用者が作業画面で承認したときだけ行われる。**
 
@@ -70,4 +70,4 @@ Maximo のデータをブラウザの「作業画面」にシートとして読�
 
 ## 利用者の Skill
 
-業務や客先ごとの手順は利用者の Skill（`~/.config/mxstudio/skills/<名前>/SKILL.md`）。該当する作業では get_skill で読んで従う。利用者が手順を残したいと言ったら、name・description・本文を見せて了承を得てから save_skill で保存する。
+業務や客先ごとの手順は利用者の Skill（`~/.config/mxstage/skills/<名前>/SKILL.md`）。該当する作業では get_skill で読んで従う。利用者が手順を残したいと言ったら、name・description・本文を見せて了承を得てから save_skill で保存する。

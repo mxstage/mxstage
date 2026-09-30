@@ -5,14 +5,16 @@
 // import すると rollup が共有チャンクを作り、sw.js が import 文を持つ（＝古典スクリプトとして登録できない）。
 
 /** キャッシュ名の接頭辞。ここで始まる古いキャッシュは activate で消す */
-export const CACHE_PREFIX = "mxstudio-app-";
+export const CACHE_PREFIX = "mxstage-app-";
+/** 改名前（mxstudio）のキャッシュ名の接頭辞。activate でいまの版と一緒に消す */
+export const LEGACY_CACHE_PREFIXES: readonly string[] = ["mxstudio-app-"];
 
 /** オフラインのときに画面の枠として返すファイル */
 export const APP_SHELL_PATH = "/index.html";
 
 /** ビルド時に差し込む目印（vite.config.ts の plugin が中身に置き換える） */
-export const PRECACHE_MARKER = "__MXSTUDIO_PRECACHE__";
-export const BUILD_MARKER = "__MXSTUDIO_BUILD__";
+export const PRECACHE_MARKER = "__MXSTAGE_PRECACHE__";
+export const BUILD_MARKER = "__MXSTAGE_BUILD__";
 
 /** 画面のファイルではないが先読みしておくもの（publicDir の中身はバンドルに現れないため、ここに書く） */
 export const STATIC_PRECACHE: readonly string[] = [
@@ -27,10 +29,10 @@ export const STATIC_PRECACHE: readonly string[] = [
 
 /**
  * 応答を絶対に保存しないパス（同一オリジン）。橋渡しがその場で作って返すもの。
- * Maximo の応答（/mx）・中継（/ws）・取り込み（/import）・橋渡しの状態と Skill の一覧（/_mxstudio）。
+ * Maximo の応答（/mx）・中継（/ws）・取り込み（/import）・橋渡しの状態と Skill の一覧（/_mxstage）。
  * ここを間違えると作業データがブラウザのディスクに残ったり、古い一覧を出し続けたりする。
  */
-const NEVER_CACHED = ["/mx", "/ws", "/import", "/_mxstudio"] as const;
+const NEVER_CACHED = ["/mx", "/ws", "/import", "/_mxstage", "/_mxstudio"] as const;
 
 /**
  * 先読みの対象にする拡張子（.map は入れない。ソースマップはオフラインの動作に要らない）。
@@ -85,8 +87,9 @@ export function cacheNameOf(buildId: string): string {
   return `${CACHE_PREFIX}${buildId}`;
 }
 
-/** activate で消すキャッシュか（このツールのもので、いまの版ではないもの） */
+/** activate で消すキャッシュか（このツールのもので、いまの版ではないもの。改名前の名前のものも含む） */
 export function isStaleCache(name: string, current: string): boolean {
+  if (LEGACY_CACHE_PREFIXES.some((prefix) => name.startsWith(prefix))) return true;
   return name.startsWith(CACHE_PREFIX) && name !== current;
 }
 
@@ -95,9 +98,9 @@ export function asFileList(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string" && v.startsWith("/")) : [];
 }
 
-/** 目印（__MXSTUDIO_… のまま）だったときは fallback を返す。差し込み前でもキャッシュ名が壊れないように */
+/** 目印（__MXSTAGE_… のまま）だったときは fallback を返す。差し込み前でもキャッシュ名が壊れないように */
 export function asBuildId(value: unknown, fallback = "dev"): string {
-  return typeof value === "string" && value !== "" && !value.startsWith("__MXSTUDIO") ? value : fallback;
+  return typeof value === "string" && value !== "" && !value.startsWith("__MXSTAGE") ? value : fallback;
 }
 
 // ---------------------------------------------------------------------------

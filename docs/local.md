@@ -1,13 +1,13 @@
 # 使い方（入れる・毎日・更新・取り消し）
 
-mxstudio は **この PC の中だけ**で動きます。画面（作業画面）も、Claude との MCP 接続も、Maximo への中継も、
+MX Stage は **この PC の中だけ**で動きます。画面（作業画面）も、Claude との MCP 接続も、Maximo への中継も、
 **橋渡し**（この PC で動く Node のプロセス）が引き受けます。
 
 **橋渡しは 1 つだけ**です。ポートは `8788` に固定で、作業画面も Claude Code も、その 1 つを共有します。
 
 - 最初に起動した橋渡しが `8788` を持ちます（ログイン時の自動起動、導入したその場での起動、または Claude が起動したもの）。
 - あとから起動した橋渡し（Claude Code が MCP サーバとして起動する分）は、自分ではポートを持たず、`8788` の橋渡しに**中継**します。
-- 橋渡しは `http://127.0.0.1:8788/_mxstudio/health` に `{"name":"mxstudio-bridge", …}` と応えます。導入と `--status` はこれで確かめます。
+- 橋渡しは `http://127.0.0.1:8788/_mxstage/health` に `{"name":"mxstage-bridge", …}` と応えます。導入と `--status` はこれで確かめます。
 
 ログインもトークンもありません（`127.0.0.1` に来られる＝この PC の利用者、として扱います）。
 Maximo の API キーは**ブラウザの作業タブの中**にだけ置きます。橋渡しには呼び出しごとにヘッダで渡すだけで、
@@ -18,17 +18,17 @@ Maximo の API キーは**ブラウザの作業タブの中**にだけ置きま�
 ## 1. 入れる
 
 **Claude Code（Claude Desktop の Code タブでもよい）に、リポジトリの URL と「インストールして」と伝えます。**
-Claude Code は README の「導入手順（Claude Code 向け）」に沿って、取得（`%USERPROFILE%\mxstudio`）と導入
+Claude Code は README の「導入手順（Claude Code 向け）」に沿って、取得（`%USERPROFILE%\mxstage`）と導入
 （`node scripts/setup-local.mjs --json`）を行います。コマンドごとに確認が出ます。
 
 手で入れるときは、取得したフォルダで次のどちらかを実行します（中身は同じです）。
 
 ```
 node scripts/setup-local.mjs
-.\mxstudio.cmd
+.\mxstage.cmd
 ```
 
-`mxstudio.cmd` はダブルクリックでも動き、最後に入力待ちで止まります。コマンドプロンプトからは `.\` を付けてください
+`mxstage.cmd` はダブルクリックでも動き、最後に入力待ちで止まります。コマンドプロンプトからは `.\` を付けてください
 （`NoDefaultCurrentDirectoryInExePath` が有効な PC では、付けないと見つかりません）。
 `node scripts/setup-local.mjs --help` で全オプションが出ます。
 
@@ -48,27 +48,27 @@ Codex（ChatGPT デスクトップアプリの Codex・CLI・IDE 拡張）が入
 | 依存とビルド | `node_modules` が無いか、`package-lock.json` の方が新しければ `npm install`。`dist\app` が無いか、画面と Skill のもと（`src\app`・`src\shared`・`skills`・`public`・`vite.config.ts`・`package-lock.json`）の方が新しければ `npm run build` |
 | ポート | `8788` を使います。**ずらしません。** 既に橋渡しが動いていればそれを使います。橋渡しではない別のプログラムが `8788` を使っているときは、**何も書き換えずに NG で止まります**（そのプログラムを止めるか、`--port <番号>` で別の番号を指定します） |
 | 橋渡しの起動 | `node --experimental-strip-types src\bridge\cli.ts --no-mcp --port 8788` を裏で起動し、応えるまで（最大 20 秒）待ちます。`--no-mcp` は「画面と中継だけで、stdio の MCP は開かない」という意味です。ウィンドウは出しません。既に橋渡しが動いていれば起動し直しません |
-| Claude Code | `~\.claude.json` の `mcpServers.mxstudio` に登録（`claude mcp add --scope user mxstudio -- <node> --experimental-strip-types <入口> --port 8788` と同じ内容） |
-| Claude Desktop | `%APPDATA%\Claude\claude_desktop_config.json` の `mcpServers.mxstudio` に登録 |
-| Antigravity | `~\.gemini` があるときだけ、`~\.gemini\config\mcp_config.json` の `mcpServers.mxstudio` に登録（2.0・IDE・`agy` CLI が同じファイルを読みます）。無ければ何も作りません。登録しないときは `--no-antigravity` |
-| Codex | `~\.codex`（`CODEX_HOME` があればそこ）があるときだけ、`config.toml` に `[mcp_servers.mxstudio]` の表を 1 つだけ足します（デスクトップ・CLI・IDE 拡張が同じファイルを読みます。ほかの行・コメントには触りません）。表ではない書き方の mxstudio があれば触りません。登録しないときは `--no-codex` |
-| Skill | アプリ既定（リポジトリの `skills\`）と利用者の Skill（`~\.config\mxstudio\skills\`）を `~\.claude\skills\<名前>\SKILL.md` に写す（2 章の「Skill」）。Antigravity に登録したときは `~\.gemini\config\skills\<名前>\SKILL.md`（2.0・IDE が読む場所）、Codex に登録したときは `~\.agents\skills\<名前>\SKILL.md` にも写す。以前の導入が `~\.gemini\skills` に写した分は、書き換えられていなければ片付けます。入れないときは `--no-skills` |
-| 自動起動 | スタートアップに `mxstudio-bridge.lnk`（最小化で橋渡しを起動） |
-| ショートカット | デスクトップに `mxstudio.lnk`（Chrome か Edge の**アプリ窓**で `/app` を開く。どちらも無ければ `mxstudio.url` で既定のブラウザ） |
-| 橋渡しの確認 | 最後に `/_mxstudio/health` に聞き、「橋渡しが 1 つ動いています」と出します。古い版の橋渡しや、取り決めの版（`protocol`）が違う橋渡しが動いていれば警告します |
-| 記録 | `~\.config\mxstudio\setup.json`（ポート・入口・置き換える前の設定の控えの場所。秘密は書きません） |
+| Claude Code | `~\.claude.json` の `mcpServers.mxstage` に登録（`claude mcp add --scope user MX Stage -- <node> --experimental-strip-types <入口> --port 8788` と同じ内容） |
+| Claude Desktop | `%APPDATA%\Claude\claude_desktop_config.json` の `mcpServers.mxstage` に登録 |
+| Antigravity | `~\.gemini` があるときだけ、`~\.gemini\config\mcp_config.json` の `mcpServers.mxstage` に登録（2.0・IDE・`agy` CLI が同じファイルを読みます）。無ければ何も作りません。登録しないときは `--no-antigravity` |
+| Codex | `~\.codex`（`CODEX_HOME` があればそこ）があるときだけ、`config.toml` に `[mcp_servers.mxstage]` の表を 1 つだけ足します（デスクトップ・CLI・IDE 拡張が同じファイルを読みます。ほかの行・コメントには触りません）。表ではない書き方の MX Stage があれば触りません。登録しないときは `--no-codex` |
+| Skill | アプリ既定（リポジトリの `skills\`）と利用者の Skill（`~\.config\mxstage\skills\`）を `~\.claude\skills\<名前>\SKILL.md` に写す（2 章の「Skill」）。Antigravity に登録したときは `~\.gemini\config\skills\<名前>\SKILL.md`（2.0・IDE が読む場所）、Codex に登録したときは `~\.agents\skills\<名前>\SKILL.md` にも写す。以前の導入が `~\.gemini\skills` に写した分は、書き換えられていなければ片付けます。入れないときは `--no-skills` |
+| 自動起動 | スタートアップに `mxstage-bridge.lnk`（最小化で橋渡しを起動） |
+| ショートカット | デスクトップに `mxstage.lnk`（Chrome か Edge の**アプリ窓**で `/app` を開く。どちらも無ければ `mxstage.url` で既定のブラウザ） |
+| 橋渡しの確認 | 最後に `/_mxstage/health` に聞き、「橋渡しが 1 つ動いています」と出します。古い版の橋渡しや、取り決めの版（`protocol`）が違う橋渡しが動いていれば警告します |
+| 記録 | `~\.config\mxstage\setup.json`（ポート・入口・置き換える前の設定の控えの場所。秘密は書きません） |
 | 最後に | 作業画面を開きます（`--no-open` で開かない） |
 
 `--port <番号>` で番号を指定したときは、その番号を記録し、次に `--port` なしで実行したときも引き継ぎます。
 
-**書き換える前に必ず控え（バックアップ）を取ります。** 控えは `~\.config\mxstudio\backup\` に
+**書き換える前に必ず控え（バックアップ）を取ります。** 控えは `~\.config\mxstage\backup\` に
 `<元のファイル名>.<日時>.bak` の名前で置かれ、画面にもその場所が出ます。控えは消しません。
 控えは元の設定ファイルの**まるごとの写し**なので、元のファイルに入っていたトークンも含みます。要らなくなったら手で消してください。
 
-**既にある設定は消しません。** `mcpServers` の中の**ほかのサーバはそのまま**で、`mxstudio` の 1 ブロックだけを足します。
-`mxstudio` という名前の設定が既にあるときは置き換え、置き換える前の設定が何だったかで扱いを分けます。
+**既にある設定は消しません。** `mcpServers` の中の**ほかのサーバはそのまま**で、`mxstage` の 1 ブロックだけを足します。
+`mxstage` という名前の設定が既にあるときは置き換え、置き換える前の設定が何だったかで扱いを分けます。
 
-| 置き換える前の `mxstudio` | 取り消し（`--uninstall`）で戻す先として記録するか | 画面 |
+| 置き換える前の `mxstage` | 取り消し（`--uninstall`）で戻す先として記録するか | 画面 |
 |---|---|---|
 | 利用者の設定（別の方法で登録していたもの） | **記録する**。取り消しで控えから元に戻る | `[警告] 置き換えた前の設定（値は伏せています）: …` |
 | 前回この導入が書いた設定 | 記録しない | `[OK  ] …前回この導入が書いたものなので、…戻す先としては記録しません。` |
@@ -81,9 +81,9 @@ Codex（ChatGPT デスクトップアプリの Codex・CLI・IDE 拡張）が入
 
 ## 2. 毎日の使い方
 
-1. **作業画面**: デスクトップの `mxstudio` を開く（または `http://127.0.0.1:8788/app`）。ここが正本です。開いていないと Claude のツールは動きません。
+1. **作業画面**: デスクトップの `mxstage` を開く（または `http://127.0.0.1:8788/app`）。ここが正本です。開いていないと Claude のツールは動きません。
 2. 設定画面で Maximo につなぐ（API キーはここで入れます。ブラウザのパスワードマネージャーに記憶させられます）。
-3. **Claude Code に指示する。** ツール（`mxstudio` の MCP）は自動でつながり、この作業画面に届きます。
+3. **Claude Code に指示する。** ツール（`mxstage` の MCP）は自動でつながり、この作業画面に届きます。
 4. Maximo への書き込みは、作業画面の [Maximo に反映] を押したときだけです。
 
 `localhost` と `127.0.0.1` はブラウザでは別のサイトとして扱われます（保存した設定やパスワードマネージャーの記憶が分かれます）。
@@ -131,17 +131,17 @@ Codex（ChatGPT デスクトップアプリの Codex・CLI・IDE 拡張）が入
 
 ### Skill（作業手順書）
 
-Claude に mxstudio の使い方を教えるファイルです。**アプリ既定**と**利用者の Skill** に分けています。
+Claude に MX Stage の使い方を教えるファイルです。**アプリ既定**と**利用者の Skill** に分けています。
 
 | | 置き場所 | 中身 |
 |---|---|---|
-| アプリ既定 | リポジトリの `skills\`（`mxstudio-workbench`） | どの業務にも共通の基本手順と禁止事項。mxstudio と一緒に置き換わるので、書き換えないでください |
-| 利用者の Skill | `~\.config\mxstudio\skills\<名前>\SKILL.md` | 業務や客先ごとの手順。mxstudio を更新しても消えず、リポジトリにも入りません |
+| アプリ既定 | リポジトリの `skills\`（`mxstage-workbench`） | どの業務にも共通の基本手順と禁止事項。MX Stage と一緒に置き換わるので、書き換えないでください |
+| 利用者の Skill | `~\.config\mxstage\skills\<名前>\SKILL.md` | 業務や客先ごとの手順。MX Stage を更新しても消えず、リポジトリにも入りません |
 
-- **どの LLM クライアントでも使えます。** Claude Code・Claude Desktop のチャット・Gemini など、mxstudio をつないだクライアントには、
+- **どの LLM クライアントでも使えます。** Claude Code・Claude Desktop のチャット・Gemini など、MX Stage をつないだクライアントには、
   会話で最初にツールを使ったときに基本手順と利用者の Skill の一覧が届きます（クライアント側の Skill の設定は要りません）。
 - **チャットから Skill を作れます。** 作業の途中で「この手順を Skill として残して」と頼むと、LLM が名前・説明・本文を示して確かめたうえで、
-  `~\.config\mxstudio\skills\` に保存します。次の会話から使えます（既にある Skill を書き換えるときも確かめます）。
+  `~\.config\mxstage\skills\` に保存します。次の会話から使えます（既にある Skill を書き換えるときも確かめます）。
 - 導入のたびに、両方を Claude Code の `~\.claude\skills\` に写します。利用者の Skill を手で足したり直したりしたら、導入をもう一度実行すると Claude Code の Skill 機能にも載ります。
 - 利用者の Skill を消してから導入すると、前に写したもの（書き換えていなければ）も `~\.claude\skills\` から消えます。
 - アプリ既定と同じ名前の利用者の Skill は入れません（`[警告]` が出ます）。frontmatter の `name` はフォルダ名と同じにします。
@@ -155,7 +155,7 @@ Claude に mxstudio の使い方を教えるファイルです。**アプリ既�
 
 Claude が先に起動して橋渡しを立てると、その橋渡しがポートを持ちます。その状態で Claude を終了すると、
 ポートを持っていた橋渡しも終わります。ほかに Claude が起動した橋渡しが動いていれば、それが約 2 秒ごとに確かめてポートを引き継ぎます。
-**何も動いていなければ、作業画面はつながらなくなります。** そのときは導入をもう一度実行するか、スタートアップの `mxstudio-bridge.lnk` を実行してください。
+**何も動いていなければ、作業画面はつながらなくなります。** そのときは導入をもう一度実行するか、スタートアップの `mxstage-bridge.lnk` を実行してください。
 
 いまの状態を見るには（**何も書き換えません**）:
 
@@ -167,7 +167,7 @@ node scripts/setup-local.mjs --status
 
 ## 3. 更新する
 
-Claude Code に「mxstudio を更新して」と頼むか、手で次を実行します。
+Claude Code に「MX Stage を更新して」と頼むか、手で次を実行します。
 
 ```
 git pull --ff-only
@@ -194,14 +194,14 @@ node scripts/setup-local.mjs
 
 動いているものは、更新しても古いままです。そこで、古くなっているものと直し方を 2 か所で知らせます（`src/bridge/freshness.ts`）。
 
-- **LLM へ**: `get_status` の結果（`updates`）と、会話で最初のツール呼び出しの結果に `【mxstudio の更新】` として添えます。
+- **LLM へ**: `get_status` の結果（`updates`）と、会話で最初のツール呼び出しの結果に `【MX Stage の更新】` として添えます。
   どのクライアント（Claude Code・Claude Desktop・Antigravity など）にも届き、LLM が利用者に伝えます。
 - **利用者へ**: `node scripts/setup-local.mjs --status` の `[警告]` の行。
 
 | 知らせ | 何が古いか | 直し方 |
 |---|---|---|
-| この会話の mxstudio | 会話の MCP を話す橋渡しのコード（`src/bridge`・`src/shared`・`package.json`）が、起動したあとに変わった | 会話を始め直す（Claude Desktop は再起動） |
-| 中継している橋渡し | ポートを持つ橋渡しのコードが、起動したあとに変わった（`/_mxstudio/health` の `stale`） | その橋渡しを止めて起動し直す |
+| この会話の MX Stage | 会話の MCP を話す橋渡しのコード（`src/bridge`・`src/shared`・`package.json`）が、起動したあとに変わった | 会話を始め直す（Claude Desktop は再起動） |
+| 中継している橋渡し | ポートを持つ橋渡しのコードが、起動したあとに変わった（`/_mxstage/health` の `stale`） | その橋渡しを止めて起動し直す |
 | 作業画面のビルド | `dist/app` が元（`src/app`・`skills` など）より古い | 導入をもう一度実行して、作業画面を再読み込み |
 | Skill の写し | 配った写し（`~\.claude\skills`・`~\.gemini\config\skills` など）が、元（`skills\` と利用者の Skill）と中身が違う・まだ無い | 導入をもう一度実行して、新しい会話から使う |
 
@@ -211,7 +211,7 @@ node scripts/setup-local.mjs
 
 ## 4. 取り消す（全部戻す）
 
-Claude Code に「mxstudio をアンインストールして」と頼むか、手で次を実行します。
+Claude Code に「MX Stage をアンインストールして」と頼むか、手で次を実行します。
 
 ```
 node scripts/setup-local.mjs --uninstall
@@ -221,20 +221,20 @@ node scripts/setup-local.mjs --uninstall
   含まれるものだけを止めます。ファイル名が同じだけの別のプロセスは止めません。
 - ポートを持っているのが Claude の起動した橋渡し（`--no-mcp` の無いもの）なら、**止めずに**警告します
   （Claude の中で使っている最中のツールを、Claude に知らせずに切らないためです。Claude を終了すると止まります）。
-- Claude Code / Claude Desktop / Antigravity / Codex の設定から `mxstudio` を外します。**置き換える前の利用者の設定があれば、控えから読み直して元に戻します。**
+- Claude Code / Claude Desktop / Antigravity / Codex の設定から `mxstage` を外します。**置き換える前の利用者の設定があれば、控えから読み直して元に戻します。**
   ほかの MCP サーバとほかの設定には触りません。
 - スタートアップとデスクトップのショートカットを消します。
 - この導入が入れた Skill（`~\.claude\skills\<名前>`・`~\.gemini\config\skills\<名前>`・`~\.agents\skills\<名前>`。以前の導入のまま取り消すときは `~\.gemini\skills\<名前>`）を消します。**書き換えられている Skill は残します。**
-  **利用者の Skill の元（`~\.config\mxstudio\skills\`）は消しません。**
+  **利用者の Skill の元（`~\.config\mxstage\skills\`）は消しません。**
 - 記録（`setup.json`）を消します。**控え（`backup\`）は残します。**
 
 **一部だけやめる**こともできます。
 
 | やめたいこと | やり方 |
 |---|---|
-| ログイン時の自動起動だけ | スタートアップの `mxstudio-bridge.lnk` を**消すだけ**（`shell:startup` で開くフォルダ） |
-| デスクトップのショートカットだけ | `mxstudio.lnk`（または `mxstudio.url`）を消すだけ |
-| Claude Code からだけ外す | `claude mcp remove --scope user mxstudio` |
+| ログイン時の自動起動だけ | スタートアップの `mxstage-bridge.lnk` を**消すだけ**（`shell:startup` で開くフォルダ） |
+| デスクトップのショートカットだけ | `mxstage.lnk`（または `mxstage.url`）を消すだけ |
+| Claude Code からだけ外す | `claude mcp remove --scope user mxstage` |
 | 今すぐ橋渡しを止める | 自動起動の分は、最小化されている「node」のウィンドウを閉じる。ウィンドウの無い分は、タスクマネージャーの「詳細」タブで、コマンドラインに `src\bridge\cli.ts` を含む `node.exe` を終了する（コマンドラインの列は、列の見出しを右クリック →「列の選択」で出します）。または `node scripts/setup-local.mjs --uninstall` |
 
 ---
@@ -247,12 +247,12 @@ node scripts/setup-local.mjs --uninstall
 
 | 出た行 | 意味と直し方 |
 |---|---|
-| `[OK  ] ポート 8788 で橋渡しが 1 つ動いています` | 橋渡しは動いています。**作業画面のタブが開いていない**だけです。デスクトップの `mxstudio` を開いてから、もう一度頼んでください |
+| `[OK  ] ポート 8788 で橋渡しが 1 つ動いています` | 橋渡しは動いています。**作業画面のタブが開いていない**だけです。デスクトップの `mxstage` を開いてから、もう一度頼んでください |
 | `[警告] …取り決めの版が違います` | 更新前の橋渡しが動いたままです。3 章の手順で入れ直してください |
-| `[警告] ポート 8788 で橋渡しは動いていません` | 導入をもう一度実行するか、スタートアップの `mxstudio-bridge.lnk` を実行してください |
-| `[警告] ポート 8788 には mxstudio の橋渡しではないものが応えています` | 別のプログラムが `8788` を使っています。下へ |
+| `[警告] ポート 8788 で橋渡しは動いていません` | 導入をもう一度実行するか、スタートアップの `mxstage-bridge.lnk` を実行してください |
+| `[警告] ポート 8788 には MX Stage の橋渡しではないものが応えています` | 別のプログラムが `8788` を使っています。下へ |
 
-### 「ポート 8788 を、mxstudio の橋渡しではないプログラムが使っています」と出る
+### 「ポート 8788 を、MX Stage の橋渡しではないプログラムが使っています」と出る
 
 橋渡しは Claude と同じポートを共有するので、**別のポートへはずらしません**。この表示のときは何も書き換えていません。
 そのプログラムを止めてから入れ直すか、空いている番号を指定して入れ直します（`node scripts/setup-local.mjs --port 8900`。
@@ -261,12 +261,12 @@ Claude の設定・自動起動・ショートカットもその番号で作ら�
 ### 「橋渡しが 20 秒たっても応答しません」「橋渡しが起動してすぐに終了しました」と出る
 
 画面に、橋渡しを手で起動するコマンドが出ます。そのまま実行すると理由が読めます。橋渡しのログ
-（`~\.config\mxstudio\bridge.log`）にも残ります。よくある原因は `dist\app` が無いこと（`npm run build` を実行してから、もう一度）です。
+（`~\.config\mxstage\bridge.log`）にも残ります。よくある原因は `dist\app` が無いこと（`npm run build` を実行してから、もう一度）です。
 
 ### Claude Code にツールが出てこない
 
 - **Claude Code を開き直してください**（起動中のセッションには新しい MCP 設定が反映されません）。
-- `claude mcp list` に `mxstudio` が出るか確認してください。
+- `claude mcp list` に `mxstage` が出るか確認してください。
 - 導入の途中で Claude Code が `~\.claude.json` を同時に書くことがあります。出てこなければ、もう一度導入してください。
 
 ### 作業画面が開かない
@@ -285,7 +285,7 @@ Claude の設定・自動起動・ショートカットもその番号で作ら�
 
 ### 入れる前の状態に戻したい
 
-`node scripts/setup-local.mjs --uninstall` で戻ります。それでも足りないときは、控え（`~\.config\mxstudio\backup\` の
+`node scripts/setup-local.mjs --uninstall` で戻ります。それでも足りないときは、控え（`~\.config\mxstage\backup\` の
 `.claude.json.<日時>.bak` / `claude_desktop_config.json.<日時>.bak`）から戻してください。中身はそのときの設定ファイルのまるごとの写しです。
 
 ---
@@ -294,38 +294,38 @@ Claude の設定・自動起動・ショートカットもその番号で作ら�
 
 | 場所 | 何を |
 |---|---|
-| `~\.claude.json` の `mcpServers.mxstudio` | Claude Code の MCP 設定（stdio・`node <入口> --port <番号>`） |
-| `%APPDATA%\Claude\claude_desktop_config.json` の `mcpServers.mxstudio` | Claude Desktop の MCP 設定 |
-| `~\.gemini\config\mcp_config.json` の `mcpServers.mxstudio` | Antigravity の MCP 設定（`~\.gemini` があるときだけ） |
+| `~\.claude.json` の `mcpServers.mxstage` | Claude Code の MCP 設定（stdio・`node <入口> --port <番号>`） |
+| `%APPDATA%\Claude\claude_desktop_config.json` の `mcpServers.mxstage` | Claude Desktop の MCP 設定 |
+| `~\.gemini\config\mcp_config.json` の `mcpServers.mxstage` | Antigravity の MCP 設定（`~\.gemini` があるときだけ） |
 | `~\.gemini\config\skills\<名前>\SKILL.md` | Antigravity（2.0・IDE）の Skill（Claude Code の分と同じ中身・同じ扱い）。以前の導入は `~\.gemini\skills`（Gemini CLI の置き場所）に写していました |
-| `~\.codex\config.toml` の `[mcp_servers.mxstudio]` | Codex の MCP 設定（`~\.codex` があるときだけ。デスクトップ・CLI・IDE 拡張共通） |
+| `~\.codex\config.toml` の `[mcp_servers.mxstage]` | Codex の MCP 設定（`~\.codex` があるときだけ。デスクトップ・CLI・IDE 拡張共通） |
 | `~\.agents\skills\<名前>\SKILL.md` | Codex が読む個人の Skill（Claude Code の分と同じ中身・同じ扱い。ほかのエージェントも読むことがあります） |
 | `~\.claude\skills\<名前>\SKILL.md` | Claude Code の Skill（アプリ既定と利用者の Skill の写し。記録には名前・出どころ・中身のハッシュだけを書き、取り消しでは書き換えられていないものだけを消す） |
-| スタートアップフォルダ（`shell:startup`） | `mxstudio-bridge.lnk` |
-| デスクトップ | `mxstudio.lnk` または `mxstudio.url` |
-| `~\.config\mxstudio\setup.json` | 導入の記録（ポート・入口・控えの場所。**秘密は書きません**） |
-| `~\.config\mxstudio\backup\` | 書き換える前の設定ファイルの控え |
-| `~\.config\mxstudio\skills\` | **利用者の Skill**（利用者が置く。導入も取り消しも消さない） |
-| `~\.config\mxstudio\bridge.key` | **橋渡しが作ります**。橋渡し同士（ポートを持つ橋渡しと中継する橋渡し）の認証に使う乱数の鍵。取り消しでは消しません |
-| `~\.config\mxstudio\bridge.log` | **橋渡しが書きます**。起動・終了・中継・異常終了の記録（API キーと作業データは書きません。512KB で 1 世代だけ残して切り替え） |
+| スタートアップフォルダ（`shell:startup`） | `mxstage-bridge.lnk` |
+| デスクトップ | `mxstage.lnk` または `mxstage.url` |
+| `~\.config\mxstage\setup.json` | 導入の記録（ポート・入口・控えの場所。**秘密は書きません**） |
+| `~\.config\mxstage\backup\` | 書き換える前の設定ファイルの控え |
+| `~\.config\mxstage\skills\` | **利用者の Skill**（利用者が置く。導入も取り消しも消さない） |
+| `~\.config\mxstage\bridge.key` | **橋渡しが作ります**。橋渡し同士（ポートを持つ橋渡しと中継する橋渡し）の認証に使う乱数の鍵。取り消しでは消しません |
+| `~\.config\mxstage\bridge.log` | **橋渡しが書きます**。起動・終了・中継・異常終了の記録（API キーと作業データは書きません。512KB で 1 世代だけ残して切り替え） |
 
-`~\.config\mxstudio` は、Windows では `%USERPROFILE%\.config\mxstudio` です。
+`~\.config\mxstage` は、Windows では `%USERPROFILE%\.config\mxstage` です。
 
 **`%LOCALAPPDATA%` に置かない理由。** Claude Desktop は MSIX パッケージのアプリで、Claude Desktop（とその Code タブ）が起動したプロセスが
 `%LOCALAPPDATA%` に書いたファイルは、パッケージ専用の場所に振り替えられてパッケージの外からは見えません。
 鍵ファイルをそこに置くと、Claude が起動した橋渡しとログイン時の自動起動の橋渡しが別々の鍵を持ち、中継が認証に失敗します。
-ホーム直下は振り替えられないので、`~\.config\mxstudio` に置きます。
+ホーム直下は振り替えられないので、`~\.config\mxstage` に置きます。
 
 これ以外は書き換えません。レジストリもサービスも触りません。
 `claude` コマンドで登録したときは、`claude` コマンド自身が `~\.claude\backups\` に自分の控えを作ります。
 
 ### 試験のときの決まり
 
-`npm run test:setup` は印 `MXSTUDIO_SETUP_TEST=1` を立てて動きます。この印があるときは、本物の `claude` コマンドを探さず、
+`npm run test:setup` は印 `MXSTAGE_SETUP_TEST=1` を立てて動きます。この印があるときは、本物の `claude` コマンドを探さず、
 書き先（`--state-dir`・`--claude-code-config`・`--claude-desktop-config`・`--startup-dir`・`--desktop-dir`）が
 すべて一時フォルダの中で、`--port`（`8788` 以外）・`--bridge`・`--no-open`・`--no-install`・`--no-build` がそろっていなければ、
 何もせずに終了コード 2 で止まります。最後の試験で、本物の書き先の更新時刻が試験の前後で変わっていないことを確かめます。
 
-手で本物の橋渡しを試すときは、環境変数 `MXSTUDIO_BRIDGE_KEY_FILE` を一時フォルダのファイルに向けてください
-（向けないと本物の `~\.config\mxstudio\bridge.key` を作ります）。**その値を設定したままのシェルで導入を実行しないでください**
+手で本物の橋渡しを試すときは、環境変数 `MXSTAGE_BRIDGE_KEY_FILE` を一時フォルダのファイルに向けてください
+（向けないと本物の `~\.config\mxstage\bridge.key` を作ります）。**その値を設定したままのシェルで導入を実行しないでください**
 （画面用の橋渡しだけがその鍵を使い、Claude が起動する橋渡しと鍵が食い違います。導入はこのとき警告を出します）。

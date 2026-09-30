@@ -32,7 +32,7 @@ describe("Host ヘッダ", () => {
     expect(isLocalHost("[::1]:8788", PORT)).toBe(true);
     // DNS リバインディング（外部の名前を 127.0.0.1 に向ける）を止める
     expect(isLocalHost("evil.example:8788", PORT)).toBe(false);
-    expect(isLocalHost("mxstudio.localhost.evil.example:8788", PORT)).toBe(false);
+    expect(isLocalHost("mxstage.localhost.evil.example:8788", PORT)).toBe(false);
     // ポートが違えば別のサーバ宛て
     expect(isLocalHost("127.0.0.1:9999", PORT)).toBe(false);
     expect(isLocalHost(undefined, PORT)).toBe(false);

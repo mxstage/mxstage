@@ -26,8 +26,8 @@ import type { TicketIssuer } from "./peer.ts";
  * 「Maximo のデータは作業画面のシートに読み込み、シートから読む」はツールの作りでも守る（scope_options も走査した行をシートにする）。
  */
 export const SERVER_INSTRUCTIONS =
-  "mxstudio は Maximo のデータ整備を作業画面（ブラウザのタブ）で行うツールです。最初に get_status を呼び、タブが無ければ open_grid の URL を利用者に案内してください。" +
-  "最初のツール呼び出しの結果に mxstudio の基本手順と禁止事項（Skill）を添えます。必ず読んで従ってください。業務ごとの手順（利用者の Skill）は list_skills・get_skill で読めます。" +
+  "MX Stage は Maximo のデータ整備を作業画面（ブラウザのタブ）で行うツールです。最初に get_status を呼び、タブが無ければ open_grid の URL を利用者に案内してください。" +
+  "最初のツール呼び出しの結果に MX Stage の基本手順と禁止事項（Skill）を添えます。必ず読んで従ってください。業務ごとの手順（利用者の Skill）は list_skills・get_skill で読めます。" +
   "Maximo のデータは必ず作業画面のシートに読み込み（load_sheet・load_master・scope_options）、シートから読んでください（query_rows・aggregate）。利用者が作業画面で同じデータを見て確かめられるようにするためです。" +
   "利用者が手順を残したいと言ったら、内容を見せて了承を得てから save_skill で利用者の Skill として保存してください。" +
   "Maximo への書き込みは利用者が作業画面で承認したときだけ行われます。API キーをチャットで求めないでください。";
@@ -42,8 +42,8 @@ export function sessionGuide(userSkillsDir: string | null): string {
   const primary = catalog.skills.find((s) => s.origin === "default");
   const users = catalog.skills.filter((s) => s.origin === "user");
   const parts = [
-    "【mxstudio の基本手順と禁止事項（Skill: " +
-      (primary?.name ?? "mxstudio-workbench") +
+    "【MX Stage の基本手順と禁止事項（Skill: " +
+      (primary?.name ?? "mxstage-workbench") +
       "）。この会話で最初のツール呼び出しの結果にだけ付けています。以後の作業はこれに従ってください】",
   ];
   if (primary !== undefined) parts.push(primary.body);
@@ -95,7 +95,7 @@ export interface BridgeMcpDeps {
   tickets: TicketIssuer;
   /** 橋渡しの版（MCP の serverInfo に載せる） */
   version: string;
-  /** 利用者の Skill のフォルダ（~/.config/mxstudio/skills）。null なら既定の Skill だけ */
+  /** 利用者の Skill のフォルダ（~/.config/mxstage/skills）。null なら既定の Skill だけ */
   userSkillsDir?: string | null;
   /** 古くなっているものを調べる（src/bridge/freshness.ts の checkUpdates）。省くと知らせを添えない */
   checkUpdates?: () => Promise<UpdateNotice[]>;
@@ -242,7 +242,7 @@ export async function runWorkerTool(deps: BridgeMcpDeps, name: ToolName, args: R
         path: saved.path,
         message:
           `利用者の Skill ${saved.name} を${saved.created ? "保存" : "書き換え"}しました。次の会話から list_skills・get_skill で読めます。` +
-          "Claude Code の Skill 機能に載せるには、mxstudio の導入をもう一度実行してください。",
+          "Claude Code の Skill 機能に載せるには、MX Stage の導入をもう一度実行してください。",
       };
       if (saved.warnings.length > 0) value.warnings = saved.warnings;
       return jsonResult(value);
@@ -253,7 +253,7 @@ export async function runWorkerTool(deps: BridgeMcpDeps, name: ToolName, args: R
       try {
         ticket = await deps.tickets.create();
       } catch {
-        return simpleError("アップロード URL を発行できませんでした。mxstudio の橋渡しが動いているか確かめてから、もう一度実行してください。");
+        return simpleError("アップロード URL を発行できませんでした。MX Stage の橋渡しが動いているか確かめてから、もう一度実行してください。");
       }
       const uploadUrl = `${origin}/import/${ticket.importId}`;
       const fileName = typeof args.fileName === "string" && args.fileName ? args.fileName : "file.xlsx";
@@ -277,7 +277,7 @@ export async function runWorkerTool(deps: BridgeMcpDeps, name: ToolName, args: R
 }
 
 export function buildBridgeMcpServer(deps: BridgeMcpDeps): McpServer {
-  const server = new McpServer({ name: "mxstudio", version: deps.version }, { instructions: SERVER_INSTRUCTIONS });
+  const server = new McpServer({ name: "mxstage", version: deps.version }, { instructions: SERVER_INSTRUCTIONS });
   // この会話（MCP のセッション。橋渡しのプロセス 1 つが 1 つを受け持つ）で、基本手順をもう添えたか
   let guided = false;
   for (const name of TOOL_NAMES) {

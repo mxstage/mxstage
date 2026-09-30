@@ -8,6 +8,7 @@ import { KeyVault, createWorkerTransport } from "../keyvault/client";
 import { relayUrl, type ImportErrorReason } from "../relay";
 import { ToastStore } from "../ui/toast";
 import { factories } from "./factories";
+import { browserStorage, migrateLegacyBrowserState } from "./migrate";
 import { createRuntime } from "./runtime";
 import type { AppServices } from "./types";
 import { APP_VERSION } from "./version";
@@ -23,6 +24,8 @@ const IMPORT_ERROR_LABEL: Record<ImportErrorReason, string> = {
 };
 
 export function createServices(): AppServices {
+  // 改名前（mxstudio）の名前で残っている設定を先に移す（設定を読む・オブジェクト構造を開く前に）
+  migrateLegacyBrowserState({ storage: browserStorage(), indexedDB: typeof indexedDB === "undefined" ? null : indexedDB });
   const vault = new KeyVault({ transport: createWorkerTransport() });
   const toasts = new ToastStore();
   // オブジェクト構造は設定としてブラウザに保存し、作業終了でも消さない。

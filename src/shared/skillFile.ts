@@ -1,5 +1,5 @@
 // SKILL.md の読み取りと検証。アプリ既定の Skill（リポジトリの skills/。scripts/build-skills.ts が検証して同梱する）と、
-// 利用者の Skill（~/.config/mxstudio/skills/。橋渡しが読むたびに検証する）で同じ規則を使う。
+// 利用者の Skill（~/.config/mxstage/skills/。橋渡しが読むたびに検証する）で同じ規則を使う。
 // Node の標準モジュールにも依存しない（ブラウザ・橋渡し・ビルドのどこからでも import できる）。
 
 /** Skill の本文ファイル名 */

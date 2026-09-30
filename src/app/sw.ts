@@ -1,6 +1,6 @@
 // Service Worker。画面（HTML/JS/CSS/アイコン）だけを保存し、2 回目からはネットワーク無しでも立ち上がるようにする。
 //
-// 【保存しないもの】Maximo の応答（/mx）・中継（/ws）・取り込み・橋渡しの状態と Skill の一覧（/_mxstudio）・他オリジン。
+// 【保存しないもの】Maximo の応答（/mx）・中継（/ws）・取り込み・橋渡しの状態と Skill の一覧（/_mxstage）・他オリジン。
 //   作業データと資格情報をブラウザのディスクに残さないため、判断は cacheRules.ts の 1 か所に集める。
 // 【更新】新しい版が来ても勝手に入れ替えない（skipWaiting しない）。画面に知らせて、次に開き直したときに入れ替わる。
 // 【依存】import するのは cacheRules.ts だけ（共有チャンクを作らせず、単独で動く 1 ファイルに保つ）。
@@ -37,8 +37,8 @@ const scope = self as unknown as ServiceWorkerScope;
 // ビルド時に vite の plugin がこの文字列リテラルを中身に置き換える
 // （cacheRules.ts の PRECACHE_MARKER / BUILD_MARKER と同じ綴り。違っていればビルドが止まる）。
 // 置き換わらなかったときは先読みしない＝ただの素通しになる。
-const PRECACHE_RAW: unknown = "__MXSTUDIO_PRECACHE__";
-const BUILD_RAW: unknown = "__MXSTUDIO_BUILD__";
+const PRECACHE_RAW: unknown = "__MXSTAGE_PRECACHE__";
+const BUILD_RAW: unknown = "__MXSTAGE_BUILD__";
 const PRECACHE = asFileList(PRECACHE_RAW);
 const BUILD_ID = asBuildId(BUILD_RAW);
 const CACHE_NAME = cacheNameOf(BUILD_ID);

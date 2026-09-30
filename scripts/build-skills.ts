@@ -1,7 +1,7 @@
 // アプリ既定の Skill（リポジトリの skills/<name>/SKILL.md）を検証し、src/bridge/defaultSkills.ts を生成する。
 // 生成物は橋渡しの list_skills / get_skill が同梱する。Claude Code へは導入（scripts/setup-local.mjs）が
 // skills/ からそのまま ~/.claude/skills へ写す。
-// 利用者の Skill（~/.config/mxstudio/skills/）はここでは扱わない（橋渡しが読むたびに同じ規則で検証する）。
+// 利用者の Skill（~/.config/mxstage/skills/）はここでは扱わない（橋渡しが読むたびに同じ規則で検証する）。
 // 実行: node --experimental-strip-types scripts/build-skills.ts [--check]
 //   --check: 検証と generated.ts が最新かの確認だけを行い、ファイルを書かない。
 // Node 標準モジュールだけを使う。検証に失敗したら終了コード 1。
@@ -28,7 +28,7 @@ export const MODEL_FILE = join(ROOT, "src", "shared", "model.ts");
 export const GENERATED_FILE = join(ROOT, "src", "bridge", "defaultSkills.ts");
 
 /** 先頭に並べる Skill（利用者の Skill が前提にする基本手順） */
-export const PRIMARY_SKILL = "mxstudio-workbench";
+export const PRIMARY_SKILL = "mxstage-workbench";
 
 /** toolDefs.ts の TOOL_DEFS からツール名を読み取る（import せず正規表現で読む） */
 export function readToolNames(source: string, errors: string[]): Set<string> {

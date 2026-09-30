@@ -9,7 +9,7 @@ import { VaultCore, VaultError, createVaultEndpoint, parseVaultBaseUrl } from ".
 import { VAULT_IDLE_MS, VAULT_SENTINEL, type MainToVault, type VaultFetchRequest, type VaultToMain } from "../../src/app/keyvault/protocol";
 import { connectErrorMessage, proxyErrorCode } from "../../src/app/settings/logic";
 
-const ORIGIN = "https://mxstudio.test";
+const ORIGIN = "https://mxstage.test";
 const BASE = "https://maximo.test";
 const KEY = "real-api-key-12345";
 

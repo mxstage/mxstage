@@ -3,7 +3,7 @@
 //   - 作業タブとの WebSocket（/ws。mxrelay.v1）
 //   - Maximo への転送（/mx/*）
 //   - Excel の単回アップロード（/import/:importId）
-//   - 橋渡し同士の内部経路（/_mxstudio/*。src/bridge/peer.ts）
+//   - 橋渡し同士の内部経路（/_mxstage/*。src/bridge/peer.ts）
 // すべての入口で接続元・Host・Origin を検査する（DNS リバインディング対策）。
 // ポートは固定する。使用中でもずらさない（ずれると作業タブの URL と Hub が分かれる）。
 // 使用中のときにどうするか（既存の橋渡しに中継する・別のアプリなら止まる）は src/bridge/coordinator.ts が決める。
@@ -42,21 +42,21 @@ export interface BridgeServerOptions {
   tickets?: ImportTickets;
   /**
    * 橋渡し同士の鍵。待ち受けを始めた直後に ensure() で用意する（無ければ作る）。
-   * 省略すると鍵付きの内部経路（/_mxstudio/invoke など）はすべて 403 になる。
+   * 省略すると鍵付きの内部経路（/_mxstage/invoke など）はすべて 403 になる。
    */
   keyStore?: BridgeKeyStore | null;
-  /** /_mxstudio/health に載せる版 */
+  /** /_mxstage/health に載せる版 */
   version?: string;
   /** Maximo への要求の時間の上限（ミリ秒。試験で縮める） */
   upstreamTimeoutMs?: number;
-  /** 利用者の Skill のフォルダ（~/.config/mxstudio/skills）。null・省略なら既定の Skill だけ */
+  /** 利用者の Skill のフォルダ（~/.config/mxstage/skills）。null・省略なら既定の Skill だけ */
   userSkillsDir?: string | null;
-  /** 起動したあとにコードが変わったか。/_mxstudio/health の stale に載せる（省くと載せない） */
+  /** 起動したあとにコードが変わったか。/_mxstage/health の stale に載せる（省くと載せない） */
   codeStale?: () => boolean;
 }
 
 /** 作業画面の設定が読む Skill の一覧（本文は含めない） */
-export const SKILLS_LIST_PATH = "/_mxstudio/skills";
+export const SKILLS_LIST_PATH = "/_mxstage/skills";
 
 export interface BridgeServer {
   readonly port: number;

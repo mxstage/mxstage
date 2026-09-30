@@ -5,7 +5,7 @@ import { Close, Draggable, Maximize, OpenPanelBottom, ViewOff } from "@carbon/ic
 import { Button, IconButton } from "@carbon/react";
 
 /** ペインをドラッグして入れ替えるときの dataTransfer の種類（ファイルのドロップと区別する） */
-export const PANE_DRAG_TYPE = "application/x-mxstudio-pane";
+export const PANE_DRAG_TYPE = "application/x-mxstage-pane";
 
 export interface PaneHeaderProps {
   title: string;

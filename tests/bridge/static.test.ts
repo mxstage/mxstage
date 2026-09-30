@@ -17,11 +17,11 @@ beforeAll(async () => {
   base = await mkdtemp(join(tmpdir(), "mxs-bridge-"));
   root = join(base, "app");
   await mkdir(join(root, "assets"), { recursive: true });
-  await writeFile(join(root, "index.html"), "<!doctype html><title>mxstudio</title>", "utf8");
+  await writeFile(join(root, "index.html"), "<!doctype html><title>MX Stage</title>", "utf8");
   await writeFile(join(root, "assets", "index-abc.js"), "export const a = 1;\n", "utf8");
   await writeFile(join(root, "sw.js"), "self.addEventListener('install', () => {});", "utf8");
   await writeFile(join(base, "outside.txt"), "秘密", "utf8");
-  // 利用者の Skill（~/.config/mxstudio/skills の代わり）
+  // 利用者の Skill（~/.config/mxstage/skills の代わり）
   await mkdir(join(base, "user-skills", "my-flow"), { recursive: true });
   await writeFile(
     join(base, "user-skills", "my-flow", "SKILL.md"),
@@ -88,7 +88,7 @@ describe("配信", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/html");
     expect(res.headers.get("cache-control")).toBe("no-store");
-    expect(await res.text()).toContain("mxstudio");
+    expect(await res.text()).toContain("MX Stage");
   });
 
   it("他のサイトに埋め込ませない", async () => {
@@ -108,7 +108,7 @@ describe("配信", () => {
     expect(unknown.status).toBe(200);
     expect(unknown.headers.get("content-type")).toContain("text/html");
     expect(unknown.headers.get("cache-control")).toBe("no-store");
-    expect(await unknown.text()).toContain("mxstudio");
+    expect(await unknown.text()).toContain("MX Stage");
   });
 
   it("無い資材は index.html で代用せず 404", async () => {
@@ -142,10 +142,10 @@ describe("配信", () => {
   });
 
   it("Skill の一覧はアプリ既定と利用者の Skill を分けて返す（本文は返さない）", async () => {
-    const res = await get("/_mxstudio/skills");
+    const res = await get("/_mxstage/skills");
     expect(res.status).toBe(200);
     const body = (await res.json()) as { skills: Array<{ name: string; origin: string; body?: string }>; problems: unknown[]; userSkillsDir: string };
-    expect(body.skills.find((s) => s.name === "mxstudio-workbench")?.origin).toBe("default");
+    expect(body.skills.find((s) => s.name === "mxstage-workbench")?.origin).toBe("default");
     expect(body.skills.find((s) => s.name === "my-flow")?.origin).toBe("user");
     expect(body.skills.every((s) => s.body === undefined)).toBe(true);
     expect(body.problems).toEqual([]);
@@ -153,7 +153,7 @@ describe("配信", () => {
   });
 
   it("Skill の ZIP は配らない（/skills/ は画面の資材でもない）", async () => {
-    for (const path of ["/skills/mxstudio-workbench.zip", "/skills/index.json", "/skills/../outside.txt"]) {
+    for (const path of ["/skills/mxstage-workbench.zip", "/skills/index.json", "/skills/../outside.txt"]) {
       const res = await get(path);
       expect(res.status, path).toBe(404);
       expect(await res.text(), path).not.toContain("秘密");

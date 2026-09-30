@@ -1,6 +1,6 @@
 # 画面の見た目の約束（IBM Carbon Design System）
 
-mxstudio の画面（`src/app`）は [IBM Carbon Design System](https://carbondesignsystem.com) の **White テーマ** に合わせる。
+MX Stage の画面（`src/app`）は [IBM Carbon Design System](https://carbondesignsystem.com) の **White テーマ** に合わせる。
 部品は `@carbon/react`、アイコンは `@carbon/icons-react`、書体は IBM Plex。ダークテーマは作らない。
 
 ## どこに何があるか

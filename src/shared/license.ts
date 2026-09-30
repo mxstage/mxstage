@@ -177,7 +177,7 @@ export function parseLicenseKey(text: string): ParsedLicenseKey {
   if (payloadBytes === null || signature === null || payloadBytes.length === 0 || signature.length !== 64) return { ok: false, problem: "format" };
   let payload: unknown;
   try {
-    payload = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(payloadBytes));
+    payload = JSON.parse(new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(payloadBytes));
   } catch {
     return { ok: false, problem: "payload" };
   }

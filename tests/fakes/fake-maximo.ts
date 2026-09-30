@@ -109,13 +109,15 @@ export interface FakeMaximo {
   writeCount(): number;
 }
 
+// 引数プロパティ（constructor(readonly …)）は使わない。開発用の偽の Maximo（scripts/dev-fake-maximo.ts）は
+// Node が型を消すだけで動かすので、その書き方を読めない
 class FakeHttpError extends Error {
-  constructor(
-    readonly status: number,
-    readonly reasonCode: string,
-    message: string,
-  ) {
+  readonly status: number;
+  readonly reasonCode: string;
+  constructor(status: number, reasonCode: string, message: string) {
     super(message);
+    this.status = status;
+    this.reasonCode = reasonCode;
   }
 }
 

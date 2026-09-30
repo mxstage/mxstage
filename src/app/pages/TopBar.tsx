@@ -5,6 +5,8 @@ import { Button, IconButton, Toggletip, ToggletipButton, ToggletipContent } from
 import { useCallback, useSyncExternalStore, type ReactNode } from "react";
 import type { ObjectStructureCatalog } from "../catalog/catalog";
 import { LEGEND_TONES, TONE_LABEL, TONE_STYLE } from "../grid/cellStyle";
+import type { LicenseClient } from "../license/client";
+import { EnvironmentTag } from "../license/EnvironmentTag";
 import { Link, spaClick } from "../ui/Link";
 import { SETTINGS_PATH, STRUCTURES_PATH } from "../ui/routes";
 import { connectionIndicator, type MaximoBadge, type RelayBadge, type ReopenHint } from "./status";
@@ -27,6 +29,8 @@ export interface TopBarProps {
   /** オブジェクト構造の読み込みの進み具合を出す（接続先が分かるときだけ） */
   catalog?: ObjectStructureCatalog;
   baseUrl?: string | null;
+  /** 接続中の Maximo の環境（テスト／本番）の札を出す */
+  license?: LicenseClient;
 }
 
 /**
@@ -90,6 +94,7 @@ export function TopBar(p: TopBarProps) {
           {p.maximo.settingsLink}
         </Link>
       )}
+      {p.license && p.baseUrl ? <EnvironmentTag license={p.license} baseUrl={p.baseUrl} /> : null}
       {p.tabs}
       <span className="spacer" />
       <nav className="topbar-links" aria-label="画面">

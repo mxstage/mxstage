@@ -120,6 +120,8 @@ export interface ToolRegistryDeps {
   catalog: ObjectStructureCatalog;
   /** 作業画面に届いた Excel・CSV（describe_import・apply_mapping が読む） */
   imports?: ImportStore;
+  /** 環境（本番／テスト）とライセンス。get_status に載せる */
+  license?: LicenseGate;
   appVersion: string;
   /** 作業画面の URL（例 http://127.0.0.1:8788/app） */
   appUrl: string;

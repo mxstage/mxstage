@@ -83,6 +83,7 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
   const commits = opts.factories.createCommitController({ workspace, connection: opts.connection, catalog: opts.catalog, now, ...(opts.license ? { license: opts.license } : {}) });
   const registry: TabToolRegistry = opts.factories.createToolRegistry({
     workspace,
+    ...(opts.license ? { license: opts.license } : {}),
     jobs,
     connection: opts.connection,
     commits: commitRequesterOf(commits),

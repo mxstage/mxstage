@@ -1236,3 +1236,41 @@ body.resizing-row * {
 .notice .cds--inline-notification__text-wrapper {
   line-height: 1.5;
 }
+
+/* 環境の札（上部バー）。接続中の Maximo がテストか本番か、本番ならライセンスがあるかを常に見せる */
+.env-tags {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--cds-spacing-02);
+  flex-shrink: 0;
+}
+.env-tag-link {
+  text-decoration: none;
+}
+.env-tag {
+  margin: 0;
+}
+
+/* 設定の「ライセンス」 */
+.license-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cds-spacing-05);
+  margin-bottom: var(--cds-spacing-05);
+}
+.license-item {
+  border-top: 1px solid var(--cds-border-subtle-01);
+  padding-top: var(--cds-spacing-04);
+}
+.license-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--cds-spacing-03);
+}
+.license-host + .license-host {
+  margin-left: var(--cds-spacing-03);
+}
+.env-field {
+  margin-top: var(--cds-spacing-03);
+}

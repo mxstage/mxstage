@@ -71,7 +71,7 @@ export function Root({ services }: { services: AppServices }) {
   if (route.kind === "settings") {
     return (
       <>
-        <SettingsPage vault={services.vault} />
+        <SettingsPage vault={services.vault} license={services.license} />
         <Toasts store={services.toasts} />
       </>
     );
@@ -86,7 +86,7 @@ export function Root({ services }: { services: AppServices }) {
     );
   }
   if (route.kind === "app" && runtime) {
-    return <AppPage runtime={runtime} vault={services.vault} toasts={services.toasts} catalog={services.catalog} onEndWork={endWork} />;
+    return <AppPage runtime={runtime} vault={services.vault} toasts={services.toasts} catalog={services.catalog} license={services.license} onEndWork={endWork} />;
   }
   return null;
 }

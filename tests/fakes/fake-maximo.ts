@@ -257,6 +257,8 @@ export function createFakeMaximo(seed: FakeSeed): FakeMaximo {
     const m = /^\/maximo\/api\/(.+)$/.exec(path);
     if (!m) throw new FakeHttpError(404, "BMXAA_FAKE_NOT_FOUND", "not found");
     const segs = m[1]!.split("/").map((s) => decodeURIComponent(s));
+    // 接続の確かめ（作業画面の「接続」が呼ぶ）。応答の形は実機で未確認なので、利用者名だけを返す
+    if (segs[0] === "whoami" && segs.length === 1 && method === "GET") return json(200, { userName: "MAXADMIN", personid: "MAXADMIN" });
     if (segs[0] === "apimeta" && segs.length === 1 && method === "GET") {
       return json(
         200,

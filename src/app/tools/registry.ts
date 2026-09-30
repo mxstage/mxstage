@@ -14,6 +14,8 @@ import { TOOL_DEFS, type ToolArgs, type ToolName } from "../../shared/toolDefs";
 import { foldText, type CatalogSyncState, type EnsureResult } from "../catalog/catalog";
 import { searchStructures } from "../catalog/search";
 import { sheetsByStructure } from "../catalog/usage";
+import type { LicenseGate } from "../license/client";
+import { licenseBlocker } from "../license/gate";
 import {
   buildImportSheet,
   dataRows,
@@ -233,6 +235,25 @@ function sheetsOf(args: unknown): string[] {
   if (typeof args !== "object" || args === null) return [];
   const a = args as Record<string, unknown>;
   return ["sheet", "left", "right", "name"].flatMap((k) => (typeof a[k] === "string" ? [a[k] as string] : []));
+}
+
+/**
+ * get_status の maximo に載せる環境とライセンス。
+ * productionWrites は「この接続先に反映できるか（ライセンスの面で）」。反映できないときは note に理由と買い方を入れ、
+ * LLM が利用者にそのまま説明できるようにする（読み込み・Skill・編集は続けられる）
+ */
+export function licenseStatusView(gate: LicenseGate, baseUrl: string): Record<string, unknown> {
+  const environment = gate.environmentOf(baseUrl);
+  const entry = gate.licenseFor(baseUrl);
+  const blocker = licenseBlocker(gate, baseUrl);
+  const license: Record<string, unknown> =
+    environment === "test"
+      ? { status: "not_required", productionWrites: true }
+      : entry !== null
+        ? { status: "licensed", productionWrites: true, ...(entry.expiresAt !== undefined ? { expiresAt: entry.expiresAt } : {}) }
+        : { status: environment === null ? "environment_not_set" : "not_licensed", productionWrites: false };
+  if (blocker !== null) license.note = blocker;
+  return { environment: environment ?? "not_set", license };
 }
 
 /** get_status のシートの詳しさ。full=列の定義まで / columns=列名だけ / counts=列名も省く */
@@ -604,6 +625,8 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
               connectionName: conn.info.connectionName,
               userName: conn.info.userName,
               connectedAt: isoTime(conn.info.connectedAt) ?? null,
+              // 環境（本番／テスト）とライセンス。キー・メール・組織名は載せない
+              ...(deps.license !== undefined ? licenseStatusView(deps.license, conn.info.baseUrl) : {}),
             };
       // 作業画面が Maximo から機械的に読み込んで保存しているオブジェクト構造（接続先ごと）の件数と読み込みの進み具合。
       // 数百件あるので名前は載せない（find_object_structures で探す）

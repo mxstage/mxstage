@@ -5,6 +5,7 @@ import { ContentSwitcher, Switch } from "@carbon/react";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { Runtime } from "../boot/runtime";
 import type { ObjectStructureCatalog } from "../catalog/catalog";
+import type { LicenseClient } from "../license/client";
 import { formatCellValue } from "../grid/cellStyle";
 import { SheetGrid, type LinkFilter } from "../grid/SheetGrid";
 import type { VaultView } from "../keyvault/client";
@@ -71,6 +72,8 @@ export interface AppPageProps {
   toasts: ToastStore;
   /** オブジェクト構造の読み込みの進み具合を上部バーに出す */
   catalog?: ObjectStructureCatalog;
+  /** 接続中の Maximo の環境（テスト／本番）を上部バーに出す */
+  license?: LicenseClient;
   onEndWork: () => void;
   confirm?: (message: string) => boolean;
   reload?: () => void;
@@ -82,7 +85,7 @@ const VIEWS: Array<{ kind: ViewKind; label: string }> = [
   { kind: "base", label: "元の値" },
 ];
 
-export function AppPage({ runtime, vault, toasts, catalog, onEndWork, confirm, reload }: AppPageProps) {
+export function AppPage({ runtime, vault, toasts, catalog, license, onEndWork, confirm, reload }: AppPageProps) {
   const { workspace, commits } = runtime;
   const confirmFn = confirm ?? ((m: string) => window.confirm(m));
   const reloadFn = reload ?? (() => window.location.reload());
@@ -220,6 +223,7 @@ export function AppPage({ runtime, vault, toasts, catalog, onEndWork, confirm, r
         reopen={reopen}
         workspaceName={workspace.name}
         catalog={catalog}
+        {...(license ? { license } : {})}
         baseUrl={vaultView.kind === "disconnected" ? null : vaultView.info.baseUrl}
         tabs={sheetTabs}
         sidePanel={sidePanel}

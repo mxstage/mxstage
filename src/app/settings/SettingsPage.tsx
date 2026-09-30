@@ -2,15 +2,18 @@
 // Maximo への接続は、パスワードマネージャーが保存を検知できる標準のログインフォームの形にする。
 // API キーの入力欄は React の state に持たない（非制御の入力欄から読んで Web Worker に渡し、すぐ空にする）。
 
-import { Button, Form, Layer, Select, SelectItem, TextInput } from "@carbon/react";
+import { Button, Form, Layer, RadioButton, RadioButtonGroup, Select, SelectItem, TextInput } from "@carbon/react";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import type { ConnectInput, VaultView } from "../keyvault/client";
+import type { Environment, LicenseClient } from "../license/client";
+import { licenseMessages } from "../license/messages";
 import type { MaximoVia } from "../maximo/client";
 import { hostOf } from "../pages/status";
 import type { MaximoConnectionInfo } from "../runtime/contracts";
 import { spaClick } from "../ui/Link";
 import { Notice } from "../ui/Notice";
 import { APP_PATH } from "../ui/routes";
+import { LicenseSection } from "./LicenseSection";
 import {
   connectErrorMessage,
   fetchSkillList,
@@ -54,6 +57,8 @@ export interface SettingsPageProps {
   clipboard?: ClipboardLike | null;
   /** Skill の一覧を読む（省略時は橋渡しの /_mxstage/skills） */
   loadSkills?: () => Promise<SkillList>;
+  /** ライセンスキーと接続先ごとの環境（本番／テスト）。省くとライセンスの節と環境の選択を出さない */
+  license?: LicenseClient;
 }
 
 /** 接続に成功したら、この URL に replaceState する（パスワードマネージャーの保存検知のため URL を変える） */
@@ -128,7 +133,9 @@ export function SettingsPage(props: SettingsPageProps) {
         storage={storage}
         passwordCredential={passwordCredential}
         replaceUrl={replaceUrl}
+        license={props.license ?? null}
       />
+      {props.license && <LicenseSection license={props.license} />}
       <LlmSection clipboard={clipboard} />
       <SkillsSection load={loadSkills} />
     </main>
@@ -222,13 +229,18 @@ interface MaximoSectionProps {
   storage: StorageLike | null;
   passwordCredential: PasswordCredentialSupport | null;
   replaceUrl: (url: string) => void;
+  license: LicenseClient | null;
 }
 
-function MaximoSection({ vault, view, storage, passwordCredential, replaceUrl }: MaximoSectionProps) {
+function MaximoSection({ vault, view, storage, passwordCredential, replaceUrl, license }: MaximoSectionProps) {
   const saved = useMemo(() => loadSavedSettings(storage), [storage]);
   const [baseUrl, setBaseUrl] = useState(view.kind === "disconnected" ? saved.baseUrl : view.info.baseUrl);
   const [via, setVia] = useState<MaximoVia>(view.kind === "disconnected" ? saved.via : view.info.via);
   const [connectionName, setConnectionName] = useState(view.kind === "disconnected" ? "" : view.info.connectionName);
+  // 接続先ごとの環境（本番／テスト）。前に選んだものを初めから選んでおく
+  const [environment, setEnvironment] = useState<Environment | null>(() => license?.declared(view.kind === "disconnected" ? saved.baseUrl : view.info.baseUrl) ?? null);
+  const [environmentError, setEnvironmentError] = useState<string | null>(null);
+  const licensed = license?.licenseFor(normalizeBaseUrl(baseUrl)) ?? null;
   const [errors, setErrors] = useState<SettingsFormErrors>({});
   const [failure, setFailure] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -258,7 +270,10 @@ function MaximoSection({ vault, view, storage, passwordCredential, replaceUrl }:
     const found = validateSettingsForm({ baseUrl: url, via, connectionName: name, apiKey: keyInput.value });
     setErrors(found);
     setFailure(null);
-    if (Object.keys(found).length > 0) return;
+    // 環境は必ず選ぶ（ライセンスキーに書かれた接続先はいつも本番なので選ばなくてよい）
+    const needsEnvironment = license !== null && licensed === null && environment === null;
+    setEnvironmentError(needsEnvironment ? licenseMessages().environment.required : null);
+    if (Object.keys(found).length > 0 || needsEnvironment) return;
 
     // パスワードマネージャーへの保存（Chromium 系）は whoami の成功後に行うため、資格情報のオブジェクトだけ先に作る。
     // 【これが無いと成功後に保存できない。PasswordCredential が無いブラウザではキーはここで手放す】
@@ -270,6 +285,7 @@ function MaximoSection({ vault, view, storage, passwordCredential, replaceUrl }:
     try {
       await pending;
       saveSettings(storage, { baseUrl: url, via });
+      if (license !== null && licensed === null && environment !== null) license.declare(url, environment);
       if (credential !== null && credential !== undefined && passwordCredential) {
         passwordCredential.store(credential).catch(() => undefined);
       }
@@ -289,7 +305,7 @@ function MaximoSection({ vault, view, storage, passwordCredential, replaceUrl }:
     return (
       <section className="card">
         <h2>Maximo への接続</h2>
-        <ConnectedInfo info={view.info} onReconnect={() => setShowForm(true)} onDisconnect={() => vault.disconnect()} />
+        <ConnectedInfo info={view.info} license={license} onReconnect={() => setShowForm(true)} onDisconnect={() => vault.disconnect()} />
       </section>
     );
   }
@@ -317,7 +333,11 @@ function MaximoSection({ vault, view, storage, passwordCredential, replaceUrl }:
             inputMode="url"
             placeholder="https://maximo.example.com"
             value={baseUrl}
-            onChange={(e) => setBaseUrl(e.target.value)}
+            onChange={(e) => {
+              setBaseUrl(e.target.value);
+              // 接続先を変えたら、その接続先で前に選んだ環境にする
+              if (license !== null) setEnvironment(license.declared(normalizeBaseUrl(e.target.value)));
+            }}
             invalid={Boolean(errors.baseUrl)}
             invalidText={errors.baseUrl}
             required
@@ -361,6 +381,9 @@ function MaximoSection({ vault, view, storage, passwordCredential, replaceUrl }:
             invalidText={errors.apiKey}
             required
           />
+          {license !== null && (
+            <EnvironmentField environment={environment} onChange={setEnvironment} licensedOrg={licensed ? (licensed.org ?? licensed.licenseId) : null} error={environmentError} />
+          )}
           {failure && (
             <Notice kind="error" role="alert">
               {failure}
@@ -378,7 +401,43 @@ function MaximoSection({ vault, view, storage, passwordCredential, replaceUrl }:
   );
 }
 
-function ConnectedInfo({ info, onReconnect, onDisconnect }: { info: MaximoConnectionInfo; onReconnect: () => void; onDisconnect: () => void }) {
+/** 接続先の環境（本番／テスト）の選択。ライセンスキーに書かれた接続先はいつも本番なので、選ばせずにそう書く */
+function EnvironmentField(p: { environment: Environment | null; onChange: (e: Environment) => void; licensedOrg: string | null; error: string | null }) {
+  const t = licenseMessages().environment;
+  if (p.licensedOrg !== null) {
+    return (
+      <div className="field env-field">
+        <span className="cds--label">{t.label}</span>
+        <p>{t.licensedBy(p.licensedOrg)}</p>
+        <p className="muted small">{t.licensedLocked}</p>
+      </div>
+    );
+  }
+  return (
+    <div className="field env-field">
+      <RadioButtonGroup
+        legendText={t.label}
+        name="mx-environment"
+        orientation="vertical"
+        valueSelected={p.environment ?? ""}
+        onChange={(value) => {
+          if (value === "production" || value === "test") p.onChange(value);
+        }}
+        invalid={p.error !== null}
+        invalidText={p.error ?? undefined}
+      >
+        <RadioButton id="mx-env-test" labelText={t.testOption} value="test" />
+        <RadioButton id="mx-env-production" labelText={t.productionOption} value="production" />
+      </RadioButtonGroup>
+      <p className="muted small">{t.help}</p>
+    </div>
+  );
+}
+
+function ConnectedInfo({ info, license, onReconnect, onDisconnect }: { info: MaximoConnectionInfo; license: LicenseClient | null; onReconnect: () => void; onDisconnect: () => void }) {
+  const t = licenseMessages().environment;
+  const licensedEntry = license?.licenseFor(info.baseUrl) ?? null;
+  const environment = license?.environmentOf(info.baseUrl) ?? null;
   return (
     <div className="connected">
       <Notice kind="success">接続しました。</Notice>
@@ -391,6 +450,12 @@ function ConnectedInfo({ info, onReconnect, onDisconnect }: { info: MaximoConnec
         </dd>
         <dt>Maximo の利用者</dt>
         <dd>{info.userName ?? "（不明）"}</dd>
+        {license !== null && (
+          <>
+            <dt>{t.label}</dt>
+            <dd>{licensedEntry !== null ? t.licensedBy(licensedEntry.org ?? licensedEntry.licenseId) : environment === "production" ? t.production : environment === "test" ? t.test : "—"}</dd>
+          </>
+        )}
       </dl>
       <div className="actions">
         <Button kind="primary" href={APP_PATH} onClick={spaClick(APP_PATH)}>

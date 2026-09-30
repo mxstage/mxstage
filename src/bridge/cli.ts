@@ -23,6 +23,7 @@ import { BRIDGE_KEY_FILE_ENV, BridgeKeyStore, LEGACY_BRIDGE_KEY_FILE_ENV, defaul
 import { BridgeCoordinator, CLIENT_WATCH_INTERVAL_MS } from "./coordinator.ts";
 import { CodeFingerprint, checkUpdates, isDefaultAppDir } from "./freshness.ts";
 import { migrateLegacyFiles } from "./legacy.ts";
+import { LicenseStore, licenseTestKeysAllowed } from "./license.ts";
 import { createBridgeLogger } from "./logFile.ts";
 import { buildBridgeMcpServer } from "./mcp.ts";
 import { userSkillsDirOf } from "./skills.ts";
@@ -113,6 +114,8 @@ export async function main(argv: readonly string[]): Promise<number> {
     version,
     userSkillsDir,
     codeStale: () => code.changed(),
+    // ライセンスキーも状態フォルダに置く。決済の試験用の鍵は MXSTAGE_LICENSE_TEST=1 のときだけ受け付ける
+    license: new LicenseStore({ dir: dirname(keyPath), allowTestKeys: licenseTestKeysAllowed() }),
     // MCP を話さないプロセスは client として残らないので、見張りは MCP を話すときだけ
     watchIntervalMs: opts.mcp ? CLIENT_WATCH_INTERVAL_MS : 0,
     log: record,

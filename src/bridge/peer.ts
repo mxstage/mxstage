@@ -91,7 +91,7 @@ function headerValue(req: IncomingMessage, name: string): string | undefined {
 }
 
 /** 本文を上限付きで読む。上限を超えたら null */
-async function readBody(req: IncomingMessage, limit: number): Promise<Buffer | null> {
+export async function readBody(req: IncomingMessage, limit: number): Promise<Buffer | null> {
   const declared = Number(headerValue(req, "content-length"));
   if (Number.isFinite(declared) && declared > limit) return null;
   const chunks: Buffer[] = [];

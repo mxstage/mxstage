@@ -45,16 +45,8 @@ export interface CatalogStorage {
   putApiList(list: StoredApiList): Promise<void>;
 }
 
-/** 保存のキーにする接続先。前後の空白と末尾の / を取り、スキームとホストを小文字にする（パスの大文字小文字は残す） */
-export function normalizeScope(baseUrl: string): string {
-  const trimmed = baseUrl.trim().replace(/\/+$/, "");
-  try {
-    const u = new URL(trimmed);
-    return `${u.protocol}//${u.host}${u.pathname.replace(/\/+$/, "")}`;
-  } catch {
-    return trimmed;
-  }
-}
+/** 保存のキーにする接続先（決め方は橋渡しと共通。src/shared/scope.ts） */
+export { normalizeScope } from "../../shared/scope";
 
 const entryId = (baseUrl: string, os: string) => `${baseUrl}\n${os}`;
 

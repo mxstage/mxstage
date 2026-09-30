@@ -18,7 +18,8 @@ import { LocalHub } from "./hub.ts";
 import { ImportTickets, handleImportUpload } from "./importUpload.ts";
 import { handleMaximoProxy } from "./mx.ts";
 import type { UpstreamRequest } from "./mx.ts";
-import { PEER_PREFIX, handlePeerRequest } from "./peer.ts";
+import { PEER_PREFIX, handlePeerRequest, readBody } from "./peer.ts";
+import type { LicenseStore } from "./license.ts";
 import type { BridgeKeyStore } from "./bridgeKey.ts";
 import { readSkillCatalog } from "./skills.ts";
 import { serveStatic } from "./staticFiles.ts";
@@ -53,10 +54,18 @@ export interface BridgeServerOptions {
   userSkillsDir?: string | null;
   /** 起動したあとにコードが変わったか。/_mxstage/health の stale に載せる（省くと載せない） */
   codeStale?: () => boolean;
+  /** ライセンスキーの保存と確かめ。省くと /_mxstage/license は 503（本番への反映はできない） */
+  license?: LicenseStore | null;
 }
 
 /** 作業画面の設定が読む Skill の一覧（本文は含めない） */
 export const SKILLS_LIST_PATH = "/_mxstage/skills";
+/** ライセンスの状態（GET）と保存（POST） */
+export const LICENSE_PATH = "/_mxstage/license";
+/** 本番の環境をライセンスに結びつける（POST） */
+export const LICENSE_AUTHORIZE_PATH = "/_mxstage/license/authorize";
+/** ライセンスの入口が受ける本文の上限 */
+export const LICENSE_BODY_LIMIT = 8 * 1024;
 
 export interface BridgeServer {
   readonly port: number;
@@ -118,6 +127,63 @@ async function listenOn(server: Server, port: number): Promise<number> {
   return address !== null && typeof address === "object" ? (address as AddressInfo).port : port;
 }
 
+/** 本文を JSON のオブジェクトとして読む。大きすぎれば "too_large"、読めなければ null */
+async function readJsonBody(req: IncomingMessage, limit: number): Promise<Record<string, unknown> | null | "too_large"> {
+  const body = await readBody(req, limit);
+  if (body === null) return "too_large";
+  try {
+    const value: unknown = JSON.parse(body.toString("utf8"));
+    return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * ライセンスの入口。
+ *   GET  /_mxstage/license            今の状態（キーとメールは返さない）
+ *   POST /_mxstage/license            { key } を保存する（正しいキーだけ）
+ *   POST /_mxstage/license/authorize  { baseUrl } を本番の環境としてライセンスに結びつける
+ */
+async function handleLicenseRequest(req: IncomingMessage, res: ServerResponse, pathname: string, license: LicenseStore | null): Promise<void> {
+  const method = (req.method ?? "GET").toUpperCase();
+  const allowed = pathname === LICENSE_PATH ? ["GET", "POST"] : ["POST"];
+  if (!allowed.includes(method)) {
+    sendJson(res, 405, { ok: false, error: "method_not_allowed", message: `${allowed.join(", ")} だけを受け付けます。` }, { Allow: allowed.join(", ") });
+    return;
+  }
+  if (license === null) {
+    sendJson(res, 503, { ok: false, error: "license_unavailable", message: "この橋渡しではライセンスを扱えません。" });
+    return;
+  }
+  if (method === "GET") {
+    sendJson(res, 200, { ok: true, license: license.status() });
+    return;
+  }
+  const body = await readJsonBody(req, LICENSE_BODY_LIMIT);
+  if (body === "too_large") {
+    sendJson(res, 413, { ok: false, error: "too_large", message: `本文が大きすぎます（上限 ${LICENSE_BODY_LIMIT} バイト）。` });
+    return;
+  }
+  if (pathname === LICENSE_PATH) {
+    if (body === null || typeof body.key !== "string") {
+      sendJson(res, 400, { ok: false, error: "invalid_request", message: "key（ライセンスキーの文字列）を送ってください。" });
+      return;
+    }
+    const saved = license.save(body.key);
+    if (saved.ok) sendJson(res, 200, { ok: true, license: saved.status });
+    else sendJson(res, 422, { ok: false, error: "license_rejected", problem: saved.problem, license: saved.status });
+    return;
+  }
+  if (body === null || typeof body.baseUrl !== "string") {
+    sendJson(res, 400, { ok: false, error: "invalid_request", message: "baseUrl（Maximo の接続先）を送ってください。" });
+    return;
+  }
+  const result = license.authorize(body.baseUrl);
+  if (result.ok) sendJson(res, 200, { ok: true, scope: result.scope, newlyBound: result.newlyBound, license: result.status });
+  else sendJson(res, 403, { ok: false, error: "license_required", problem: result.problem, license: result.status });
+}
+
 export async function startBridgeServer(opts: BridgeServerOptions): Promise<BridgeServer> {
   const hub = opts.hub ?? new LocalHub();
   const tickets = opts.tickets ?? new ImportTickets();
@@ -135,7 +201,9 @@ export async function startBridgeServer(opts: BridgeServerOptions): Promise<Brid
     let isTicketPath = false;
     try {
       const pathname = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
-      isTicketPath = pathname.startsWith("/import/") || pathname.startsWith(PEER_PREFIX);
+      // ライセンスの入口は作業画面（同一オリジン）からだけ受ける
+      const licensePath = pathname === LICENSE_PATH || pathname === LICENSE_AUTHORIZE_PATH;
+      isTicketPath = pathname.startsWith("/import/") || (pathname.startsWith(PEER_PREFIX) && !licensePath);
     } catch {
       isTicketPath = false;
     }
@@ -172,6 +240,11 @@ export async function startBridgeServer(opts: BridgeServerOptions): Promise<Brid
         skills: catalog.skills.map((s) => ({ name: s.name, version: s.version, description: s.description, origin: s.origin })),
         problems: catalog.problems,
       });
+      return;
+    }
+
+    if (url.pathname === LICENSE_PATH || url.pathname === LICENSE_AUTHORIZE_PATH) {
+      await handleLicenseRequest(req, res, url.pathname, opts.license ?? null);
       return;
     }
 

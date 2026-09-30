@@ -65,6 +65,17 @@ describe("CodeFingerprint", () => {
     expect(code.changed()).toBe(true); // ファイルが増えても古い
   });
 
+  it("書いたばかりのファイルは、同じ大きさ・同じ更新時刻のまま書き直されても見逃さない", () => {
+    // 更新時刻の粒度の中で続けて書き直されたのと同じ状態を、更新時刻をそろえて作る
+    const t = new Date(Math.floor(Date.now() / 1000) * 1000);
+    put("src/bridge/a.ts", "export const a = 1;\n", t);
+    const code = new CodeFingerprint(dir);
+    put("src/bridge/a.ts", "export const a = 2;\n", t);
+    expect(code.changed()).toBe(true);
+    put("src/bridge/a.ts", "export const a = 1;\n", t);
+    expect(code.changed()).toBe(false);
+  });
+
   it("node_modules と . で始まるものは見ない", () => {
     put("src/bridge/a.ts", "1");
     const code = new CodeFingerprint(dir);

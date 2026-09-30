@@ -43,25 +43,37 @@ function listFiles(target: string): string[] {
   return out;
 }
 
+/**
+ * 更新時刻の粒度の余裕（ミリ秒）。印を作ったときに、これより新しいファイルがあったら、次は印が同じでも中身を読み直す。
+ * 同じ大きさのまま、更新時刻の粒度の中で続けて書き直されると、印が変わらず見逃すため（git の racy clean と同じ考え方）。
+ */
+const RACY_MS = 2_000;
+
 interface Snapshot {
-  /** 位置・大きさ・更新時刻から作る軽い印。同じなら中身を読み直さない */
+  /** 位置・大きさ・更新時刻から作る軽い印。同じなら中身を読み直さない（書かれたばかりのファイルがあったときを除く） */
   signature: string;
   /** 位置と中身の sha256 */
   hash: string;
+  /** 印を作った時刻と、そのときいちばん新しかったファイルの更新時刻 */
+  takenAt: number;
+  newestMtime: number;
 }
 
 function snapshot(root: string, paths: readonly string[], previous: Snapshot | null): Snapshot {
+  const takenAt = Date.now();
   const files = paths.flatMap((p) => listFiles(join(root, p))).sort();
+  let newestMtime = 0;
   const stats = files.map((f) => {
     try {
       const s = statSync(f);
+      newestMtime = Math.max(newestMtime, s.mtimeMs);
       return `${relative(root, f)}:${s.size}:${s.mtimeMs}`;
     } catch {
       return `${relative(root, f)}:gone`;
     }
   });
   const signature = stats.join("\n");
-  if (previous !== null && previous.signature === signature) return previous;
+  if (previous !== null && previous.signature === signature && previous.takenAt - previous.newestMtime > RACY_MS) return previous;
   const hash = createHash("sha256");
   for (const f of files) {
     hash.update(relative(root, f).replace(/\\/g, "/"));
@@ -73,7 +85,7 @@ function snapshot(root: string, paths: readonly string[], previous: Snapshot | n
     }
     hash.update("\0");
   }
-  return { signature, hash: hash.digest("hex") };
+  return { signature, hash: hash.digest("hex"), takenAt, newestMtime };
 }
 
 /**

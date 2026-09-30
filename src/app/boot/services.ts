@@ -8,6 +8,7 @@ import { KeyVault, createWorkerTransport } from "../keyvault/client";
 import { relayUrl, type ImportErrorReason } from "../relay";
 import { ToastStore } from "../ui/toast";
 import { factories } from "./factories";
+import { LOCALE_STORAGE_KEY, detectLocale, setLocale } from "../../shared/i18n";
 import { browserStorage, migrateLegacyBrowserState } from "./migrate";
 import { createRuntime } from "./runtime";
 import type { AppServices } from "./types";
@@ -23,9 +24,20 @@ const IMPORT_ERROR_LABEL: Record<ImportErrorReason, string> = {
   digest_failed: "チェックサムを計算できませんでした",
 };
 
+/** 利用者が設定で選んだ言語（無い・読めなければ null） */
+function readStoredLocale(): string | null {
+  try {
+    return browserStorage()?.getItem(LOCALE_STORAGE_KEY) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function createServices(): AppServices {
   // 改名前（mxstudio）の名前で残っている設定を先に移す（設定を読む・オブジェクト構造を開く前に）
   migrateLegacyBrowserState({ storage: browserStorage(), indexedDB: typeof indexedDB === "undefined" ? null : indexedDB });
+  // 画面の言語（保存した設定 → ブラウザの言語。src/shared/i18n.ts）
+  setLocale(detectLocale({ stored: readStoredLocale(), languages: typeof navigator === "undefined" ? [] : navigator.languages }));
   const vault = new KeyVault({ transport: createWorkerTransport() });
   const toasts = new ToastStore();
   // オブジェクト構造は設定としてブラウザに保存し、作業終了でも消さない。

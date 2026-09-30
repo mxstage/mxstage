@@ -6,7 +6,8 @@ export default defineConfig({
   test: {
     projects: [
       {
-        test: { name: "app", include: ["tests/app/**/*.test.ts"], environment: "happy-dom" },
+        // 文言は日本語に固定して始める（tests/app/setup.ts）
+        test: { name: "app", include: ["tests/app/**/*.test.ts"], environment: "happy-dom", setupFiles: ["tests/app/setup.ts"] },
       },
       {
         // bridge: ローカルの橋渡し（Node の素のランタイムで動かす）

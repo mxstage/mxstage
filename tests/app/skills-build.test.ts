@@ -116,38 +116,38 @@ describe("build-skills: validateSkill", () => {
 
   it("本文は 7999 バイトまで通り、8000 バイトで落ちる", () => {
     expect(errorsOf(skillText({ body: bodyOfBytes(7999) }))).toEqual([]);
-    expect(errorsOf(skillText({ body: bodyOfBytes(8000) })).join("\n")).toMatch(/8000 バイト未満/);
+    expect(errorsOf(skillText({ body: bodyOfBytes(8000) })).join("\n")).toMatch(/keep it under 8000/);
   });
 
   it("description は 200 文字まで通り、201 文字で落ちる（Claude のスキルのアップロードの上限）", () => {
     expect(build.DESCRIPTION_MAX_CHARS).toBe(200);
     expect(errorsOf(skillText({ description: `"${"あ".repeat(200)}"` }))).toEqual([]);
-    expect(errorsOf(skillText({ description: `"${"あ".repeat(201)}"` })).join("\n")).toMatch(/200 文字以内/);
+    expect(errorsOf(skillText({ description: `"${"あ".repeat(201)}"` })).join("\n")).toMatch(/keep it within 200/);
   });
 
   const invalid: Array<{ title: string; text: string; error: RegExp; dirName?: string }> = [
-    { title: "frontmatter が無い", text: "# 本文だけ\n\nget_status", error: /frontmatter が無い/ },
-    { title: "frontmatter が閉じていない", text: "---\nname: sample-skill\n\n# 本文", error: /閉じていない/ },
-    { title: "name がフォルダ名と違う", text: skillText(), error: /一致しない/, dirName: "other-skill" },
-    { title: "name の書式が違う", text: skillText({ name: "Sample_Skill" }), error: /に合わない/, dirName: "Sample_Skill" },
-    { title: "name に連続ハイフン", text: skillText({ name: "sample--skill" }), error: /連続ハイフン/, dirName: "sample--skill" },
-    { title: "name に予約語", text: skillText({ name: "claude-helper" }), error: /予約語/, dirName: "claude-helper" },
-    { title: "許可外のキー", text: skillText({ extra: "license: MIT" }), error: /キー license は使えない/ },
-    { title: "metadata の許可外のキー", text: skillText({ version: '"1.0.0"\n  author: someone' }), error: /metadata のキー author/ },
-    { title: "版が引用符なし", text: skillText({ version: "1.0.0" }), error: /引用符で囲む/ },
-    { title: "版の書式が違う", text: skillText({ version: '"v1"' }), error: /数字\.数字\.数字/ },
-    { title: "版が無い", text: skillText().replace(/metadata:\n {2}version: .*\n/, ""), error: /metadata\.version が無い/ },
-    { title: "description が無い", text: skillText().replace(/^description: .*\n/m, ""), error: /description が無い/ },
-    { title: "description が YAML で真偽値に読まれる", text: skillText({ description: "yes" }), error: /文字列以外/ },
-    { title: "description に XML タグ", text: skillText({ description: '"<b>強調</b> を使う"' }), error: /< >/ },
-    { title: "キーの重複", text: skillText({ extra: "name: sample-skill" }), error: /重複/ },
-    { title: "ブロックスカラー", text: skillText({ description: "|" }), error: /YAML の記号/ },
-    { title: "タブ文字", text: skillText({ extra: "\tfoo: bar" }), error: /タブ文字/ },
-    { title: "本文が空", text: skillText({ body: "" }), error: /本文が空/ },
-    { title: "クライアント固有の置換", text: skillText({ body: "# h\n\nget_status に $ARGUMENTS を渡す" }), error: /クライアント固有/ },
-    { title: "TOOL_DEFS に無いツール名", text: skillText({ body: "# h\n\nload_sheets を呼ぶ" }), error: /load_sheets は TOOL_DEFS/ },
-    { title: "知らない reason 名", text: skillText({ body: "# h\n\nget_status の結果の user_editing_now を見る" }), error: /user_editing_now は TOOL_DEFS/ },
-    { title: "JSON の例が壊れている", text: skillText({ body: '# h\n\nget_status。例 `{"attr": "SITEID", "op": }`' }), error: /JSON として読めない/ },
+    { title: "frontmatter が無い", text: "# 本文だけ\n\nget_status", error: /no frontmatter/ },
+    { title: "frontmatter が閉じていない", text: "---\nname: sample-skill\n\n# 本文", error: /not closed/ },
+    { title: "name がフォルダ名と違う", text: skillText(), error: /does not match the folder name/, dirName: "other-skill" },
+    { title: "name の書式が違う", text: skillText({ name: "Sample_Skill" }), error: /does not match \^\[a-z0-9-\]/, dirName: "Sample_Skill" },
+    { title: "name に連続ハイフン", text: skillText({ name: "sample--skill" }), error: /consecutive hyphens/, dirName: "sample--skill" },
+    { title: "name に予約語", text: skillText({ name: "claude-helper" }), error: /reserved word claude/, dirName: "claude-helper" },
+    { title: "許可外のキー", text: skillText({ extra: "license: MIT" }), error: /key license is not allowed/ },
+    { title: "metadata の許可外のキー", text: skillText({ version: '"1.0.0"\n  author: someone' }), error: /metadata key author/ },
+    { title: "版が引用符なし", text: skillText({ version: "1.0.0" }), error: /put metadata\.version in quotes/ },
+    { title: "版の書式が違う", text: skillText({ version: '"v1"' }), error: /number\.number\.number/ },
+    { title: "版が無い", text: skillText().replace(/metadata:\n {2}version: .*\n/, ""), error: /metadata\.version is missing/ },
+    { title: "description が無い", text: skillText().replace(/^description: .*\n/m, ""), error: /description is missing/ },
+    { title: "description が YAML で真偽値に読まれる", text: skillText({ description: "yes" }), error: /other than a string/ },
+    { title: "description に XML タグ", text: skillText({ description: '"<b>強調</b> を使う"' }), error: /< or >/ },
+    { title: "キーの重複", text: skillText({ extra: "name: sample-skill" }), error: /duplicate key/ },
+    { title: "ブロックスカラー", text: skillText({ description: "|" }), error: /YAML symbols/ },
+    { title: "タブ文字", text: skillText({ extra: "\tfoo: bar" }), error: /tab characters/ },
+    { title: "本文が空", text: skillText({ body: "" }), error: /body is empty/ },
+    { title: "クライアント固有の置換", text: skillText({ body: "# h\n\nget_status に $ARGUMENTS を渡す" }), error: /client-specific/ },
+    { title: "TOOL_DEFS に無いツール名", text: skillText({ body: "# h\n\nload_sheets を呼ぶ" }), error: /load_sheets is neither a tool name in TOOL_DEFS/ },
+    { title: "知らない reason 名", text: skillText({ body: "# h\n\nget_status の結果の user_editing_now を見る" }), error: /user_editing_now is neither a tool name in TOOL_DEFS/ },
+    { title: "JSON の例が壊れている", text: skillText({ body: '# h\n\nget_status。例 `{"attr": "SITEID", "op": }`' }), error: /not valid JSON/ },
   ];
 
   it.each(invalid)("拒否する: $title", ({ text, error, dirName }) => {

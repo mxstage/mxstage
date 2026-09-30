@@ -17,16 +17,16 @@ export class QueryBuildError extends Error {
 /** 列名（"WONUM" / "EXT_WOPERMIT.EXT_PERMITDATE"）を大文字の子オブジェクト名と属性名に分ける */
 export function splitColumnName(col: string): { child: string | null; attr: string } {
   const parts = col.split(".");
-  if (parts.length > 2) throw new QueryBuildError(`列名 ${JSON.stringify(col)} は 2 階層までにする（孫オブジェクトは未対応）`);
+  if (parts.length > 2) throw new QueryBuildError(`Column name ${JSON.stringify(col)} can have at most 2 levels (grandchild objects are not supported)`);
   for (const p of parts) {
-    if (!NAME_RE.test(p)) throw new QueryBuildError(`列名 ${JSON.stringify(col)} に使えない文字がある`);
+    if (!NAME_RE.test(p)) throw new QueryBuildError(`Column name ${JSON.stringify(col)} contains characters that cannot be used`);
   }
   if (parts.length === 2) return { child: parts[0]!.toUpperCase(), attr: parts[1]!.toUpperCase() };
   return { child: null, attr: parts[0]!.toUpperCase() };
 }
 
 function assertKnown(col: string, knownAttrs: Set<string> | undefined): void {
-  if (knownAttrs && !knownAttrs.has(col)) throw new QueryBuildError(`列 ${col} はオブジェクト構造に無い`);
+  if (knownAttrs && !knownAttrs.has(col)) throw new QueryBuildError(`Column ${col} is not in the object structure`);
 }
 
 /**
@@ -49,7 +49,7 @@ export function buildSelect(select: string[], childIdAttrs: Record<string, strin
         list = [];
         const idAttr = idAttrs[child];
         if (idAttr) {
-          if (!NAME_RE.test(idAttr)) throw new QueryBuildError(`子 ${child} の ID 属性名が不正`);
+          if (!NAME_RE.test(idAttr)) throw new QueryBuildError(`Invalid ID attribute name for child ${child}`);
           list.push(idAttr.toLowerCase());
         }
         list.push("_rowstamp");
@@ -109,20 +109,20 @@ function buildClause(a: string, f: TypedFilter): string {
     case "lte":
       return `${a}<=${ordered(f)}`;
     case "in": {
-      if (!Array.isArray(f.value) || f.value.length === 0) throw new QueryBuildError(`${f.attr} の in には 1 件以上の値の配列を渡す`);
-      if (f.value.length > MAX_IN_VALUES) throw new QueryBuildError(`${f.attr} の in は ${MAX_IN_VALUES} 件までにする`);
+      if (!Array.isArray(f.value) || f.value.length === 0) throw new QueryBuildError(`in for ${f.attr} needs an array of at least one value`);
+      if (f.value.length > MAX_IN_VALUES) throw new QueryBuildError(`in for ${f.attr} takes at most ${MAX_IN_VALUES} values`);
       return `${a} in [${f.value.map((v) => formatValue(f.attr, v, false)).join(",")}]`;
     }
     case "notin":
       // Maximo の否定の in は文書化された構文が確かでなく（!="[a,b]" などは実装依存）、
       // 誤ると条件が黙って無視されて全件が返る。安全のため Maximo へは送らない
-      throw new QueryBuildError(`${f.attr} の notin は Maximo の検索条件に使えない。in / ne で表すか、読み込み後にタブ内で絞り込む`);
+      throw new QueryBuildError(`notin for ${f.attr} cannot be used in a Maximo query. Express it with in or ne, or filter in the tab after loading`);
     case "like": {
       if (Array.isArray(f.value) || f.value === null || f.value === undefined || typeof f.value === "boolean") {
-        throw new QueryBuildError(`${f.attr} の like には文字列を渡す`);
+        throw new QueryBuildError(`like for ${f.attr} needs a string`);
       }
       const s = String(f.value);
-      if (s === "") throw new QueryBuildError(`${f.attr} の like に空文字は使えない`);
+      if (s === "") throw new QueryBuildError(`like for ${f.attr} cannot be an empty string`);
       assertSafeString(f.attr, s, true);
       return `${a}="%${s}%"`;
     }
@@ -133,46 +133,46 @@ function buildClause(a: string, f: TypedFilter): string {
       assertNoValue(f);
       return `${a}="*"`;
     default:
-      throw new QueryBuildError(`未対応の演算子 ${String((f as { op: unknown }).op)}`);
+      throw new QueryBuildError(`Unsupported operator ${String((f as { op: unknown }).op)}`);
   }
 }
 
 function scalar(f: TypedFilter, _ordered: boolean): string {
-  if (Array.isArray(f.value)) throw new QueryBuildError(`${f.attr} の ${f.op} に配列は使えない`);
-  if (f.value === undefined || f.value === null) throw new QueryBuildError(`${f.attr} の ${f.op} に値が無い（空の判定は isnull / notnull を使う）`);
+  if (Array.isArray(f.value)) throw new QueryBuildError(`${f.op} for ${f.attr} cannot take an array`);
+  if (f.value === undefined || f.value === null) throw new QueryBuildError(`${f.op} for ${f.attr} has no value (use isnull or notnull to test for empty)`);
   return formatValue(f.attr, f.value, false);
 }
 
 function ordered(f: TypedFilter): string {
-  if (typeof f.value === "boolean") throw new QueryBuildError(`${f.attr} の ${f.op} に真偽値は使えない`);
+  if (typeof f.value === "boolean") throw new QueryBuildError(`${f.op} for ${f.attr} cannot take a boolean`);
   return scalar(f, true);
 }
 
 function formatValue(attr: string, v: CellValue, allowPercent: boolean): string {
-  if (v === null) throw new QueryBuildError(`${attr} の値に null は使えない（isnull / notnull を使う）`);
+  if (v === null) throw new QueryBuildError(`The value for ${attr} cannot be null (use isnull or notnull)`);
   if (typeof v === "number") {
-    if (!Number.isFinite(v)) throw new QueryBuildError(`${attr} の数値が不正`);
+    if (!Number.isFinite(v)) throw new QueryBuildError(`Invalid number for ${attr}`);
     return String(v);
   }
   if (typeof v === "boolean") return v ? "true" : "false";
-  if (v === "") throw new QueryBuildError(`${attr} の値に空文字は使えない（isnull / notnull を使う）`);
+  if (v === "") throw new QueryBuildError(`The value for ${attr} cannot be an empty string (use isnull or notnull)`);
   // "*" 単独は Maximo で「値がある」の意味になるので値として使わない
-  if (v === "*") throw new QueryBuildError(`${attr} の値に * は使えない（notnull を使う）`);
+  if (v === "*") throw new QueryBuildError(`The value for ${attr} cannot be * (use notnull)`);
   assertSafeString(attr, v, allowPercent);
   return `"${v}"`;
 }
 
 function assertSafeString(attr: string, s: string, allowPercent: boolean): void {
   // Maximo の oslc.where には " のエスケープ方法が文書化されていないため拒否する
-  if (s.includes('"')) throw new QueryBuildError(`${attr} の値に " を含むものは検索条件に使えない`);
+  if (s.includes('"')) throw new QueryBuildError(`A value for ${attr} containing " cannot be used in a query`);
   // eslint-disable-next-line no-control-regex
-  if (/[\u0000-\u001f\u007f]/.test(s)) throw new QueryBuildError(`${attr} の値に制御文字を含めない`);
+  if (/[\u0000-\u001f\u007f]/.test(s)) throw new QueryBuildError(`The value for ${attr} must not contain control characters`);
   // % は Maximo でワイルドカードとして解釈され、完全一致のつもりが部分一致になる
-  if (!allowPercent && s.includes("%")) throw new QueryBuildError(`${attr} の値に % を含めない（部分一致は like を使う）`);
+  if (!allowPercent && s.includes("%")) throw new QueryBuildError(`The value for ${attr} must not contain % (use like for substring matches)`);
 }
 
 function assertNoValue(f: TypedFilter): void {
-  if (f.value !== undefined && f.value !== null) throw new QueryBuildError(`${f.attr} の ${f.op} に値は付けない`);
+  if (f.value !== undefined && f.value !== null) throw new QueryBuildError(`${f.op} for ${f.attr} takes no value`);
 }
 
 /**
@@ -184,7 +184,7 @@ export function buildOrderBy(orderBy: string[], knownAttrs?: Set<string>): strin
       const desc = o.startsWith("-");
       const name = o.replace(/^[+-]/, "");
       const { child, attr } = splitColumnName(name);
-      if (child) throw new QueryBuildError(`子の属性 ${name} では並べ替えできない`);
+      if (child) throw new QueryBuildError(`Cannot sort by the child attribute ${name}`);
       assertKnown(attr, knownAttrs);
       return `${desc ? "-" : "+"}${attr.toLowerCase()}`;
     })

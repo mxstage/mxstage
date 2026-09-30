@@ -297,22 +297,22 @@ export function isZipFile(bytes: Uint8Array): boolean {
 export async function parseXlsx(bytes: Uint8Array, limits: Partial<XlsxLimits> = {}): Promise<ImportWorkbook> {
   const lim: XlsxLimits = { ...DEFAULT_LIMITS, ...limits };
   if (isOleFile(bytes)) {
-    throw new ImportError("Excel 97-2003 形式（.xls）か、パスワード付きのファイルです。Excel で .xlsx として保存し直すか、パスワードを外してから渡してください。");
+    throw new ImportError("This is an Excel 97-2003 (.xls) or password-protected file. Save it as .xlsx in Excel or remove the password, then provide it again.");
   }
   let pkg: Package;
   try {
     pkg = new Package(bytes, readZipDirectory(bytes), lim);
   } catch (e) {
-    throw new ImportError(e instanceof ZipError ? `Excel のファイルとして読めません: ${e.message}` : "Excel のファイルとして読めません");
+    throw new ImportError(e instanceof ZipError ? `Cannot read it as an Excel file: ${e.message}` : "Cannot read it as an Excel file");
   }
   try {
     const rootRels = await readRels(pkg, "");
     const workbookPath = relOfType(rootRels, REL_OFFICE_DOCUMENT)?.target ?? "xl/workbook.xml";
     if (/\.bin$/i.test(workbookPath) || pkg.has("xl/workbook.bin")) {
-      throw new ImportError("Excel バイナリ形式（.xlsb）は読めません。Excel で .xlsx として保存し直してから渡してください。");
+      throw new ImportError("Excel binary files (.xlsb) cannot be read. Save it as .xlsx in Excel, then provide it again.");
     }
     const workbook = await pkg.text(workbookPath);
-    if (workbook === null) throw new ImportError("Excel のブックの定義（workbook.xml）がありません。.xlsx のファイルか確かめてください。");
+    if (workbook === null) throw new ImportError("The Excel workbook definition (workbook.xml) is missing. Check that it is an .xlsx file.");
     const rels = await readRels(pkg, workbookPath);
     const date1904 = /<(?:[A-Za-z_][\w.-]*:)?workbookPr\b[^>]*\bdate1904\s*=\s*["'](1|true)["']/.test(workbook);
     const sharedPath = relOfType(rels, REL_SHARED_STRINGS)?.target;
@@ -334,11 +334,11 @@ export async function parseXlsx(bytes: Uint8Array, limits: Partial<XlsxLimits> =
       const state = a.get("state");
       tables.push(parseSheet(name, state === "hidden" || state === "veryHidden", xml, ctx, lim));
     }
-    if (tables.length === 0) throw new ImportError("Excel のファイルに値の入ったシートがありません。");
+    if (tables.length === 0) throw new ImportError("The Excel file has no sheet with values.");
     return { format: "xlsx", tables };
   } catch (e) {
     if (e instanceof ImportError) throw e;
-    if (e instanceof ZipError) throw new ImportError(`Excel のファイルとして読めません: ${e.message}`);
+    if (e instanceof ZipError) throw new ImportError(`Cannot read it as an Excel file: ${e.message}`);
     throw e;
   }
 }

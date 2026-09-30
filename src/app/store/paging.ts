@@ -16,13 +16,13 @@ export function decodeCursor(cursor: string | undefined | null): number {
   } catch {
     // 下で型付きエラーにする
   }
-  throw new StoreError("invalid_cursor", "cursor が正しくありません。前回の結果の nextCursor をそのまま渡してください");
+  throw new StoreError("invalid_cursor", "Invalid cursor. Pass nextCursor from the previous result unchanged");
 }
 
 export function checkLimit(limit: number | undefined, fallback: number): number {
   if (limit === undefined) return fallback;
   if (!Number.isSafeInteger(limit) || limit < 1) {
-    throw new StoreError("invalid_args", "limit は 1 以上の整数にしてください", { limit });
+    throw new StoreError("invalid_args", "limit must be an integer of 1 or more", { limit });
   }
   return limit;
 }

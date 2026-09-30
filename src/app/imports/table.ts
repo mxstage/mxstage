@@ -252,15 +252,15 @@ export function buildImportSheet(t: RawTable, opts: BuildImportOptions): BuiltIm
   const header = rowAt(t, opts.headerRow);
   if (header === undefined) {
     const candidates = headerCandidates(t).map((c) => c.row);
-    throw new ImportError(`${opts.headerRow} 行目に値がありません。見出しの行の候補: ${candidates.join(", ") || "なし"}`);
+    throw new ImportError(`Row ${opts.headerRow} has no values. Likely header rows: ${candidates.join(", ") || "none"}`);
   }
   const columns = importColumns(t, opts.headerRow);
-  if (columns.length === 0) throw new ImportError(`${opts.headerRow} 行目の下に列がありません`);
+  if (columns.length === 0) throw new ImportError(`There are no columns under row ${opts.headerRow}`);
 
   const rename = opts.rename ?? {};
   const byName = new Map(columns.map((c) => [c.name, c]));
   for (const from of Object.keys(rename)) {
-    if (!byName.has(from)) throw new ImportError(`rename の ${from} は列にありません`);
+    if (!byName.has(from)) throw new ImportError(`${from} in rename is not a column`);
   }
   const finalName = (c: ImportColumn): string => {
     const to = rename[c.name];
@@ -270,8 +270,8 @@ export function buildImportSheet(t: RawTable, opts: BuildImportOptions): BuiltIm
   const schema: ColumnSchema[] = [{ name: SOURCE_ROW_COLUMN, title: SOURCE_ROW_TITLE, type: "integer", readOnly: true }];
   for (const c of columns) {
     const name = finalName(c);
-    if (name === "" || name === "__proto__") throw new ImportError(`rename の ${c.name} → ${JSON.stringify(name)} は列名に使えません`);
-    if (names.has(name)) throw new ImportError(`列名 ${name} が重なります（rename を見直してください）`);
+    if (name === "" || name === "__proto__") throw new ImportError(`${c.name} → ${JSON.stringify(name)} in rename cannot be used as a column name`);
+    if (names.has(name)) throw new ImportError(`Column name ${name} is used twice (check rename)`);
     names.add(name);
     const col: ColumnSchema = { name, type: c.type };
     // 名前を変えた列は、元の見出しを画面表示名に残す（作業画面の見出しは 2 段で両方を出す）
@@ -280,7 +280,7 @@ export function buildImportSheet(t: RawTable, opts: BuildImportOptions): BuiltIm
   }
   const keyColumns = opts.keyColumns !== undefined && opts.keyColumns.length > 0 ? [...opts.keyColumns] : [SOURCE_ROW_COLUMN];
   for (const k of keyColumns) {
-    if (!names.has(k)) throw new ImportError(`キー列 ${k} は列にありません（rename の後の列名で指定してください）`);
+    if (!names.has(k)) throw new ImportError(`Key column ${k} is not a column (use the names after rename)`);
   }
 
   const rows: SheetRow[] = [];

@@ -77,7 +77,7 @@ export async function main(argv: readonly string[]): Promise<number> {
   }
   if (parsed.kind === "error") {
     log(parsed.message);
-    log("--help で使い方を表示します。");
+    log("Run with --help for usage.");
     return 2;
   }
 

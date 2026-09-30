@@ -555,9 +555,9 @@ describe("CLI（別プロセス）", () => {
     answerWithProgress(tab, "primary のタブ");
     const call = await second.call(2, "tools/call", { name: "load_sheet", arguments: LOAD_ARGS, _meta: { progressToken: "tok-cli" } }, 20_000);
     // 会話で最初の呼び出しなので、タブの結果の後ろに基本手順の Skill が添えられる。
-    // 更新の知らせ（【MX Stage の更新】）は、試験を動かしているリポジトリの状態で付いたり付かなかったりするので外して比べる
-    const content = ((call.result as { content: { type: string; text: string }[] }).content ?? []).filter((c) => !c.text.startsWith("【MX Stage の更新】"));
-    expect(content).toMatchObject([{ type: "text", text: "primary のタブ" }, { type: "text", text: expect.stringContaining("MX Stage の基本手順と禁止事項") }]);
+    // 更新の知らせ（[MX Stage updates]）は、試験を動かしているリポジトリの状態で付いたり付かなかったりするので外して比べる
+    const content = ((call.result as { content: { type: string; text: string }[] }).content ?? []).filter((c) => !c.text.startsWith("[MX Stage updates]"));
+    expect(content).toMatchObject([{ type: "text", text: "primary のタブ" }, { type: "text", text: expect.stringContaining("MX Stage basic procedure and rules") }]);
     expect((tab.frames("tool.invoke")[0] as unknown as InvokeMsg).tool).toBe("load_sheet");
     const progress = second.notifications.filter((n) => n.method === "notifications/progress");
     expect(progress[0]?.params).toMatchObject({ progressToken: "tok-cli", progress: 1, total: 2 });
@@ -574,7 +574,7 @@ describe("CLI（別プロセス）", () => {
     again.onInvoke = (msg) => again.answer(msg.id, "引き継いだ橋渡しのタブ");
     const after = await second.call(3, "tools/call", { name: "get_status", arguments: {} }, 20_000);
     // get_status には更新の知らせが付くことがある（上と同じ理由で外して比べる）
-    const afterContent = ((after.result as { content: { type: string; text: string }[] }).content ?? []).filter((c) => !c.text.startsWith("【MX Stage の更新】"));
+    const afterContent = ((after.result as { content: { type: string; text: string }[] }).content ?? []).filter((c) => !c.text.startsWith("[MX Stage updates]"));
     expect(afterContent).toMatchObject([{ type: "text", text: "引き継いだ橋渡しのタブ" }]);
 
     // 鍵の値はどちらのログにも出さない

@@ -287,7 +287,7 @@ export interface UpdateState {
   skillCopies: SkillCopyProblem[];
 }
 
-const SETUP_COMMAND = "mxstage.cmd（または node scripts/setup-local.mjs）";
+const SETUP_COMMAND = "mxstage.cmd (or node scripts/setup-local.mjs)";
 
 export function updateNotices(state: UpdateState): UpdateNotice[] {
   const notices: UpdateNotice[] = [];
@@ -295,35 +295,35 @@ export function updateNotices(state: UpdateState): UpdateNotice[] {
     notices.push({
       kind: "mcp_code",
       message: state.isPrimary
-        ? "この会話の MX Stage（MCP と作業タブへの中継）は、起動したあとにリポジトリのコードが更新されました。ツールの定義・基本手順・中継は古いままです。"
-        : "この会話の MX Stage（MCP）は、起動したあとにリポジトリのコードが更新されました。ツールの定義と基本手順は古いままです。",
-      action: "会話を始め直してください（Claude Code・Antigravity は新しい会話、Claude Desktop はタスクトレイから終了して開き直す）。",
+        ? "The code in the repository was updated after MX Stage (the MCP server and the relay to the work screen tab) started for this conversation. The tool definitions, the basic procedure and the relay are out of date."
+        : "The code in the repository was updated after MX Stage (the MCP server) started for this conversation. The tool definitions and the basic procedure are out of date.",
+      action: "Start a new conversation (in Claude Code or Antigravity, open a new conversation; in Claude Desktop, quit it from the system tray and open it again).",
     });
   }
   if (!state.isPrimary && state.primaryStale === true) {
     notices.push({
       kind: "bridge_code",
-      message: "作業タブへの中継をしている橋渡し（ポートを持つもの）は、起動したあとにリポジトリのコードが更新されました。中継は古いコードのままです。",
+      message: "The code in the repository was updated after the bridge that relays to the work screen tab (the one holding the port) started. The relay is running old code.",
       action:
-        "その橋渡しを止めて起動し直してください（Claude が起動したものなら、その Claude を終了する。ログイン時の自動起動や導入で起動したものは、docs/local.md の「今すぐ橋渡しを止める」のあと導入をもう一度実行する）。",
+        "Stop that bridge and start it again (if Claude started it, quit that Claude app; if it was started at sign-in or by the setup, follow \"Stop the bridge now\" in docs/local.md and run the setup again).",
     });
   }
   if (state.staleBuild.length > 0) {
     notices.push({
       kind: "app_build",
-      message: `作業画面のビルドが元より古くなっています（新しいもと: ${state.staleBuild.join(", ")}）。`,
-      action: `導入（${SETUP_COMMAND}）をもう一度実行してビルドし直し、作業画面を再読み込みしてください。`,
+      message: `The work screen build is older than its sources (newer sources: ${state.staleBuild.join(", ")}).`,
+      action: `Run the setup (${SETUP_COMMAND}) again to rebuild, then reload the work screen.`,
     });
   }
   for (const p of state.skillCopies) {
     const parts = [
-      p.changed.length > 0 ? `中身が元と違う: ${p.changed.join(", ")}` : null,
-      p.missing.length > 0 ? `まだ配っていない: ${p.missing.join(", ")}` : null,
+      p.changed.length > 0 ? `different from the source: ${p.changed.join(", ")}` : null,
+      p.missing.length > 0 ? `not installed yet: ${p.missing.join(", ")}` : null,
     ].filter((s): s is string => s !== null);
     notices.push({
       kind: "skill_copies",
-      message: `${p.label} に配った Skill の写し（${p.dir}）が、今の Skill と揃っていません（${parts.join("／")}）。`,
-      action: `導入（${SETUP_COMMAND}）をもう一度実行し、新しい会話から使ってください（写しを書き換えていたものは、控えを取ってから置き換えます）。`,
+      message: `The Skill copies installed for ${p.label} (${p.dir}) do not match the current Skills (${parts.join("; ")}).`,
+      action: `Run the setup (${SETUP_COMMAND}) again and use them from a new conversation (copies that were edited are backed up before being replaced).`,
     });
   }
   return notices;
@@ -333,7 +333,7 @@ export function updateNotices(state: UpdateState): UpdateNotice[] {
 export function updatesText(notices: readonly UpdateNotice[]): string | null {
   if (notices.length === 0) return null;
   return [
-    "【MX Stage の更新】次のものが古くなっています。作業を始める前に、利用者にそのまま伝えてください。",
+    "[MX Stage updates] The following are out of date. Before starting work, tell the user in their language.",
     ...notices.map((n) => `- ${n.message} → ${n.action}`),
   ].join("\n");
 }

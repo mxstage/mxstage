@@ -76,20 +76,20 @@ export class MaximoClient {
 
   constructor(opts: MaximoClientOptions) {
     const base = new URL(opts.baseUrl);
-    if (base.protocol !== "https:" && base.protocol !== "http:") throw new Error("baseUrl は http(s) の URL にする");
-    if (base.search || base.hash || base.username || base.password) throw new Error("baseUrl にクエリ・フラグメント・認証情報を含めない");
+    if (base.protocol !== "https:" && base.protocol !== "http:") throw new Error("baseUrl must be an http(s) URL");
+    if (base.search || base.hash || base.username || base.password) throw new Error("baseUrl must not contain a query, fragment or credentials");
     // http では API キーが平文で流れる。ローカルの試験環境（ループバック）だけ許す
     if (base.protocol === "http:" && !["localhost", "127.0.0.1", "[::1]"].includes(base.hostname)) {
-      throw new Error("baseUrl は https にする（http はループバックだけ）");
+      throw new Error("baseUrl must use https (http only for loopback)");
     }
     this.baseUrl = `${base.origin}${base.pathname.replace(/\/+$/, "")}`;
     // 橋渡しの /mx は X-Maximo-Base に https://host[:port] だけを受け付けるので、送る前に同じ条件で止める
     if (opts.via === "proxy" && (base.protocol !== "https:" || this.baseUrl !== base.origin)) {
-      throw new Error("proxy 経由の baseUrl は https://host[:port] の形にする（パスを含めない）");
+      throw new Error("A baseUrl through the proxy must be https://host[:port] (no path)");
     }
     this.via = opts.via;
     this.contextRoot = (opts.contextRoot ?? "/maximo").replace(/\/+$/, "");
-    if (!/^\/[A-Za-z0-9_\-/]*$/.test(this.contextRoot)) throw new Error("contextRoot が不正");
+    if (!/^\/[A-Za-z0-9_\-/]*$/.test(this.contextRoot)) throw new Error("Invalid contextRoot");
     this.apiRoot = `${this.contextRoot}/api`;
     this.apiKey = opts.apiKey;
     this.fetchImpl = opts.fetchImpl ?? ((input, init) => globalThis.fetch(input, init));
@@ -109,17 +109,17 @@ export class MaximoClient {
     try {
       u = new URL(href, "http://placeholder.invalid");
     } catch {
-      throw new Error("href を解析できない");
+      throw new Error("Cannot parse href");
     }
-    if (u.hash) throw new Error("href にフラグメントを含めない");
+    if (u.hash) throw new Error("href must not contain a fragment");
     // 符号化したドット・区切り・二重符号化（%25）・Java サーブレットのパスパラメータ（..;/）・ドットだけの区切りで
     // コンテキストルートの外へ出るのを防ぐ（/mx プロキシと同じ規則）。
     // URL の解析は %2e や .. を正規化してしまうので、解析前の文字列で調べる
     const rawPath = href.replace(/[?#][\s\S]*$/, "");
-    if (/%2e|%2f|%5c|%25|\\|;/i.test(rawPath)) throw new Error("href のパスに使えない文字が含まれている");
+    if (/%2e|%2f|%5c|%25|\\|;/i.test(rawPath)) throw new Error("The href path contains characters that cannot be used");
     const rawPathOnly = rawPath.replace(/^[A-Za-z][A-Za-z0-9+.-]*:\/\/[^/]*/, "");
-    if (rawPathOnly.split("/").some((seg) => seg === "." || seg === "..")) throw new Error("href のパスに . や .. を含めない");
-    if (!u.pathname.startsWith(`${this.contextRoot}/`)) throw new Error("href が Maximo のコンテキストルート配下ではない");
+    if (rawPathOnly.split("/").some((seg) => seg === "." || seg === "..")) throw new Error("The href path must not contain . or ..");
+    if (!u.pathname.startsWith(`${this.contextRoot}/`)) throw new Error("href is not under the Maximo context root");
     return `${u.pathname}${u.search}`;
   }
 
@@ -130,7 +130,7 @@ export class MaximoClient {
       try {
         const res = await this.fetchOnce("GET", path, {}, undefined);
         if (res.status >= 200 && res.status < 300) {
-          if (res.body === null) throw new MaximoError(res.status, null, "Maximo の応答が空");
+          if (res.body === null) throw new MaximoError(res.status, null, "Empty Maximo response");
           if (hasErrorBody(res.body)) throw toMaximoError(res.status, res.body);
           return res.body as T;
         }
@@ -162,15 +162,15 @@ export class MaximoClient {
   }
 
   private buildUrl(path: string): string {
-    if (!path.startsWith("/") || path.startsWith("//")) throw new Error("path は / で始まる相対パスにする");
+    if (!path.startsWith("/") || path.startsWith("//")) throw new Error("path must be a relative path starting with /");
     const q = path.indexOf("?");
-    if (q >= 0 && /(^|[?&])apikey=/i.test(path.slice(q))) throw new Error("API キーをクエリに載せない");
+    if (q >= 0 && /(^|[?&])apikey=/i.test(path.slice(q))) throw new Error("Do not put the API key in the query");
     return this.via === "proxy" ? `/mx${path}` : `${this.baseUrl}${path}`;
   }
 
   private buildHeaders(extra: Record<string, string>): Record<string, string> {
     const key = this.apiKey();
-    if (!key) throw new Error("Maximo の API キーが設定されていない");
+    if (!key) throw new Error("The Maximo API key is not set");
     const headers: Record<string, string> = { accept: "application/json", ...extra };
     if (this.via === "proxy") {
       headers["X-Maximo-Base"] = this.baseUrl;
@@ -206,7 +206,7 @@ export class MaximoClient {
       text = await res.text();
     } catch {
       // 例外の中身（URL やヘッダを含みうる）はメッセージに含めない
-      throw new MaximoNetworkError(timedOut ? "Maximo への通信がタイムアウトした" : "Maximo へ通信できない", timedOut);
+      throw new MaximoNetworkError(timedOut ? "The request to Maximo timed out" : "Cannot reach Maximo", timedOut);
     } finally {
       clearTimeout(timer);
     }
@@ -216,7 +216,7 @@ export class MaximoClient {
         parsed = JSON.parse(text);
       } catch {
         // ログイン画面の HTML などを 200 で返されることがあるので、JSON 以外は受け付けない
-        throw new MaximoError(res.status, null, `Maximo の応答が JSON ではない（HTTP ${res.status}）`);
+        throw new MaximoError(res.status, null, `The Maximo response is not JSON (HTTP ${res.status})`);
       }
     }
     const ra = res.headers.get("retry-after");
@@ -233,7 +233,7 @@ export function toMaximoError(status: number, body: unknown): MaximoError {
   // 橋渡しの /mx 自身が返すエラー（{ok:false, error:"コード", message}）は Maximo の reasonCode にせず、メッセージだけ使う
   const proxyMessage =
     obj && obj.ok === false && typeof obj.error === "string" && typeof obj.message === "string" && obj.message !== "" ? `${obj.message}（/mx: ${obj.error}）` : null;
-  const message = errObj && typeof errObj.message === "string" && errObj.message !== "" ? errObj.message : (proxyMessage ?? `Maximo がエラーを返した（HTTP ${status}）`);
+  const message = errObj && typeof errObj.message === "string" && errObj.message !== "" ? errObj.message : (proxyMessage ?? `Maximo returned an error (HTTP ${status})`);
   let code = status;
   if (errObj && (typeof errObj.statusCode === "string" || typeof errObj.statusCode === "number")) {
     const n = Number(errObj.statusCode);

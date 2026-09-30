@@ -58,7 +58,7 @@ export function autoPageSize(select: readonly string[], childIdAttrs: Record<str
  * を responseInfo.nextPage.href に沿ってたどる。nextPage の href は同じ baseUrl / proxy の path+query に付け替える。
  */
 export async function loadRecords(client: MaximoClient, opts: LoadRecordsOptions, onProgress?: LoadProgress): Promise<LoadRecordsResult> {
-  if (!OS_NAME_RE.test(opts.os)) throw new Error(`オブジェクト構造名 ${JSON.stringify(opts.os)} が不正`);
+  if (!OS_NAME_RE.test(opts.os)) throw new Error(`Invalid object structure name ${JSON.stringify(opts.os)}`);
   const maxRows = clampInt(opts.maxRows ?? DEFAULT_MAX_ROWS, 1, MAX_MAX_ROWS);
   const pageSize = clampInt(opts.pageSize ?? autoPageSize(opts.select, opts.childIdAttrs), 1, 1_000);
   const concurrency = clampInt(opts.concurrency ?? DEFAULT_CONCURRENCY, 1, 8);
@@ -86,11 +86,11 @@ export async function loadRecords(client: MaximoClient, opts: LoadRecordsOptions
   let truncated = false;
   let parallelDone = false;
   while (path !== null) {
-    if (opts.signal?.aborted) throw new Error("読み込みを中断した");
-    if (seen.has(path)) throw new Error("Maximo の nextPage が循環している");
+    if (opts.signal?.aborted) throw new Error("Loading was cancelled");
+    if (seen.has(path)) throw new Error("Maximo nextPage links form a loop");
     seen.add(path);
     const page = await client.get(path);
-    if (!isRecord(page)) throw new Error("Maximo の応答が不正（オブジェクトではない）");
+    if (!isRecord(page)) throw new Error("Invalid Maximo response (not an object)");
     const members = Array.isArray(page.member) ? page.member : [];
     const info = isRecord(page.responseInfo) ? page.responseInfo : {};
     if (total === null && typeof info.totalCount === "number") total = info.totalCount;
@@ -126,7 +126,7 @@ export async function loadRecords(client: MaximoClient, opts: LoadRecordsOptions
       }
     }
     const nextPath = client.hrefToPath(next);
-    if (!nextPath.toLowerCase().startsWith(`${collectionPath.toLowerCase()}?`)) throw new Error("Maximo の nextPage が別のコレクションを指している");
+    if (!nextPath.toLowerCase().startsWith(`${collectionPath.toLowerCase()}?`)) throw new Error("Maximo nextPage points to another collection");
     path = nextPath;
   }
   if (total !== null && total > records.length) truncated = true;
@@ -168,7 +168,7 @@ async function loadPagesInParallel(opts: ParallelPagesOptions): Promise<boolean>
     while (!failed) {
       const index = next++;
       if (index >= pages.length) return;
-      if (opts.signal?.aborted) throw new Error("読み込みを中断した");
+      if (opts.signal?.aborted) throw new Error("Loading was cancelled");
       const page = await client.get(`${collectionPath}?${query}&pageno=${index + 2}`);
       if (!isRecord(page) || !Array.isArray(page.member)) {
         failed = true;
@@ -201,9 +201,9 @@ async function loadPagesInParallel(opts: ParallelPagesOptions): Promise<boolean>
  * lean 形式では null の属性が省略されるので、読む側は「無い＝null」として扱う。
  */
 export function parseMember(member: unknown, childIdAttrs: Record<string, string | null>, opts: { requireHref?: boolean } = {}): MaximoRecord {
-  if (!isRecord(member)) throw new Error("Maximo の member が不正");
+  if (!isRecord(member)) throw new Error("Invalid Maximo member");
   const href = typeof member.href === "string" && member.href !== "" ? member.href : typeof member.localref === "string" ? member.localref : "";
-  if (href === "" && opts.requireHref !== false) throw new Error("Maximo の member に href が無い");
+  if (href === "" && opts.requireHref !== false) throw new Error("A Maximo member has no href");
   const attrs: Record<string, CellValue> = {};
   const children: Record<string, MaximoChild[]> = {};
   for (const [k, v] of Object.entries(member)) {
@@ -303,7 +303,7 @@ export function recordsToRows(records: MaximoRecord[], meta: Pick<SheetMeta, "co
   const seenParents = new Set<string>();
   for (const rec of records) {
     const parentKey = parentKeyOf(rec, meta.keyColumns);
-    if (seenParents.has(parentKey)) throw new Error(`親キー ${parentKey} が重複している（キー列の選び方を確認する）`);
+    if (seenParents.has(parentKey)) throw new Error(`Duplicate parent key ${parentKey} (check the choice of key columns)`);
     seenParents.add(parentKey);
     const base: Record<string, CellValue> = {};
     for (const col of parentCols) base[col] = rec.attrs[col] ?? null;
@@ -314,7 +314,7 @@ export function recordsToRows(records: MaximoRecord[], meta: Pick<SheetMeta, "co
       list.forEach((child, index) => {
         const idPart: CellValue = child.idAttr && child.id !== null ? child.id : `${NO_ID_CHILD_PREFIX}${index}`;
         const rowKey = makeChildRowKey(parentKey, kind, idPart);
-        if (seenIds.has(rowKey)) throw new Error(`子 ${kind} の ID が同じ親の中で重複している`);
+        if (seenIds.has(rowKey)) throw new Error(`Duplicate ID of child ${kind} within the same parent`);
         seenIds.add(rowKey);
         const values: Record<string, CellValue> = { ...base };
         for (const { col } of allChildCols) values[col] = null;

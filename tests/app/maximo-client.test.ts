@@ -85,16 +85,16 @@ describe("MaximoClient: 送り先とヘッダ", () => {
   it("クエリに apikey を含む path は送らずに拒否する", async () => {
     const { calls, fetchImpl } = scripted([]);
     const { client } = makeClient(fetchImpl);
-    await expect(client.get("/maximo/api/os/mxapiwo?lean=1&apikey=abc")).rejects.toThrow(/API キー/);
-    await expect(client.get("/maximo/api/os/mxapiwo?APIKEY=abc")).rejects.toThrow(/API キー/);
-    await expect(client.post("/maximo/api/os/mxapiwo/_A?apikey=x", {}, {})).rejects.toThrow(/API キー/);
+    await expect(client.get("/maximo/api/os/mxapiwo?lean=1&apikey=abc")).rejects.toThrow(/API key in the query/);
+    await expect(client.get("/maximo/api/os/mxapiwo?APIKEY=abc")).rejects.toThrow(/API key in the query/);
+    await expect(client.post("/maximo/api/os/mxapiwo/_A?apikey=x", {}, {})).rejects.toThrow(/API key in the query/);
     expect(calls).toHaveLength(0);
   });
 
   it("キーが空なら送らない", async () => {
     const { calls, fetchImpl } = scripted([]);
     const { client } = makeClient(fetchImpl, { apiKey: () => "" });
-    await expect(client.get("/maximo/api/apimeta")).rejects.toThrow(/API キー/);
+    await expect(client.get("/maximo/api/apimeta")).rejects.toThrow(/API key is not set/);
     expect(calls).toHaveLength(0);
   });
 

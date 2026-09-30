@@ -104,7 +104,7 @@ describe("stdio の MCP サーバ", () => {
     expect((init.result as { serverInfo: { name: string } }).serverInfo.name).toBe("mxstage");
     // Skill の入らないクライアント（Claude Desktop のチャット）にも、データを作業画面のシートに読み込む決まりが届く
     const instructions = (init.result as { instructions?: string }).instructions ?? "";
-    expect(instructions).toContain("必ず作業画面のシートに読み込み");
+    expect(instructions).toContain("Always load Maximo data into work screen sheets");
     expect(instructions).toContain("get_skill");
 
     const list = await cli.call(2, "tools/list");
@@ -122,12 +122,12 @@ describe("stdio の MCP サーバ", () => {
     expect(grid.appUrl).toBe(`http://127.0.0.1:${port}/app`);
     expect(grid.tabConnected).toBe(false);
     // 会話で最初のツール呼び出しには、基本手順の Skill を添える（Skill 機能の無いクライアントにも、どのツールから始めても届く）
-    // 更新の知らせ（【MX Stage の更新】）は、試験を動かしているリポジトリの状態（ビルドが古いなど）で付いたり付かなかったりするので外して比べる
-    const withoutUpdates = (content: ToolCallResult["content"]) => content.filter((c) => !c.text.startsWith("【MX Stage の更新】"));
+    // 更新の知らせ（[MX Stage updates]）は、試験を動かしているリポジトリの状態（ビルドが古いなど）で付いたり付かなかったりするので外して比べる
+    const withoutUpdates = (content: ToolCallResult["content"]) => content.filter((c) => !c.text.startsWith("[MX Stage updates]"));
     const firstContent = withoutUpdates((open.result as ToolCallResult).content);
     expect(firstContent).toHaveLength(2);
-    expect(firstContent[1]!.text).toContain("MX Stage の基本手順と禁止事項");
-    expect(firstContent[1]!.text).toContain("# MX Stage 作業の基本手順");
+    expect(firstContent[1]!.text).toContain("MX Stage basic procedure and rules");
+    expect(firstContent[1]!.text).toContain("# MX Stage basic procedure");
     expect(firstContent[1]!.text).toContain("save_skill");
 
     // タブが無いときの get_status は「つながっていない」と答える（エラーにしない）。2 回目からは添えない

@@ -185,7 +185,7 @@ describe("updateNotices", () => {
   it("primary なら自分の古さを 1 つだけ言う（中継も含めて）", () => {
     const notices = updateNotices({ ...base, selfStale: true, isPrimary: true, primaryStale: true });
     expect(notices.map((n) => n.kind)).toEqual(["mcp_code"]);
-    expect(notices[0]?.message).toMatch(/中継/);
+    expect(notices[0]?.message).toMatch(/relay/);
   });
 
   it("client なら自分と primary を分けて言い、ビルドと Skill の写しも直し方と一緒に出す", () => {
@@ -197,9 +197,9 @@ describe("updateNotices", () => {
       skillCopies: [{ label: "Antigravity", dir: "D:\\g\\skills", changed: ["a"], missing: ["b"] }],
     });
     expect(notices.map((n) => n.kind)).toEqual(["mcp_code", "bridge_code", "app_build", "skill_copies"]);
-    expect(notices[3]?.message).toMatch(/中身が元と違う: a／まだ配っていない: b/);
+    expect(notices[3]?.message).toMatch(/different from the source: a; not installed yet: b/);
     for (const n of notices) expect(n.action).not.toBe("");
-    expect(updatesText(notices)).toMatch(/^【MX Stage の更新】/);
+    expect(updatesText(notices)).toMatch(/^\[MX Stage updates\]/);
   });
 
   it("checkUpdates: primary には primary の古さを聞かない。調べる途中の失敗では止まらない", async () => {
@@ -291,16 +291,16 @@ describe("MCP の結果に添える", () => {
       return [notice];
     });
     const first = await client.callTool({ name: "open_grid", arguments: {} });
-    expect(texts(first)).toMatch(/【MX Stage の更新】/);
-    expect(texts(first)).toMatch(/【MX Stage の基本手順と禁止事項/);
+    expect(texts(first)).toMatch(/\[MX Stage updates\]/);
+    expect(texts(first)).toMatch(/\[MX Stage basic procedure and rules/);
     expect(first.structuredContent).not.toHaveProperty("updates");
 
     const second = await client.callTool({ name: "open_grid", arguments: {} });
-    expect(texts(second)).not.toMatch(/【MX Stage の更新】/);
+    expect(texts(second)).not.toMatch(/\[MX Stage updates\]/);
 
     const status = await client.callTool({ name: "get_status", arguments: {} });
     expect(status.structuredContent).toMatchObject({ tabConnected: true, updates: [notice] });
-    expect(texts(status)).toMatch(/【MX Stage の更新】/);
+    expect(texts(status)).toMatch(/\[MX Stage updates\]/);
     expect(calls).toBe(2);
     await client.close();
   });
@@ -310,12 +310,12 @@ describe("MCP の結果に添える", () => {
     const status = await client.callTool({ name: "get_status", arguments: {} });
     expect(status.isError).toBeFalsy();
     expect(status.structuredContent).toEqual({ tabConnected: true, tool: "get_status" });
-    expect(texts(status)).not.toMatch(/【MX Stage の更新】/);
+    expect(texts(status)).not.toMatch(/\[MX Stage updates\]/);
     await client.close();
 
     const once = await connect(async () => [notice]);
     const r = await once.callTool({ name: "get_status", arguments: {} });
-    expect(texts(r).match(/【MX Stage の更新】/g)?.length).toBe(1);
+    expect(texts(r).match(/\[MX Stage updates\]/g)?.length).toBe(1);
     await once.close();
   });
 });

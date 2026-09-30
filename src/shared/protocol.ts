@@ -228,28 +228,28 @@ export const HUB_LOCATION_HINT = "apac-ne";
 export function relayErrorMessage(code: RelayErrorCode, appUrl: string): string {
   switch (code) {
     case RelayErrorCode.NO_TAB:
-      return `作業画面のタブが開いていません。ブラウザで ${appUrl}/app を開いてから、もう一度実行してください。`;
+      return `The work screen tab is not open. Ask the user to open ${appUrl}/app in their browser, then try again.`;
     case RelayErrorCode.NO_ACK:
-      return "作業画面のタブが応答しません。タブが表示されているか確認してから、もう一度実行してください。";
+      return "The work screen tab is not responding. Check that the tab is shown, then try again.";
     case RelayErrorCode.DEADLINE:
-      return "処理が時間内に終わりませんでした。対象を絞るか、ジョブとして実行してください（get_job で進捗を確認できます）。";
+      return "The operation did not finish in time. Narrow the target or run it as a job (check progress with get_job).";
     case RelayErrorCode.TAB_DISCONNECTED:
-      return "処理中に作業画面のタブとの接続が切れました。タブを開き直してから get_status で状態を確認してください。";
+      return "The connection to the work screen tab was lost during the operation. Reopen the tab, then check the state with get_status.";
     case RelayErrorCode.BUSY:
-      return "作業画面が別の変更を処理中です。少し待ってから、もう一度実行してください。";
+      return "The work screen is processing another change. Wait a moment, then try again.";
     case RelayErrorCode.TOO_LARGE:
-      return "結果が大きすぎます。列や条件を絞るか、cursor を使って分けて取得してください。";
+      return "The result is too large. Narrow the columns or conditions, or fetch it in parts with cursor.";
     case RelayErrorCode.FORBIDDEN:
-      return "この操作は許可されていません。";
+      return "This operation is not allowed.";
     case RelayErrorCode.STALE_REVISION:
-      return "読み取った後にデータが変わっています。最新の内容を読み直してから、もう一度実行してください。";
+      return "The data changed after you read it. Read the latest data, then try again.";
     case RelayErrorCode.PROTOCOL_MISMATCH:
-      return "作業画面のバージョンが古い可能性があります。タブを再読み込みしてください。";
+      return "The work screen may be an old version. Ask the user to reload the tab.";
     case RelayErrorCode.UNKNOWN_OUTCOME:
-      return "変更が反映されたか確認できませんでした。get_status で revision を確認し、get_diff で内容を確かめてから再実行してください。";
+      return "Could not confirm whether the change was applied. Check the revision with get_status and the contents with get_diff before trying again.";
     case RelayErrorCode.INVALID_ARGS:
-      return "引数が正しくありません。";
+      return "The arguments are invalid.";
     default:
-      return "作業画面での処理に失敗しました。";
+      return "The operation failed in the work screen.";
   }
 }

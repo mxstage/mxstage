@@ -130,7 +130,7 @@ export function coerceValue(col: ColumnSchema, v: CellValue): CoerceResult {
     case "string": {
       const s = typeof v === "string" ? v : String(v);
       if (col.maxLength !== undefined && codePointLength(s) > col.maxLength) {
-        return { ok: false, message: `最大 ${col.maxLength} 文字です` };
+        return { ok: false, message: `At most ${col.maxLength} characters` };
       }
       return { ok: true, value: s };
     }
@@ -141,11 +141,11 @@ export function coerceValue(col: ColumnSchema, v: CellValue): CoerceResult {
   switch (col.type) {
     case "number": {
       const n = toNumber(v);
-      return n === null || typeof v === "boolean" ? { ok: false, message: "数値ではありません" } : { ok: true, value: n };
+      return n === null || typeof v === "boolean" ? { ok: false, message: "Not a number" } : { ok: true, value: n };
     }
     case "integer": {
       const n = toNumber(v);
-      if (n === null || typeof v === "boolean" || !Number.isSafeInteger(n)) return { ok: false, message: "整数ではありません" };
+      if (n === null || typeof v === "boolean" || !Number.isSafeInteger(n)) return { ok: false, message: "Not an integer" };
       return { ok: true, value: n };
     }
     case "boolean": {
@@ -153,13 +153,13 @@ export function coerceValue(col: ColumnSchema, v: CellValue): CoerceResult {
       const s = String(v).trim().toLowerCase();
       if (s === "true" || s === "1") return { ok: true, value: true };
       if (s === "false" || s === "0") return { ok: true, value: false };
-      return { ok: false, message: "真偽値ではありません" };
+      return { ok: false, message: "Not a boolean" };
     }
     case "date":
     case "datetime": {
-      if (typeof v !== "string") return { ok: false, message: "日付は YYYY-MM-DD または ISO 8601 の文字列で指定してください" };
+      if (typeof v !== "string") return { ok: false, message: "Give dates as YYYY-MM-DD or ISO 8601 strings" };
       const s = v.trim();
-      if (parseIsoDate(s) === null) return { ok: false, message: "日付は YYYY-MM-DD または ISO 8601 の文字列で指定してください" };
+      if (parseIsoDate(s) === null) return { ok: false, message: "Give dates as YYYY-MM-DD or ISO 8601 strings" };
       return { ok: true, value: s };
     }
   }

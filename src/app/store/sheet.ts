@@ -117,13 +117,13 @@ function cloneFrozen(meta: SheetMeta): SheetMeta {
  * - 子の行: makeChildRowKey(親キー, 子オブジェクト名, 子 ID) の形
  */
 function checkRowShape(r: SheetRow): void {
-  const bad = (why: string) => new StoreError("invalid_args", `行 ${String(r.rowKey)} のキーが正しくありません（${why}）`, { rowKey: r.rowKey });
-  if (typeof r.rowKey !== "string" || r.rowKey === "" || typeof r.parentKey !== "string") throw bad("行キーと親キーは空でない文字列にする");
+  const bad = (why: string) => new StoreError("invalid_args", `Invalid key for row ${String(r.rowKey)} (${why})`, { rowKey: r.rowKey });
+  if (typeof r.rowKey !== "string" || r.rowKey === "" || typeof r.parentKey !== "string") throw bad("the row key and parent key must be non-empty strings");
   const p = parseRowKey(r.rowKey);
   if (r.childName === null) {
-    if (r.rowKey !== r.parentKey || p.childName !== null) throw bad("親だけの行は行キーと親キーを同じにする");
+    if (r.rowKey !== r.parentKey || p.childName !== null) throw bad("a parent-only row must have the same row key and parent key");
   } else if (p.parentKey !== r.parentKey || p.childName !== r.childName) {
-    throw bad("子の行キーは makeChildRowKey(親キー, 子オブジェクト名, 子 ID) で作る");
+    throw bad("child row keys must be made with makeChildRowKey(parent key, child object name, child ID)");
   }
 }
 
@@ -163,16 +163,16 @@ export class Sheet {
     this.meta.columns.forEach((c, i) => {
       // "__proto__" は値のオブジェクトに代入するとプロトタイプの差し替えになるので列名に使わせない
       if (typeof c.name !== "string" || c.name === "" || c.name === "__proto__") {
-        throw new StoreError("invalid_args", `列名 ${String(c.name)} は使えません`, { column: c.name });
+        throw new StoreError("invalid_args", `The column name ${String(c.name)} cannot be used`, { column: c.name });
       }
-      if (this.columnMap.has(c.name)) throw new StoreError("invalid_args", `列 ${c.name} が重複しています`, { column: c.name });
+      if (this.columnMap.has(c.name)) throw new StoreError("invalid_args", `Duplicate column ${c.name}`, { column: c.name });
       this.columnMap.set(c.name, c);
       this.columnOrder.set(c.name, i);
       if (c.readOnly) this.protectedCols.add(c.name);
       if (c.child) this.childNameSet.add(c.child);
     });
     for (const k of meta.keyColumns) {
-      if (!this.columnMap.has(k)) throw new StoreError("invalid_args", `キー列 ${k} が列にありません`, { column: k });
+      if (!this.columnMap.has(k)) throw new StoreError("invalid_args", `Key column ${k} is not a column`, { column: k });
       this.protectedCols.add(k);
     }
     for (const [child, idAttr] of Object.entries(meta.childIdAttrs)) {
@@ -182,7 +182,7 @@ export class Sheet {
     }
     for (const r of rows) {
       checkRowShape(r);
-      if (this.byKey.has(r.rowKey)) throw new StoreError("invalid_args", `行キー ${r.rowKey} が重複しています`, { rowKey: r.rowKey });
+      if (this.byKey.has(r.rowKey)) throw new StoreError("invalid_args", `Duplicate row key ${r.rowKey}`, { rowKey: r.rowKey });
       const st = newRowState(r, null);
       this.baseRows.push(st);
       this.index(st);
@@ -461,7 +461,7 @@ export class Sheet {
 
   /** revision が null なら同じ親の構成の revision を記録しない（復元用） */
   insertAdded(row: RowState, revision: number | null): void {
-    if (this.byKey.has(row.rowKey)) throw new StoreError("invalid_args", `行キー ${row.rowKey} は既にあります`, { rowKey: row.rowKey });
+    if (this.byKey.has(row.rowKey)) throw new StoreError("invalid_args", `Row key ${row.rowKey} already exists`, { rowKey: row.rowKey });
     this.addedRows.push(row);
     this.index(row);
     this.touchGroup(row.parentKey, revision);
@@ -535,7 +535,7 @@ export class Sheet {
     for (const a of json.addedRows) sheet.insertAdded(newRowState(a, Object.freeze({ ...a.added })), null);
     for (const m of json.rowMarks) {
       const r = sheet.byKey.get(m.rowKey);
-      if (!r) throw new StoreError("invalid_args", `復元データの行 ${m.rowKey} がありません`, { rowKey: m.rowKey });
+      if (!r) throw new StoreError("invalid_args", `Row ${m.rowKey} of the restore data is missing`, { rowKey: m.rowKey });
       r.deleted = m.deleted ? Object.freeze({ ...m.deleted }) : null;
       r.cells = m.cells ? new Map(m.cells.map(([col, e]) => [col, Object.freeze({ ...e })])) : null;
       r.cellRevs = m.cellRevs ? new Map(m.cellRevs) : null;

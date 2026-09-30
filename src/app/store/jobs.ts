@@ -84,7 +84,7 @@ export class JobRegistry {
 
   private entry(jobId: string): JobEntry {
     const e = this.jobs.get(jobId);
-    if (!e) throw new StoreError("job_not_found", `ジョブ ${jobId} はありません（タブを再読み込みすると消えます）`, { jobId });
+    if (!e) throw new StoreError("job_not_found", `There is no job ${jobId} (jobs are lost when the tab is reloaded)`, { jobId });
     return e;
   }
 

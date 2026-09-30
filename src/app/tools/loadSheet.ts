@@ -9,7 +9,7 @@ import { compileFilters } from "../store";
 import { invalidArgs, messageOf, withSuggestions } from "./errors";
 
 export const CHILD_ID_NOTE =
-  "子の ID 属性は名前の規則（<子オブジェクト名>ID など）から推定したもので、実機確認が必要です。idAttr が null の子は変更・削除できず、追加だけできます。";
+  "The ID attributes of child objects are inferred from naming rules (such as <child object name>ID) and need checking against the real Maximo. Children whose idAttr is null cannot be changed or deleted, only added.";
 
 export interface KeyResolution {
   keyColumns: string[];
@@ -37,13 +37,13 @@ export function resolveKeyColumns(info: Pick<ObjectStructureInfo, "columns" | "k
     return {
       keyColumns: keys,
       source: "inferred",
-      note: `スキーマに主キーの表示が無いため、規則（必須で名前が NUM で終わる列が 1 つだけ${scope ? `、${scope} を先頭に足す` : ""}）で ${keys.join(", ")} をキー列と推定しました。実機確認が必要です。`,
+      note: `The schema does not mark a primary key, so ${keys.join(", ")} was inferred as the key by a rule (exactly one required column whose name ends in NUM${scope ? `, with ${scope} in front` : ""}). This needs checking against the real Maximo.`,
     };
   }
   return {
     keyColumns: [],
     source: "href",
-    note: "スキーマに主キーの表示が無く、規則でもキー列を推定できないため、行は Maximo の href で識別します（親行は追加できません）。実機確認が必要です。",
+    note: "The schema does not mark a primary key and no key could be inferred by rule, so rows are identified by their Maximo href (parent rows cannot be added). This needs checking against the real Maximo.",
   };
 }
 
@@ -71,7 +71,7 @@ function normalizeName(raw: string, what: string): string {
     const p = splitColumnName(raw.trim());
     return p.child ? `${p.child}.${p.attr}` : p.attr;
   } catch (e) {
-    throw invalidArgs(`${what} ${JSON.stringify(raw)} は使えません: ${e instanceof Error ? e.message : ""}`);
+    throw invalidArgs(`${what} ${JSON.stringify(raw)} cannot be used: ${e instanceof Error ? e.message : ""}`);
   }
 }
 
@@ -91,12 +91,12 @@ export function planSheetLoad(info: ObjectStructureInfo, args: LoadSheetArgs, or
 
   const selected: string[] = [];
   for (const raw of args.select) {
-    const n = normalizeName(raw, "select の列");
+    const n = normalizeName(raw, "select column");
     check(n);
     if (!selected.includes(n)) selected.push(n);
   }
   const where: TypedFilter[] = args.where.map((f) => {
-    const n = normalizeName(f.attr, "where の列");
+    const n = normalizeName(f.attr, "where column");
     check(n);
     const out: TypedFilter = { attr: n, op: f.op };
     if (f.value !== undefined) out.value = f.value;
@@ -104,13 +104,13 @@ export function planSheetLoad(info: ObjectStructureInfo, args: LoadSheetArgs, or
   });
   const orderBy = (args.orderBy ?? []).map((raw) => {
     const t = raw.trim();
-    const n = normalizeName(t.replace(/^[+-]/, ""), "orderBy の列");
+    const n = normalizeName(t.replace(/^[+-]/, ""), "orderBy column");
     check(n);
     return `${t.startsWith("-") ? "-" : ""}${n}`;
   });
   if (unknown.length > 0) {
-    const parts = unknown.map((n) => withSuggestions(`列 ${n} はオブジェクト構造 ${info.os} にありません`, n, known));
-    throw invalidArgs(`${parts.join("。")}。describe_object_structure で属性名を確認してください`);
+    const parts = unknown.map((n) => withSuggestions(`Column ${n} is not in the object structure ${info.os}`, n, known));
+    throw invalidArgs(`${parts.join(". ")}. Check the attribute names with describe_object_structure`);
   }
 
   const keys = resolveKeyColumns(info);

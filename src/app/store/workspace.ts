@@ -260,19 +260,19 @@ const MAX_CANDIDATES = 10;
 
 function checkAuthor(author: unknown): void {
   if (author !== "user" && author !== "llm") {
-    throw new StoreError("invalid_args", "author は user か llm にしてください");
+    throw new StoreError("invalid_args", "author must be user or llm");
   }
 }
 
 function checkEditOptions(opts: EditOptions, revision: number): void {
   checkAuthor(opts.author);
   if (opts.baseRevision !== undefined && (!Number.isSafeInteger(opts.baseRevision) || opts.baseRevision < 0)) {
-    throw new StoreError("invalid_args", "baseRevision は 0 以上の整数にしてください", { baseRevision: opts.baseRevision });
+    throw new StoreError("invalid_args", "baseRevision must be an integer of 0 or more", { baseRevision: opts.baseRevision });
   }
   // 現在より新しい revision は読めないはず。タブを開き直して revision が 0 から数え直された後に古い値を渡されると、
   // どのセルも「読んだ後に変わっていない」と判定されて compare-and-set が効かなくなるので受け付けない
   if (opts.baseRevision !== undefined && opts.baseRevision > revision) {
-    throw new StoreError("invalid_args", `baseRevision ${opts.baseRevision} は現在の revision ${revision} より新しいです。get_status か query_rows で読み直してください`, {
+    throw new StoreError("invalid_args", `baseRevision ${opts.baseRevision} is newer than the current revision ${revision}. Read again with get_status or query_rows`, {
       baseRevision: opts.baseRevision,
       revision,
     });
@@ -286,14 +286,14 @@ function freezeOp(op: OverlayOp): OverlayOp {
 }
 
 function columnNotFound(col: string, sheet: string): StoreError {
-  return new StoreError("column_not_found", `列 ${col} はシート ${sheet} にありません`, { column: col, sheet });
+  return new StoreError("column_not_found", `Column ${col} is not in sheet ${sheet}`, { column: col, sheet });
 }
 
 /** 突合列（文字列または配列）を列名の配列にする */
 function columnList(v: string | readonly string[], name: string): string[] {
   const list = typeof v === "string" ? [v] : Array.isArray(v) ? [...v] : [];
   if (list.length === 0 || list.some((c) => typeof c !== "string" || c === "")) {
-    throw new StoreError("invalid_args", `${name} には 1 列以上の列名を指定してください`, { [name]: v });
+    throw new StoreError("invalid_args", `Give at least one column name in ${name}`, { [name]: v });
   }
   return list;
 }
@@ -303,7 +303,7 @@ function pairColumns(a: string | readonly string[], b: string | readonly string[
   const la = columnList(a, nameA);
   const lb = columnList(b, nameB);
   if (la.length !== lb.length) {
-    throw new StoreError("invalid_args", `${nameA} と ${nameB} は同じ順・同じ個数の列にしてください（${la.length} 列と ${lb.length} 列）`, {
+    throw new StoreError("invalid_args", `${nameA} and ${nameB} must have the same columns in the same order and count (${la.length} and ${lb.length} columns)`, {
       [nameA]: la,
       [nameB]: lb,
     });
@@ -392,7 +392,7 @@ export class Workspace {
 
   getSheet(name: string): Sheet {
     const s = this.sheetMap.get(name);
-    if (!s) throw new StoreError("sheet_not_found", `シート ${name} はありません。get_status でシート名を確認してください`, { sheet: name });
+    if (!s) throw new StoreError("sheet_not_found", `There is no sheet ${name}. Check the sheet names with get_status`, { sheet: name });
     return s;
   }
 
@@ -502,7 +502,7 @@ export class Workspace {
     checkEditOptions(opts, this._revision);
     const predicate = compileFilters(filter, (c) => sheet.hasColumn(c));
     const entries = Object.entries(set);
-    if (entries.length === 0) throw new StoreError("invalid_args", "set には 1 列以上を指定してください");
+    if (entries.length === 0) throw new StoreError("invalid_args", "Give at least one column in set");
     const rules = entries.map(([col, rv]) => this.compileRule(sheet, col, rv));
     const rows = sheet.viewRows("final").filter((r) => predicate((c) => sheet.finalValue(r, c)));
 
@@ -595,10 +595,10 @@ export class Workspace {
       } else {
         const names = sheet.childNames();
         if (names.length === 0) {
-          throw new StoreError("invalid_args", `シート ${sheet.name} には子オブジェクトの列がありません`, { sheet: sheet.name });
+          throw new StoreError("invalid_args", `Sheet ${sheet.name} has no child object columns`, { sheet: sheet.name });
         }
         if (opts.childName !== undefined && !names.includes(opts.childName)) {
-          throw new StoreError("invalid_args", `子オブジェクト ${opts.childName} はシート ${sheet.name} にありません`, { childName: opts.childName });
+          throw new StoreError("invalid_args", `The child object ${opts.childName} is not in sheet ${sheet.name}`, { childName: opts.childName });
         }
         if (base !== undefined && sheet.groupRevision(parent.parentKey) > base) {
           // 読んだ後に同じ親の行が追加・削除された（またはシートを読み込み直した）。同じ子を二重に足さないよう読み直させる
@@ -643,12 +643,12 @@ export class Workspace {
   undoBatch(batchId: string, opts: UndoOptions = {}): ApplyResult {
     const entry = this.batchMap.get(batchId);
     if (!entry) {
-      throw new StoreError("batch_not_found", `バッチ ${batchId} はありません（シートを読み込み直すと以前のバッチは消えます）`, { batchId });
+      throw new StoreError("batch_not_found", `There is no batch ${batchId} (earlier batches are lost when the sheet is loaded again)`, { batchId });
     }
-    if (entry.record.undone) throw new StoreError("batch_already_undone", `バッチ ${batchId} は取り消し済みです`, { batchId });
+    if (entry.record.undone) throw new StoreError("batch_already_undone", `Batch ${batchId} has already been undone`, { batchId });
     const sheet = this.sheetMap.get(entry.record.sheet);
     if (!sheet || sheet.id !== entry.sheetId) {
-      throw new StoreError("batch_not_found", `バッチ ${batchId} のシートは置き換えられています`, { batchId });
+      throw new StoreError("batch_not_found", `The sheet of batch ${batchId} has been replaced`, { batchId });
     }
     if (opts.author !== undefined) checkAuthor(opts.author);
     const editing = opts.author === undefined ? null : this.editingFor(sheet, { author: opts.author });
@@ -762,7 +762,7 @@ export class Workspace {
   private compileRule(sheet: Sheet, col: string, rv: RuleValue): CompiledRule {
     if (!sheet.hasColumn(col)) throw columnNotFound(col, sheet.name);
     if (sheet.isProtectedColumn(col)) {
-      throw new StoreError("read_only_column", `列 ${col} は変更できません（キー列・子の ID 列・読み取り専用）`, { column: col });
+      throw new StoreError("read_only_column", `Column ${col} cannot be changed (key column, child ID column or read-only)`, { column: col });
     }
     if ("const" in rv) {
       const v = rv.const;
@@ -774,7 +774,7 @@ export class Workspace {
       return { col, kind: "copyFrom", evaluate: (row) => ({ kind: "value", value: sheet.finalValue(row, src) }) };
     }
     if (!("lookup" in rv) || rv.lookup === null || typeof rv.lookup !== "object") {
-      throw new StoreError("invalid_args", `列 ${col} の規則は const / copyFrom / lookup のいずれかにしてください`, { column: col });
+      throw new StoreError("invalid_args", `The rule for column ${col} must be one of const, copyFrom or lookup`, { column: col });
     }
     const lk = rv.lookup;
     const [matchCols, targetCols] = pairColumns(lk.matchCol, lk.targetMatchCol, "matchCol", "targetMatchCol");
@@ -1030,7 +1030,7 @@ export class Workspace {
     const sheet = this.getSheet(sheetName);
     const view = opts.view ?? "final";
     if (view !== "final" && view !== "base" && view !== "diff") {
-      throw new StoreError("invalid_args", "view は final / base / diff のいずれかにしてください", { view });
+      throw new StoreError("invalid_args", "view must be one of final, base or diff", { view });
     }
     const limit = checkLimit(opts.limit, DEFAULT_LIMIT);
     const predicate = compileFilters(opts.filter ?? [], (c) => sheet.hasColumn(c));
@@ -1055,7 +1055,7 @@ export class Workspace {
   /** 最終ビューを列の値でグループ化して件数を数える。null と空文字は同じグループ（null）にする */
   aggregate(sheetName: string, opts: AggregateOptions): AggregateResult {
     const sheet = this.getSheet(sheetName);
-    if (opts.groupBy.length === 0) throw new StoreError("invalid_args", "groupBy には 1 列以上を指定してください");
+    if (opts.groupBy.length === 0) throw new StoreError("invalid_args", "Give at least one column in groupBy");
     for (const c of opts.groupBy) if (!sheet.hasColumn(c)) throw columnNotFound(c, sheet.name);
     const limit = checkLimit(opts.limit, DEFAULT_LIMIT);
     const predicate = compileFilters(opts.filter ?? [], (c) => sheet.hasColumn(c));
@@ -1104,7 +1104,7 @@ export class Workspace {
     for (const c of leftCols) if (!left.hasColumn(c)) throw columnNotFound(c, left.name);
     for (const c of rightCols) if (!right.hasColumn(c)) throw columnNotFound(c, right.name);
     if (!Number.isSafeInteger(sampleSize) || sampleSize < 0) {
-      throw new StoreError("invalid_args", "sampleSize は 0 以上の整数にしてください", { sampleSize });
+      throw new StoreError("invalid_args", "sampleSize must be an integer of 0 or more", { sampleSize });
     }
     const entities = (sheet: Sheet, cols: readonly string[]) => {
       const byParent = cols.every((c) => sheet.isParentColumn(c));
@@ -1370,7 +1370,7 @@ export class Workspace {
 
   static fromJSON(json: WorkspaceJSON, opts: WorkspaceOptions = {}): Workspace {
     if (json === null || typeof json !== "object" || json.format !== WORKSPACE_FORMAT) {
-      throw new StoreError("invalid_args", "作業データの形式が違います");
+      throw new StoreError("invalid_args", "The workspace data has the wrong format");
     }
     const ws = new Workspace(json.name, opts);
     ws._revision = json.revision;

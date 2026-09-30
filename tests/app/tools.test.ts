@@ -203,15 +203,17 @@ describe("ToolRegistry の一覧と引数", () => {
     const h = harness();
     expect(h.registry.tools).toEqual([...TAB_TOOL_NAMES]);
     expect(h.registry.tools).toHaveLength(21);
-    for (const n of ["import_rows", "export_sheet", "open_grid", "get_skill"]) {
+    for (const n of ["open_grid", "get_skill"]) {
       expect(h.registry.tools).not.toContain(n);
     }
   });
 
   it("tools に無いツールは TOOL_ERROR", async () => {
     const h = harness();
-    const e = await h.fail("import_rows", { importId: "i", batchNo: 0, columns: ["A"], rows: [["a"]], last: true });
-    expect(e.code).toBe(RelayErrorCode.TOOL_ERROR);
+    const unknown = await h.fail("no_such_tool", { importId: "i" });
+    expect(unknown.code).toBe(RelayErrorCode.TOOL_ERROR);
+    const notTab = await h.fail("open_grid", {});
+    expect(notTab.code).toBe(RelayErrorCode.TOOL_ERROR);
   });
 
   it("引数をスキーマで検証し直し、何が違うかを INVALID_ARGS で返す", async () => {
@@ -270,7 +272,7 @@ describe("get_status と Maximo 接続", () => {
     for (const [tool, args] of cases) {
       const e = await h.fail(tool, args);
       expect(e.code).toBe(RelayErrorCode.TOOL_ERROR);
-      expect(e.message).toContain(`作業画面の設定（${SETTINGS_URL}）で Maximo に接続してください`);
+      expect(e.message).toContain(`connect to Maximo in the work screen settings (${SETTINGS_URL})`);
     }
   });
 });
@@ -338,10 +340,10 @@ describe("メタデータのツール", () => {
     const none = await h.call("find_object_structures", { query: "存在しない言葉" });
     expect(none.totalHits).toBe(0);
     expect(none.structures).toEqual([]);
-    expect(none.note).toContain("推測で別の構造を使わず");
+    expect(none.note).toContain("Do not guess another structure");
     const partial = await h.call("find_object_structures", { query: "申請完了日 存在しない言葉" });
     expect(partial.partial).toBe(true);
-    expect(partial.partialNote).toContain("一部の言葉");
+    expect(partial.partialNote).toContain("some of them");
     expect(partial.structures[0]).toMatchObject({ os: "MXAPIWO", matchedTerms: ["申請完了日"] });
   });
 
@@ -415,7 +417,7 @@ describe("メタデータのツール", () => {
     expect(res.keyColumns).toEqual(["SITEID", "WONUM"]);
     expect(res.keyColumnsSource).toBe("schema");
     expect(res.children).toEqual(expect.arrayContaining([{ name: "EXT_WOPERMIT", idAttr: "EXT_WOPERMITID", columnCount: 5 }]));
-    expect(res.childIdNote).toContain("実機確認");
+    expect(res.childIdNote).toContain("need checking against the real Maximo");
     expect(res.columns.map((c: ColumnSchema) => c.name)).toEqual(expect.arrayContaining(["WONUM", "EXT_WOPERMIT.EXT_PERMITDATE"]));
     expect(res.columns.find((c: ColumnSchema) => c.name === "WONUM")).toEqual({ name: "WONUM", type: "string", title: "Work Order", maxLength: 12, required: true });
     expect(h.catalog.get(h.fake.baseUrl, "MXAPIWO")).not.toBeNull();
@@ -470,18 +472,18 @@ describe("メタデータのツール", () => {
     expect(names).toContain("STATUS");
     expect(names).toContain("WONUM");
     const status = res.axes.find((a: { name: string }) => a.name === "STATUS");
-    expect(status).toMatchObject({ kind: "value", reason: "状態" });
+    expect(status).toMatchObject({ kind: "value", reason: "status" });
     expect(status.values).toEqual(expect.arrayContaining([{ value: "COMP", count: 2 }]));
     expect(res.scanned).toBe(3);
-    expect(res.note).toContain("load_sheet の where");
+    expect(res.note).toContain("in where of load_sheet");
     // Claude が読んだ行は、利用者も作業画面で同じものを見られる（キー列と軸の列だけのシート）
-    expect(res).toMatchObject({ sheet: "範囲 MXAPIWO", replaced: false });
-    const sheet = h.workspace.summary("範囲 MXAPIWO");
+    expect(res).toMatchObject({ sheet: "Scope MXAPIWO", replaced: false });
+    const sheet = h.workspace.summary("Scope MXAPIWO");
     expect(sheet.rowCount).toBe(3);
     expect(sheet.source).toMatchObject({ kind: "maximo", os: "MXAPIWO" });
     expect(sheet.columns.map((c) => c.name)).toEqual(expect.arrayContaining([...sheet.keyColumns, ...names]));
     // 数えた件数はシートの行と同じ
-    const agg = await h.call("aggregate", { sheet: "範囲 MXAPIWO", groupBy: ["STATUS"] });
+    const agg = await h.call("aggregate", { sheet: "Scope MXAPIWO", groupBy: ["STATUS"] });
     expect(agg.groups).toEqual(expect.arrayContaining([{ key: { STATUS: "COMP" }, count: 2 }]));
   });
 
@@ -494,7 +496,7 @@ describe("メタデータのツール", () => {
     const rowKey = (await h.call("query_rows", { sheet: "範囲の確認" })).rows[0].rowKey;
     h.workspace.applyEdits("範囲の確認", [{ rowKey, col: "STATUS", value: "WAPPR" }], { author: "user" });
     const e = await h.fail("scope_options", { os: "MXAPIWO", name: "範囲の確認" });
-    expect(e.message).toContain("未反映の変更");
+    expect(e.message).toContain("changes not yet committed to Maximo");
   });
 
   it("scope_options は where で絞った中の分布を返し、axes で軸を名指しできる。無い列は候補付きで断る", async () => {
@@ -502,14 +504,14 @@ describe("メタデータのツール", () => {
     const narrowed = await h.call("scope_options", { os: "MXAPIWO", where: [{ attr: "STATUS", op: "eq", value: "COMP" }], axes: ["wonum"] });
     expect(narrowed.scanned).toBe(2);
     expect(narrowed.axes).toHaveLength(1);
-    expect(narrowed.axes[0]).toMatchObject({ name: "WONUM", kind: "key", reason: "番号の規則" });
+    expect(narrowed.axes[0]).toMatchObject({ name: "WONUM", kind: "key", reason: "numbering pattern" });
     expect(narrowed.axes[0].patterns).toEqual([{ pattern: "WO####", count: 2, example: "WO2001" }]);
 
     const e = await h.fail("scope_options", { os: "MXAPIWO", axes: ["STATUSS"] });
     expect(e.code).toBe(RelayErrorCode.INVALID_ARGS);
     expect(e.message).toContain("STATUS");
     const child = await h.fail("scope_options", { os: "MXAPIWO", axes: ["EXT_WOPERMIT.EXT_AUTHORITY"] });
-    expect(child.message).toContain("親の属性");
+    expect(child.message).toContain("parent attributes only");
   });
 
   it("load_master は読み込み済みのシートが参照している値だけマスタから読み、つながりと見つからなかった数を返す", async () => {
@@ -541,7 +543,7 @@ describe("メタデータのツール", () => {
       matchedValues: 3,
       link: { sheet: "複数機器", from: "MULTIASSETLOCCI.ASSETNUM", to: "ASSETNUM" },
     });
-    expect(master.unmatchedNote).toContain("1 種類");
+    expect(master.unmatchedNote).toContain("1 were not found");
     // Maximo へは参照元に出てきた値だけを条件にして問い合わせる（全件を読まない）
     const query = decodeURIComponent(h.fake.state.requests.filter((r) => r.path.includes("/os/mxasset"))[0]!.path);
     expect(query).toContain('assetnum in ["P-100","P-101","P-102","V-200"]');
@@ -552,7 +554,7 @@ describe("メタデータのツール", () => {
     expect(missing.code).toBe(RelayErrorCode.INVALID_ARGS);
     expect(missing.message).toContain("MULTIASSETLOCCI.ASSETNUM");
     const same = await h.fail("load_master", { name: "複数機器", os: "MXASSET", select: ["ASSETNUM"], fromSheet: "複数機器", from: "WONUM", to: "ASSETNUM" });
-    expect(same.message).toContain("別の名前");
+    expect(same.message).toContain("Use another name");
   });
 
   it("get_status は保存済みの件数、Maximo に定義された数と API で使えない数、機械的な読み込みの進み具合を返す（数百件あるので名前は載せない）", async () => {
@@ -651,7 +653,7 @@ describe("load_sheet", () => {
     });
     expect(res.rowCount).toBe(3);
     expect(res.parentCount).toBe(3);
-    expect(res.childFilterNote).toContain("作業画面で絞り込みました");
+    expect(res.childFilterNote).toContain("the work screen applied them after loading");
     const get = h.fake.state.requests.find((r) => r.path.startsWith("/maximo/api/os/mxapiwo?"))!;
     expect(new URL(get.url).searchParams.has("oslc.where")).toBe(false);
   });
@@ -693,7 +695,7 @@ describe("load_sheet", () => {
     });
     const e = await h.fail("load_sheet", { name: PERMIT_SHEET, os: "MXAPIWO", select: SELECT, where: COMP_WHERE });
     expect(e.code).toBe(RelayErrorCode.TOOL_ERROR);
-    expect(e.message).toContain("別のシート名");
+    expect(e.message).toContain("another sheet name");
     expect(h.workspace.getSheet(PERMIT_SHEET).counts().changedCells).toBe(1);
   });
 
@@ -722,7 +724,7 @@ describe("load_sheet", () => {
     const ac = new AbortController();
     ac.abort();
     const e = await h.fail("load_sheet", { name: PERMIT_SHEET, os: "MXAPIWO", select: SELECT }, { signal: ac.signal });
-    expect(e.message).toContain("中断");
+    expect(e.message).toContain("Loading was cancelled");
     expect(h.workspace.hasSheet(PERMIT_SHEET)).toBe(false);
   });
 
@@ -866,7 +868,7 @@ describe("変更のツール", () => {
 
     const req = await h.call("request_commit", { sheet: PERMIT_SHEET, note: "完了済み許可申請 2 件の申請完了日を 2027-03-31 に変更" });
     expect(req).toMatchObject({ state: "requested", blockers: [], counts: { parents: 2, changedCells: 2, addedRows: 0, deletedRows: 0 } });
-    expect(req.message).toContain("[Maximo に反映]");
+    expect(req.message).toContain("commit button");
     expect(req.message).toContain("get_commit_result");
 
     const result = await h.call("get_commit_result", { sheet: PERMIT_SHEET });
@@ -949,12 +951,12 @@ describe("補助関数", () => {
     const inferred = resolveKeyColumns({ keyColumns: [], columns: [col("SITEID", true), col("WONUM", true), col("DESCRIPTION")] });
     expect(inferred.keyColumns).toEqual(["SITEID", "WONUM"]);
     expect(inferred.source).toBe("inferred");
-    expect(inferred.note).toContain("実機確認");
+    expect(inferred.note).toContain("needs checking against the real Maximo");
 
     const href = resolveKeyColumns({ keyColumns: [], columns: [col("ANUM", true), col("BNUM", true)] });
     expect(href.keyColumns).toEqual([]);
     expect(href.source).toBe("href");
-    expect(href.note).toContain("実機確認");
+    expect(href.note).toContain("needs checking against the real Maximo");
   });
 
   it("suggestNames は大文字小文字・子の接頭辞・綴りの近さで候補を出す", () => {

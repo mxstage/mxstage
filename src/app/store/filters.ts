@@ -113,7 +113,7 @@ function describe(f: TypedFilter): string {
 
 function scalarValue(f: TypedFilter): CellValue {
   if (f.value === undefined || Array.isArray(f.value)) {
-    throw new StoreError("invalid_filter", `条件 ${describe(f)} には値を 1 つ指定してください`, { attr: f.attr, op: f.op });
+    throw new StoreError("invalid_filter", `Give exactly one value for the condition ${describe(f)}`, { attr: f.attr, op: f.op });
   }
   return f.value;
 }
@@ -135,7 +135,7 @@ function compileOne(f: TypedFilter): RowPredicate {
     case "lte": {
       const v = scalarValue(f);
       if (isBlank(v) || typeof v === "boolean") {
-        throw new StoreError("invalid_filter", `条件 ${describe(f)} の値は数値か日付にしてください`, { attr: f.attr, op: f.op });
+        throw new StoreError("invalid_filter", `The value of the condition ${describe(f)} must be a number or a date`, { attr: f.attr, op: f.op });
       }
       const op = f.op;
       return (get) => {
@@ -156,7 +156,7 @@ function compileOne(f: TypedFilter): RowPredicate {
     case "in":
     case "notin": {
       if (!Array.isArray(f.value)) {
-        throw new StoreError("invalid_filter", `条件 ${describe(f)} の値は配列にしてください`, { attr: f.attr, op: f.op });
+        throw new StoreError("invalid_filter", `The value of the condition ${describe(f)} must be an array`, { attr: f.attr, op: f.op });
       }
       const hit = inListMatcher(f.value);
       const negate = f.op === "notin";
@@ -165,7 +165,7 @@ function compileOne(f: TypedFilter): RowPredicate {
     case "like": {
       const v = scalarValue(f);
       if (v === null || typeof v === "boolean") {
-        throw new StoreError("invalid_filter", `条件 ${describe(f)} の値は文字列にしてください`, { attr: f.attr, op: f.op });
+        throw new StoreError("invalid_filter", `The value of the condition ${describe(f)} must be a string`, { attr: f.attr, op: f.op });
       }
       const match = likeMatcher(String(v));
       return (get) => {
@@ -179,7 +179,7 @@ function compileOne(f: TypedFilter): RowPredicate {
       return (get) => !isBlank(get(col));
     default: {
       const op: never = f.op;
-      throw new StoreError("invalid_filter", `未対応の演算子です: ${String(op)}`);
+      throw new StoreError("invalid_filter", `Unsupported operator: ${String(op)}`);
     }
   }
 }
@@ -191,7 +191,7 @@ function compileOne(f: TypedFilter): RowPredicate {
 export function compileFilters(filters: readonly TypedFilter[], hasColumn: (col: string) => boolean): RowPredicate {
   const preds = filters.map((f) => {
     if (!hasColumn(f.attr)) {
-      throw new StoreError("column_not_found", `列 ${f.attr} はこのシートにありません`, { column: f.attr });
+      throw new StoreError("column_not_found", `Column ${f.attr} is not in this sheet`, { column: f.attr });
     }
     return compileOne(f);
   });

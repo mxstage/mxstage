@@ -894,7 +894,7 @@ describe("executeCommit", () => {
         ["error", false],
         ["skipped", false],
       ]);
-      expect(results[0]!.message).toMatch(/API キー/);
+      expect(results[0]!.message).toMatch(/API key is not set/);
       expect(canaryCalls).toHaveLength(0);
       expect(posts(s.fake)).toHaveLength(0);
     });

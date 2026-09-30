@@ -59,29 +59,29 @@ export function readSkillCatalog(userDir: string | null): SkillCatalog {
       .map((e) => e.name)
       .sort();
   } catch (e) {
-    problems.push({ name: "", level: "error", message: `利用者の Skill のフォルダを読めませんでした: ${e instanceof Error ? e.message : String(e)}` });
+    problems.push({ name: "", level: "error", message: `Could not read the user Skills folder: ${e instanceof Error ? e.message : String(e)}` });
     return { skills, problems, userDir };
   }
 
   for (const name of names) {
     if (!NAME_PATTERN.test(name)) {
-      problems.push({ name, level: "error", message: "フォルダ名は英小文字・数字・ハイフンだけにしてください（Skill の name と同じにします）。" });
+      problems.push({ name, level: "error", message: "Use only lowercase letters, digits and hyphens in the folder name (it must equal the Skill name)." });
       continue;
     }
     if (defaultNames.has(name)) {
-      problems.push({ name, level: "error", message: "アプリ既定の Skill と同じ名前なので読み込みません。別の名前にしてください。" });
+      problems.push({ name, level: "error", message: "Not loaded because it has the name of a built-in Skill. Use another name." });
       continue;
     }
     const file = join(userDir, name, SKILL_FILE);
     if (!existsSync(file) || !statSync(file).isFile()) {
-      problems.push({ name, level: "error", message: `${SKILL_FILE} がありません。` });
+      problems.push({ name, level: "error", message: `${SKILL_FILE} is missing.` });
       continue;
     }
     const errors: string[] = [];
     const warnings: string[] = [];
     const skill = validateSkill(name, readFileSync(file, "utf8"), known, errors, { unknownWords: "warn", warnings });
     if (skill === null || errors.length > 0) {
-      problems.push({ name, level: "error", message: errors.join(" / ") || "読み込めませんでした。" });
+      problems.push({ name, level: "error", message: errors.join(" / ") || "Could not be read." });
       continue;
     }
     for (const w of warnings) problems.push({ name, level: "warn", message: w });
@@ -124,29 +124,29 @@ export function skillFileText(input: SaveSkillInput): string {
  * 書き込みは一時ファイルから置き換える（途中で止まっても半端な SKILL.md を残さない）
  */
 export function saveUserSkill(userDir: string | null, input: SaveSkillInput): SaveSkillResult {
-  if (userDir === null) return { ok: false, message: "利用者の Skill の置き場所が決まっていません（橋渡しの状態フォルダが分かりません）。" };
+  if (userDir === null) return { ok: false, message: "The folder for user Skills is not known (the bridge state folder is unknown)." };
   const name = input.name.trim();
-  if (!NAME_PATTERN.test(name)) return { ok: false, message: `name "${name}" は英小文字・数字・ハイフンだけにしてください（例 permit-date-update）。` };
-  if (DEFAULT_SKILLS.some((s) => s.name === name)) return { ok: false, message: `${name} はアプリ既定の Skill の名前です。別の名前にしてください。` };
+  if (!NAME_PATTERN.test(name)) return { ok: false, message: `Use only lowercase letters, digits and hyphens in name "${name}" (e.g. permit-date-update).` };
+  if (DEFAULT_SKILLS.some((s) => s.name === name)) return { ok: false, message: `${name} is the name of a built-in Skill. Use another name.` };
   const dir = join(userDir, name);
   const file = join(dir, SKILL_FILE);
   const exists = existsSync(file);
   if (exists && input.overwrite !== true) {
-    return { ok: false, message: `利用者の Skill ${name} は既にあります。書き換えるなら、利用者の了承を得てから overwrite: true で呼んでください（版も上げてください）。` };
+    return { ok: false, message: `The user Skill ${name} already exists. To replace it, get the user's agreement and call again with overwrite: true (and raise the version).` };
   }
   const text = skillFileText({ ...input, name });
   const known = { tools: new Set<string>(TOOL_NAMES), conflictReasons: new Set<string>(CONFLICT_REASONS) };
   const errors: string[] = [];
   const warnings: string[] = [];
   const skill = validateSkill(name, text, known, errors, { unknownWords: "warn", warnings });
-  if (skill === null || errors.length > 0) return { ok: false, message: "Skill の書き方が決まりに合わないため保存しませんでした。", errors };
+  if (skill === null || errors.length > 0) return { ok: false, message: "Not saved because the Skill does not follow the format rules.", errors };
   try {
     mkdirSync(dir, { recursive: true });
     const tmp = join(dir, `.${SKILL_FILE}.${process.pid}.tmp`);
     writeFileSync(tmp, text, "utf8");
     renameSync(tmp, file);
   } catch (e) {
-    return { ok: false, message: `保存できませんでした: ${e instanceof Error ? e.message : String(e)}` };
+    return { ok: false, message: `Could not save: ${e instanceof Error ? e.message : String(e)}` };
   }
   return { ok: true, name, version: skill.version, path: file, created: !exists, warnings };
 }

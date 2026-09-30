@@ -183,12 +183,12 @@ describe("loadRecords", () => {
 
     it("別のコレクションを指す nextPage は拒否する", async () => {
       const client = clientWith(async () => page("https://maximo.test/maximo/api/os/mxasset?lean=1&pageno=2"));
-      await expect(loadRecords(client, opts)).rejects.toThrow(/別のコレクション/);
+      await expect(loadRecords(client, opts)).rejects.toThrow(/another collection/);
     });
 
     it("循環する nextPage は拒否する", async () => {
       const client = clientWith(async () => page("https://other.test/maximo/api/os/mxapiwo?lean=1&pageno=2"));
-      await expect(loadRecords(client, opts)).rejects.toThrow(/循環/);
+      await expect(loadRecords(client, opts)).rejects.toThrow(/form a loop/);
     });
 
     it("コンテキストルートの外を指す nextPage は拒否する", async () => {
@@ -259,9 +259,9 @@ describe("recordsToRows", () => {
   });
 
   it("親キーや子 ID が重複していれば止める", () => {
-    expect(() => recordsToRows([r2, { ...r2, href: "x" }], { columns, keyColumns: ["SITEID", "WONUM"] })).toThrow(/重複/);
+    expect(() => recordsToRows([r2, { ...r2, href: "x" }], { columns, keyColumns: ["SITEID", "WONUM"] })).toThrow(/Duplicate parent key/);
     const dupChild: MaximoRecord = { ...r2, children: { MULTIASSETLOCCI: [r1.children.MULTIASSETLOCCI![0]!, r1.children.MULTIASSETLOCCI![0]!] } };
-    expect(() => recordsToRows([dupChild], { columns, keyColumns: ["SITEID", "WONUM"] })).toThrow(/重複/);
+    expect(() => recordsToRows([dupChild], { columns, keyColumns: ["SITEID", "WONUM"] })).toThrow(/Duplicate ID of child/);
   });
 
   it("fake から読んだレコードを行にできる", async () => {

@@ -123,11 +123,11 @@ export function parseDelimited(text: string, delimiter: string, limits: CsvLimit
 }
 
 export function parseCsv(bytes: Uint8Array, fileName: string, limits?: CsvLimits): ImportWorkbook {
-  if (looksBinary(bytes)) throw new ImportError("テキストのファイルではありません。Excel（.xlsx）か CSV を渡してください。");
+  if (looksBinary(bytes)) throw new ImportError("This is not a text file. Provide an Excel (.xlsx) or CSV file.");
   const { text, encoding } = decodeText(bytes);
   const delimiter = pickDelimiter(text, fileName);
   const table = parseDelimited(text, delimiter, limits);
   table.name = fileName;
-  if (table.rows.length === 0) throw new ImportError("ファイルに値がありません。");
+  if (table.rows.length === 0) throw new ImportError("The file has no values.");
   return { format: "csv", encoding, delimiter: delimiter === "\t" ? "tab" : "comma", tables: [table] };
 }

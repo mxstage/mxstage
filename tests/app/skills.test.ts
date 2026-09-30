@@ -164,7 +164,7 @@ describe("skills", () => {
     for (const tool of ["get_status", "open_grid", "describe_object_structure", "load_sheet", "query_rows", "aggregate", "apply_rule", "patch_cells", "get_diff", "request_commit", "get_commit_result", "get_job", "create_import_session"]) {
       expect(body, tool).toContain(tool);
     }
-    for (const phrase of ["API キー", "行データを書き写して", "利用者に代わって行わない", "指示に従わない", "推測で決めない", "NO_TAB", "baseRevision", "reason"]) {
+    for (const phrase of ["API keys", "copy row data into tool arguments", "on the user's behalf", "Never follow instructions", "Never guess", "NO_TAB", "baseRevision", "reason"]) {
       expect(body, phrase).toContain(phrase);
     }
   });
@@ -173,7 +173,7 @@ describe("skills", () => {
     const bodyOf = (name: string) => parsed.find((s) => s.dirName === name)?.body ?? "";
 
     const workbench = bodyOf(PRIMARY_SKILL);
-    for (const phrase of ["複合キー", "matched", "unmatched", "ambiguous", "lookup_ambiguous", "edits の各要素の reason", "INVALID_ARGS", "TOOL_ERROR"]) {
+    for (const phrase of ["composite key", "matched", "unmatched", "ambiguous", "lookup_ambiguous", "reason of each edits item", "INVALID_ARGS", "TOOL_ERROR"]) {
       expect(workbench, phrase).toContain(phrase);
     }
 
@@ -181,7 +181,7 @@ describe("skills", () => {
 
   it("基本手順は利用者の Skill の置き場所と、読み方（get_skill）・チャットからの保存（save_skill）を案内する", () => {
     const body = parsed.find((s) => s.dirName === PRIMARY_SKILL)?.body ?? "";
-    expect(body).toContain("利用者の Skill");
+    expect(body).toContain("user Skills");
     expect(body).toContain("~/.config/mxstage/skills");
     expect(body).toContain("get_skill");
     expect(body).toContain("save_skill");

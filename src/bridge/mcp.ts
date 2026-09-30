@@ -26,11 +26,12 @@ import type { TicketIssuer } from "./peer.ts";
  * 「Maximo のデータは作業画面のシートに読み込み、シートから読む」はツールの作りでも守る（scope_options も走査した行をシートにする）。
  */
 export const SERVER_INSTRUCTIONS =
-  "MX Stage は Maximo のデータ整備を作業画面（ブラウザのタブ）で行うツールです。最初に get_status を呼び、タブが無ければ open_grid の URL を利用者に案内してください。" +
-  "最初のツール呼び出しの結果に MX Stage の基本手順と禁止事項（Skill）を添えます。必ず読んで従ってください。業務ごとの手順（利用者の Skill）は list_skills・get_skill で読めます。" +
-  "Maximo のデータは必ず作業画面のシートに読み込み（load_sheet・load_master・scope_options）、シートから読んでください（query_rows・aggregate）。利用者が作業画面で同じデータを見て確かめられるようにするためです。" +
-  "利用者が手順を残したいと言ったら、内容を見せて了承を得てから save_skill で利用者の Skill として保存してください。" +
-  "Maximo への書き込みは利用者が作業画面で承認したときだけ行われます。API キーをチャットで求めないでください。";
+  "MX Stage is a local workbench for correcting IBM Maximo data in a work screen (a browser tab). Call get_status first; if no tab is open, give the user the URL from open_grid. " +
+  "The result of your first tool call includes the MX Stage basic procedure and rules (a Skill). Read it and follow it. Task procedures saved by the user (user Skills) can be read with list_skills and get_skill. " +
+  "Always load Maximo data into work screen sheets (load_sheet, load_master, scope_options) and read it from the sheets (query_rows, aggregate), so that the user can see and check the same data in the work screen. " +
+  "If the user wants to keep a procedure, show it to them, get their agreement, then save it as a user Skill with save_skill. " +
+  "Maximo is written to only when the user approves in the work screen. If a commit is blocked because a license is needed, tell the user what the work screen says and do not retry. Never ask for API keys in the chat. " +
+  "Reply to the user in the language they use.";
 
 /**
  * 会話で最初のツール呼び出しの結果に添える案内: 基本手順の Skill の本文と、利用者の Skill の一覧。
@@ -42,15 +43,15 @@ export function sessionGuide(userSkillsDir: string | null): string {
   const primary = catalog.skills.find((s) => s.origin === "default");
   const users = catalog.skills.filter((s) => s.origin === "user");
   const parts = [
-    "【MX Stage の基本手順と禁止事項（Skill: " +
+    "[MX Stage basic procedure and rules (Skill: " +
       (primary?.name ?? "mxstage-workbench") +
-      "）。この会話で最初のツール呼び出しの結果にだけ付けています。以後の作業はこれに従ってください】",
+      "). Attached only to the result of the first tool call in this conversation. Follow it for the rest of the work.]",
   ];
   if (primary !== undefined) parts.push(primary.body);
   parts.push(
     users.length > 0
-      ? `## この PC の利用者の Skill（該当する作業では、始める前に get_skill で本文を読んで従う）\n\n${users.map((u) => `- ${u.name}: ${u.description}`).join("\n")}`
-      : "## この PC の利用者の Skill\n\nまだありません。利用者が手順を残したいと言ったら、内容を見せて了承を得てから save_skill で保存します。",
+      ? `## User Skills on this PC (for a matching task, read the body with get_skill before starting and follow it)\n\n${users.map((u) => `- ${u.name}: ${u.description}`).join("\n")}`
+      : "## User Skills on this PC\n\nNone yet. If the user wants to keep a procedure, show it to them, get their agreement, then save it with save_skill.",
   );
   return parts.join("\n\n");
 }
@@ -218,7 +219,7 @@ export async function runWorkerTool(deps: BridgeMcpDeps, name: ToolName, args: R
       if (!skill) {
         const problem = catalog.problems.find((p) => p.name === args.name && p.level === "error");
         return simpleError(
-          problem ? `Skill "${String(args.name)}" は読み込めませんでした: ${problem.message}` : `Skill "${String(args.name)}" はありません。list_skills で名前を確認してください。`,
+          problem ? `Skill "${String(args.name)}" could not be read: ${problem.message}` : `There is no Skill "${String(args.name)}". Check the name with list_skills.`,
           { available: catalog.skills.map((s) => s.name) },
         );
       }
@@ -241,8 +242,8 @@ export async function runWorkerTool(deps: BridgeMcpDeps, name: ToolName, args: R
         created: saved.created,
         path: saved.path,
         message:
-          `利用者の Skill ${saved.name} を${saved.created ? "保存" : "書き換え"}しました。次の会話から list_skills・get_skill で読めます。` +
-          "Claude Code の Skill 機能に載せるには、MX Stage の導入をもう一度実行してください。",
+          `${saved.created ? "Saved" : "Replaced"} the user Skill ${saved.name}. It can be read with list_skills and get_skill from the next conversation on. ` +
+          "To make it available to the Skill feature of Claude Code, run the MX Stage setup again.",
       };
       if (saved.warnings.length > 0) value.warnings = saved.warnings;
       return jsonResult(value);
@@ -253,7 +254,7 @@ export async function runWorkerTool(deps: BridgeMcpDeps, name: ToolName, args: R
       try {
         ticket = await deps.tickets.create();
       } catch {
-        return simpleError("アップロード URL を発行できませんでした。MX Stage の橋渡しが動いているか確かめてから、もう一度実行してください。");
+        return simpleError("Could not issue an upload URL. Check that the MX Stage bridge is running, then try again.");
       }
       const uploadUrl = `${origin}/import/${ticket.importId}`;
       const fileName = typeof args.fileName === "string" && args.fileName ? args.fileName : "file.xlsx";
@@ -266,13 +267,13 @@ export async function runWorkerTool(deps: BridgeMcpDeps, name: ToolName, args: R
         singleUse: true,
         curl: `curl -sS -X POST "${uploadUrl}" -H "X-File-Name: ${encodeURIComponent(safeName)}" -H "Content-Type: application/octet-stream" --data-binary "@${safeName}"`,
         instructions:
-          "curl の --data-binary の @ の後をファイルのパスにして実行する（作業画面を開いておくこと。uploadUrl は 1 回だけ使える）。結果が ok: true なら describe_import にこの importId を渡して中身を確かめる。" +
-          "ファイルのパスが分からない・送れないときは、利用者に開いている作業画面へファイルをドロップしてもらい、get_status の imports に出た importId を使う（作業画面を新しいタブで開き直すと、そちらが作業の対象に替わるので開き直さない）。",
+          "Run curl with the file path after the @ of --data-binary (the work screen must be open; uploadUrl can be used once). If the result is ok: true, pass this importId to describe_import to check the contents. " +
+          "If you do not know the file path or cannot send it, ask the user to drop the file on the open work screen and use the importId that appears in imports of get_status (do not reopen the work screen in a new tab: the new tab would become the target of the work).",
       });
     }
 
     default:
-      return simpleError(`ツール ${name} は橋渡しでは実行できません。`);
+      return simpleError(`The tool ${name} cannot run in the bridge.`);
   }
 }
 

@@ -76,16 +76,16 @@ describe("絞り込みの軸を構造から機械的に選ぶ（pickScopeAxes）
     const info = await getObjectStructureInfo(client, "EXT_WO");
     const axes = pickScopeAxes(info, { max: 10 });
     expect(axes.map((a) => [a.name, a.kind, a.reason])).toEqual([
-      ["STATUS", "value", "状態"],
-      ["CLASSSTRUCTUREID", "value", "分類"],
-      ["PERSONGROUP", "value", "担当・部署"],
-      ["EXT_DEPTNAME", "value", "担当・部署"],
-      ["WORKTYPE", "value", "種別"],
-      ["LOCATION", "value", "場所"],
-      ["SITEID", "value", "場所"],
-      ["REPORTDATE", "date", "期間"],
-      ["SCHEDSTART", "date", "期間"],
-      ["WONUM", "key", "番号の規則"],
+      ["STATUS", "value", "status"],
+      ["CLASSSTRUCTUREID", "value", "classification"],
+      ["PERSONGROUP", "value", "owner or department"],
+      ["EXT_DEPTNAME", "value", "owner or department"],
+      ["WORKTYPE", "value", "type"],
+      ["LOCATION", "value", "location"],
+      ["SITEID", "value", "location"],
+      ["REPORTDATE", "date", "period"],
+      ["SCHEDSTART", "date", "period"],
+      ["WONUM", "key", "numbering pattern"],
     ]);
     // 同じ構造なら何度呼んでも同じ（利用者への聞き方が毎回変わらない）
     expect(pickScopeAxes(info, { max: 10 })).toEqual(axes);
@@ -104,8 +104,8 @@ describe("絞り込みの軸を構造から機械的に選ぶ（pickScopeAxes）
     const { client } = clientFor(woSeed());
     const info = await getObjectStructureInfo(client, "EXT_WO");
     expect(axesFor(info, ["ext_applied", "reportdate", "NOSUCH"])).toEqual([
-      { name: "EXT_APPLIED", kind: "value", reason: "指定", title: "申請あり" },
-      { name: "REPORTDATE", kind: "date", reason: "期間", title: "報告日" },
+      { name: "EXT_APPLIED", kind: "value", reason: "requested", title: "申請あり" },
+      { name: "REPORTDATE", kind: "date", reason: "period", title: "報告日" },
     ]);
   });
 
@@ -170,7 +170,7 @@ describe("Maximo を軽く走査して件数を数える（scanScope）", () => 
     const info = await getObjectStructureInfo(client, "EXT_WO");
     const res = await scanScope(client, info, axesFor(info, ["LOCATION", "STATUS"]), { limit: 5 });
     expect(res.axes.map((a) => a.name)).toEqual(["STATUS"]);
-    expect(res.skipped).toEqual([{ name: "LOCATION", title: "ロケーション", reason: "場所", distinct: 250 }]);
+    expect(res.skipped).toEqual([{ name: "LOCATION", title: "ロケーション", reason: "location", distinct: 250 }]);
   });
 
   it("上限で打ち切ったら truncated にする（偏った標本だと分かるように）", async () => {

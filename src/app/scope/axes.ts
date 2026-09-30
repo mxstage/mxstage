@@ -24,20 +24,20 @@ export interface ScopeAxis {
  * - words: 名前かラベルに含まれていれば候補（名前に含まれる方を優先する）
  */
 const VALUE_HINTS: ReadonlyArray<{ reason: string; exact: readonly string[]; words: readonly string[] }> = [
-  { reason: "状態", exact: ["status", "wostatus", "historyflag"], words: ["status", "ステータス", "状態"] },
-  { reason: "分類", exact: ["classstructureid", "assetclass", "woclass", "class"], words: ["class", "分類", "クラス"] },
+  { reason: "status", exact: ["status", "wostatus", "historyflag"], words: ["status", "ステータス", "状態"] },
+  { reason: "classification", exact: ["classstructureid", "assetclass", "woclass", "class"], words: ["class", "分類", "クラス"] },
   {
-    reason: "担当・部署",
+    reason: "owner or department",
     exact: ["persongroup", "ownergroup", "workgroup", "crewid", "supervisor", "lead", "owner", "assignedownergroup", "reportedby", "changeby"],
     words: ["persongroup", "ownergroup", "workgroup", "crew", "supervisor", "dept", "担当", "部署", "グループ", "責任", "作業班"],
   },
-  { reason: "種別", exact: ["worktype", "type", "woclass", "jpnum"], words: ["worktype", "種別", "タイプ", "区分", "方式"] },
-  { reason: "場所", exact: ["siteid", "orgid", "location", "parent"], words: ["siteid", "location", "orgid", "サイト", "ロケーション", "エリア", "場所", "組織"] },
-  { reason: "優先度", exact: ["priority", "wopriority"], words: ["priority", "優先"] },
+  { reason: "type", exact: ["worktype", "type", "woclass", "jpnum"], words: ["worktype", "種別", "タイプ", "区分", "方式"] },
+  { reason: "location", exact: ["siteid", "orgid", "location", "parent"], words: ["siteid", "location", "orgid", "サイト", "ロケーション", "エリア", "場所", "組織"] },
+  { reason: "priority", exact: ["priority", "wopriority"], words: ["priority", "優先"] },
 ];
 
-const DATE_REASON = "期間";
-const KEY_REASON = "番号の規則";
+const DATE_REASON = "period";
+const KEY_REASON = "numbering pattern";
 
 /** 軸に向かない列（表示用の重複・長い文章・システム項目） */
 function excluded(col: ColumnSchema): boolean {
@@ -124,7 +124,7 @@ export function axesFor(info: ObjectStructureInfo, names: readonly string[]): Sc
     const col = byName.get(name);
     if (col === undefined || out.some((a) => a.name === name)) continue;
     const kind: ScopeAxisKind = keys.has(name) ? "key" : col.type === "date" || col.type === "datetime" ? "date" : "value";
-    const reason = kind === "key" ? KEY_REASON : kind === "date" ? DATE_REASON : (valueReason(col) ?? "指定");
+    const reason = kind === "key" ? KEY_REASON : kind === "date" ? DATE_REASON : (valueReason(col) ?? "requested");
     const a: ScopeAxis = { name, kind, reason };
     if (col.title !== undefined) a.title = col.title;
     out.push(a);

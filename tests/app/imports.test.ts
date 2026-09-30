@@ -172,11 +172,11 @@ describe("xlsx の読み取り", () => {
 
   it(".xls・パスワード付き（OLE）・.xlsb・壊れたファイルは、直し方を添えてエラー", async () => {
     const ole = new Uint8Array([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1, 0, 0, 0, 0]);
-    await expect(parseImportFile("台帳.xls", ole)).rejects.toThrow(/\.xlsx として保存し直す/);
+    await expect(parseImportFile("台帳.xls", ole)).rejects.toThrow(/Save it as \.xlsx/);
     const xlsb = await makeZip({ "xl/workbook.bin": "x" });
     await expect(parseImportFile("台帳.xlsb", xlsb)).rejects.toThrow(/xlsb/);
     await expect(parseImportFile("台帳.xlsx", enc.encode("PK\u0003\u0004 broken"))).rejects.toThrow(ImportError);
-    await expect(parseImportFile("台帳.xlsx", enc.encode("a,b\n1,2"))).rejects.toThrow(/Excel の形式ではありません/);
+    await expect(parseImportFile("台帳.xlsx", enc.encode("a,b\n1,2"))).rejects.toThrow(/not in Excel format/);
   });
 });
 
@@ -287,10 +287,10 @@ describe("見出しの見当とシートへの変換", () => {
       truncatedColumns: false,
     };
     const source = { kind: "excel" as const, importId: "i", fileName: "f", sheetName: "S", headerRow: 1 };
-    expect(() => buildImportSheet(t, { name: "x", headerRow: 1, rename: { C: "X" }, source })).toThrow(/列にありません/);
-    expect(() => buildImportSheet(t, { name: "x", headerRow: 1, rename: { A: "B" }, source })).toThrow(/重なります/);
-    expect(() => buildImportSheet(t, { name: "x", headerRow: 1, keyColumns: ["Z"], source })).toThrow(/キー列/);
-    expect(() => buildImportSheet(t, { name: "x", headerRow: 9, source })).toThrow(/9 行目に値がありません/);
+    expect(() => buildImportSheet(t, { name: "x", headerRow: 1, rename: { C: "X" }, source })).toThrow(/in rename is not a column/);
+    expect(() => buildImportSheet(t, { name: "x", headerRow: 1, rename: { A: "B" }, source })).toThrow(/is used twice/);
+    expect(() => buildImportSheet(t, { name: "x", headerRow: 1, keyColumns: ["Z"], source })).toThrow(/Key column Z is not a column/);
+    expect(() => buildImportSheet(t, { name: "x", headerRow: 9, source })).toThrow(/Row 9 has no values/);
   });
 });
 
@@ -418,10 +418,10 @@ describe("describe_import / apply_mapping", () => {
     h.imports.add({ importId: "i1", fileName: "機器一覧.xlsx", contentType: "", bytes: await workbookBytes(), sha256: "" });
     const e = await h.fail("describe_import", { importId: "nope" });
     expect(e.code).toBe(RelayErrorCode.TOOL_ERROR);
-    expect(e.message).toContain("i1（機器一覧.xlsx）");
+    expect(e.message).toContain("i1 (機器一覧.xlsx)");
     h.imports.add({ importId: "old", fileName: "古い.xls", contentType: "", bytes: new Uint8Array([0xd0, 0xcf, 0x11, 0xe0, 0, 0, 0, 0]), sha256: "" });
     const e2 = await h.fail("describe_import", { importId: "old" });
-    expect(e2.message).toMatch(/古い\.xls を読めませんでした: .*\.xlsx として保存し直す/);
+    expect(e2.message).toMatch(/Could not read 古い\.xls: .*Save it as \.xlsx/);
   });
 
   it("apply_mapping: シートにして、Maximo のシートと突き合わせ・値を移せる。取り込んだシートは反映できない", async () => {
@@ -440,7 +440,7 @@ describe("describe_import / apply_mapping", () => {
       columnTitles: { SOURCE_ROW: "元の行", SITEID: "サイト", ASSETNUM: "機器 番号" },
     });
     expect(r.columns.slice(0, 4)).toEqual([SOURCE_ROW_COLUMN, "SITEID", "ASSETNUM", "タグ"]);
-    expect(r.note).toContain("反映できません");
+    expect(r.note).toContain("cannot be committed to Maximo");
 
     const q = await h.call("query_rows", { sheet: "台帳", columns: ["ASSETNUM"] });
     expect(q.rows.map((x: any) => [x.rowKey, x.values.ASSETNUM])).toEqual([
@@ -475,9 +475,9 @@ describe("describe_import / apply_mapping", () => {
     expect(e1.code).toBe(RelayErrorCode.INVALID_ARGS);
     expect(e1.message).toContain("機器 番号");
     const e2 = await h.fail("apply_mapping", { ...base, keyColumns: ["ASSETNUM"] });
-    expect(e2.message).toContain("rename の後の列名");
+    expect(e2.message).toContain("use the names after rename");
     const e3 = await h.fail("apply_mapping", { ...base, headerRow: 2 });
-    expect(e3.message).toMatch(/2 行目に値がありません。見出しの行の候補: 3/);
+    expect(e3.message).toMatch(/Row 2 of .* has no values\. Likely header rows: 3/);
   });
 
   it("apply_mapping: 未反映の変更がある同名のシートは置き換えない", async () => {
@@ -486,7 +486,7 @@ describe("describe_import / apply_mapping", () => {
     h.workspace.applyEdits("資産", [{ rowKey: makeParentKey(["BEDFORD", "A5001"]), col: "DESCRIPTION", value: "変更" }], { author: "user" });
     h.imports.add({ importId: "i1", fileName: "機器一覧.xlsx", contentType: "", bytes: await workbookBytes(), sha256: "" });
     const e = await h.fail("apply_mapping", { importId: "i1", sourceSheet: "機器一覧", headerRow: 3, name: "資産" });
-    expect(e.message).toContain("未反映の変更");
+    expect(e.message).toContain("changes not yet committed to Maximo");
   });
 
   it("CSV もシートにできる（sourceSheet はファイル名）", async () => {

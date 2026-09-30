@@ -66,7 +66,7 @@ describe("Skill の一覧", () => {
     const catalog = readSkillCatalog(dir);
     expect(catalog.skills.filter((s) => s.name === name)).toHaveLength(1);
     expect(catalog.skills.find((s) => s.name === name)?.origin).toBe("default");
-    expect(catalog.problems).toEqual([expect.objectContaining({ name, level: "error", message: expect.stringContaining("アプリ既定") })]);
+    expect(catalog.problems).toEqual([expect.objectContaining({ name, level: "error", message: expect.stringContaining("name of a built-in Skill") })]);
   });
 
   it("壊れた Skill は読み込まず、理由を返す", async () => {
@@ -78,7 +78,7 @@ describe("Skill の一覧", () => {
     expect(catalog.skills.every((s) => s.origin === "default")).toBe(true);
     const byName = new Map(catalog.problems.map((p) => [p.name, p]));
     expect(byName.get("no-front")?.level).toBe("error");
-    expect(byName.get("wrong-name")?.message).toContain("フォルダ名");
+    expect(byName.get("wrong-name")?.message).toContain("folder name");
     expect(byName.get("empty-dir")?.message).toContain("SKILL.md");
     expect(byName.get("Bad_Name")?.level).toBe("error");
   });
@@ -138,11 +138,11 @@ describe("利用者の Skill を保存する（save_skill）", () => {
 
   it("アプリ既定と同じ名前・名前の決まりに合わない・書き方の誤り（description の < >）は保存しない", () => {
     const primary = DEFAULT_SKILLS[0]!.name;
-    expect(saveUserSkill(dir, { ...input, name: primary })).toMatchObject({ ok: false, message: expect.stringContaining("アプリ既定") });
+    expect(saveUserSkill(dir, { ...input, name: primary })).toMatchObject({ ok: false, message: expect.stringContaining("name of a built-in Skill") });
     expect(saveUserSkill(dir, { ...input, name: "../escape" })).toMatchObject({ ok: false });
     expect(saveUserSkill(dir, { ...input, name: "Permit_Date" })).toMatchObject({ ok: false });
     const bad = saveUserSkill(dir, { ...input, description: "<b>太字</b> の説明" });
-    expect(bad).toMatchObject({ ok: false, errors: [expect.stringContaining("< >")] });
+    expect(bad).toMatchObject({ ok: false, errors: [expect.stringContaining("< or >")] });
     expect(readSkillCatalog(dir).skills.filter((s) => s.origin === "user")).toEqual([]);
   });
 

@@ -22,7 +22,7 @@ export interface ImportEntry {
 /** ファイルの中身から形式を決めて読む（拡張子より中身を信じる） */
 export async function parseImportFile(fileName: string, bytes: Uint8Array): Promise<ImportWorkbook> {
   if (isZipFile(bytes) || isOleFile(bytes)) return parseXlsx(bytes);
-  if (/\.(xlsx|xlsm|xls|xlsb)$/i.test(fileName)) throw new ImportError(`${fileName} は Excel のファイルとして読めません（中身が Excel の形式ではありません）。`);
+  if (/\.(xlsx|xlsm|xls|xlsb)$/i.test(fileName)) throw new ImportError(`${fileName} cannot be read as an Excel file (its contents are not in Excel format).`);
   return parseCsv(bytes, fileName);
 }
 
@@ -76,7 +76,7 @@ export class ImportStore {
   /** 読み取った結果。1 回だけ読み、以後は同じ結果を返す（失敗したら次は読み直す） */
   workbook(importId: string): Promise<ImportWorkbook> {
     const h = this.held.get(importId);
-    if (h === undefined) return Promise.reject(new ImportError(`取り込み ${importId} のファイルは作業画面にありません。`));
+    if (h === undefined) return Promise.reject(new ImportError(`The file for import ${importId} is not in the work screen.`));
     if (h.parsed === null) {
       const parsed = parseImportFile(h.file.fileName, h.file.bytes);
       h.parsed = parsed;

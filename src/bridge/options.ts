@@ -28,34 +28,34 @@ export type ParseResult =
   | { kind: "version" }
   | { kind: "error"; message: string };
 
-export const HELP_TEXT = `mxstage bridge — Maximo のデータ整備を、この PC の中だけで中継します。
+export const HELP_TEXT = `mxstage bridge — relays IBM Maximo data work on this PC only.
 
-使い方:
-  node --experimental-strip-types src/bridge/cli.ts [オプション]
+Usage:
+  node --experimental-strip-types src/bridge/cli.ts [options]
 
-オプション:
-  --port <番号>      待ち受けるポート（既定 ${DEFAULT_PORT}。ずらしません。
-                     既に MX Stage の橋渡しが使っていればそちらに中継し、
-                     別のアプリが使っていれば終了コード 1 で終わります）
-  --open             既定のブラウザで作業画面を開く
-  --no-open          ブラウザを開かない（既定）
-  --allow-host <名>  つないでよい Maximo のホスト（カンマ区切り。複数回指定可。既定は無制限）
-  --insecure         自己署名証明書の Maximo を受け入れる（この接続だけ検証を切ります）
-  --app-dir <パス>   画面（dist/app）の場所
-  --no-mcp           stdio の MCP サーバとして話さない（画面の配信だけ）
-  --dev-license      MX Stage の開発・試験用。試験用のライセンスキーを受け付け、偽の Maximo
-                     （https://127.0.0.1:9797）用の開発用のキーを読む（npm run dev:bridge が付ける）
-  --version          版を表示する
-  --help             この説明を表示する
+Options:
+  --port <number>    Port to listen on (default ${DEFAULT_PORT}; never shifted.
+                     If an MX Stage bridge already uses it, relays to that bridge;
+                     if another application uses it, exits with code 1)
+  --open             Open the work screen in the default browser
+  --no-open          Do not open a browser (default)
+  --allow-host <h>   Maximo hosts that may be reached (comma-separated; can be repeated; default: any)
+  --insecure         Accept a Maximo with a self-signed certificate (turns off verification for that connection only)
+  --app-dir <path>   Location of the work screen files (dist/app)
+  --no-mcp           Do not act as a stdio MCP server (serve the work screen only)
+  --dev-license      For developing and testing MX Stage: accept test license keys and read the development
+                     key for the fake Maximo (https://127.0.0.1:9797) (npm run dev:bridge adds it)
+  --version          Show the version
+  --help             Show this help
 
-待ち受けるのは 127.0.0.1 だけです。API キーは呼び出しごとにヘッダで受け取り、
-ディスクにもログにも書きません。
+Listens on 127.0.0.1 only. API keys arrive in a header with each request and are
+never written to disk or logs.
 
-橋渡しは PC に 1 つです。後から起動した橋渡しは、先に動いている橋渡しに
-ツール呼び出しを渡します。先の橋渡しが終了すると、残った橋渡しが引き継ぎます。
-橋渡し同士は利用者ごとの鍵ファイルで確かめ合います
-（~/.config/mxstage/bridge.key。Windows では %USERPROFILE%\\.config\\mxstage\\bridge.key。
-環境変数 ${BRIDGE_KEY_FILE_ENV} で場所を変えられます）。`;
+There is one bridge per PC. A bridge started later passes tool calls to the bridge
+already running; when that one exits, a remaining bridge takes over.
+Bridges verify each other with a per-user key file
+(~/.config/mxstage/bridge.key; on Windows %USERPROFILE%\\.config\\mxstage\\bridge.key;
+the environment variable ${BRIDGE_KEY_FILE_ENV} changes the location).`;
 
 function splitList(value: string): string[] {
   return value
@@ -91,7 +91,7 @@ export function parseArgs(argv: readonly string[]): ParseResult {
       case "--port": {
         const v = next();
         const port = v === null ? NaN : Number(v);
-        if (!Number.isInteger(port) || port < 1 || port > 65_535) return { kind: "error", message: "--port には 1〜65535 の整数を指定してください。" };
+        if (!Number.isInteger(port) || port < 1 || port > 65_535) return { kind: "error", message: "--port needs an integer from 1 to 65535." };
         options.port = port;
         break;
       }
@@ -103,7 +103,7 @@ export function parseArgs(argv: readonly string[]): ParseResult {
         break;
       case "--allow-host": {
         const v = next();
-        if (v === null) return { kind: "error", message: "--allow-host にはホスト名を指定してください。" };
+        if (v === null) return { kind: "error", message: "--allow-host needs a host name." };
         options.allowHosts.push(...splitList(v));
         break;
       }
@@ -118,12 +118,12 @@ export function parseArgs(argv: readonly string[]): ParseResult {
         break;
       case "--app-dir": {
         const v = next();
-        if (v === null) return { kind: "error", message: "--app-dir にはフォルダのパスを指定してください。" };
+        if (v === null) return { kind: "error", message: "--app-dir needs a folder path." };
         options.appDir = v;
         break;
       }
       default:
-        return { kind: "error", message: `知らないオプションです: ${name}` };
+        return { kind: "error", message: `Unknown option: ${name}` };
     }
   }
   return { kind: "run", options };

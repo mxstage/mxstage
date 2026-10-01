@@ -167,4 +167,27 @@ const outFile = join(OUT, `mxstage-${version}.mcpb`);
 writeFileSync(outFile, archive);
 const sha256 = createHash("sha256").update(archive).digest("hex");
 writeFileSync(`${outFile}.sha256`, `${sha256}  mxstage-${version}.mcpb\n`);
+
+// 5. MCP Registry に載せる server.json（公開のときに、この .mcpb を GitHub のリリース v<版> に添えてから mcp-publisher で送る）。
+//    名前は GitHub の組織にもとづく io.github.mxstage/mxstage。説明は 100 文字まで
+const serverJson = {
+  $schema: "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
+  name: "io.github.mxstage/mxstage",
+  title: "MX Stage",
+  description: "Local AI workbench for IBM Maximo data: every change is staged, diffed and approved before commit.",
+  version,
+  websiteUrl: "https://mxstage.tsunagi.app",
+  repository: { url: "https://github.com/mxstage/mxstage", source: "github" },
+  packages: [
+    {
+      registryType: "mcpb",
+      identifier: `https://github.com/mxstage/mxstage/releases/download/v${version}/mxstage-${version}.mcpb`,
+      version,
+      fileSha256: sha256,
+      transport: { type: "stdio" },
+    },
+  ],
+};
+if (serverJson.description.length > 100) fail(`server.json の説明が ${serverJson.description.length} 文字です（100 文字まで）。`);
+writeFileSync(join(OUT, "server.json"), `${JSON.stringify(serverJson, null, 2)}\n`);
 process.stdout.write(`${relative(ROOT, outFile)}  ${(archive.length / 1024 / 1024).toFixed(1)} MB  ${files.length} files\nsha256 ${sha256}\n`);

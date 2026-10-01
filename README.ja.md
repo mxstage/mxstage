@@ -2,7 +2,7 @@
 
 [English](README.md) | 日本語
 
-Maximo（MAS Manage）のデータ整備を、利用者の LLM クライアント（Claude Code・Claude Desktop・Codex・Antigravity）と
+Maximo（MAS Manage）のデータ整備を、利用者の LLM クライアント（Claude Desktop・ChatGPT デスクトップの Codex・IBM Bob・Claude Code・Antigravity）と
 一緒に行うためのツール。画面（作業画面）と MCP サーバを、利用者の PC の中だけで動かす。
 サイト: https://mxstage.tsunagi.app/ja/ 。問い合わせ: mxstage@tsunagi.app
 
@@ -34,19 +34,22 @@ Claude Code が下の「導入手順（Claude Code 向け）」に沿って入�
   - Claude Code（CLI）、Claude Desktop（チャット・Code タブ）
   - Antigravity（2.0・IDE・`agy` CLI）
   - Codex（ChatGPT デスクトップアプリの Codex・CLI・IDE 拡張）
+  - IBM Bob
 
 ## 環境ごとの置き場所
 
 `~` は `%USERPROFILE%`（例 `C:\Users\<名前>`）。導入は、入っていない環境には何も作らない
-（Antigravity は `~\.gemini`、Codex は `~\.codex` があるかで見分ける）。
+（Claude Desktop は設定フォルダ、Antigravity は `~\.gemini`、Codex は `~\.codex`、IBM Bob は `~\.bob` があるかで見分ける）。
+入っていても登録しないときは、導入に `--no-claude-desktop`・`--no-antigravity`・`--no-codex`・`--no-bob` を付ける（Skill を写さないときは `--no-skills`）。
 
 | 環境 | MCP（ツール）の設定 | Skill の置き場所 | 導入・更新のあと |
 |---|---|---|---|
 | Claude Code（CLI） | `~\.claude.json` の `mcpServers.mxstage` | `~\.claude\skills\<名前>\SKILL.md` | Claude Code を終了して開き直す |
 | Claude Desktop の Code タブ | Claude Code と同じ（下のチャットの設定も読む。どちらも同じ `mxstage`） | Claude Code と同じ | Claude Desktop をタスクトレイのアイコンから終了して開き直す |
-| Claude Desktop のチャット | `%APPDATA%\Claude\claude_desktop_config.json` の `mcpServers.mxstage` | ファイルは置かない（下の「Skill」） | タスクトレイのアイコンから終了して開き直す（ウィンドウの × では終わらない） |
+| Claude Desktop のチャット | `%APPDATA%\Claude\claude_desktop_config.json` の `mcpServers.mxstage`。Microsoft Store 版は、`%LOCALAPPDATA%\Packages\Claude_<発行元 ID>\LocalCache\Roaming\Claude\` があればそこの `claude_desktop_config.json` にも書く。**拡張機能（`.mcpb`）の MX Stage が入っていて有効なら登録しない**（前にこの導入が書いた分は外す） | ファイルは置かない（下の「Skill」） | タスクトレイのアイコンから終了して開き直す（ウィンドウの × では終わらない） |
 | Antigravity（2.0・IDE・`agy` CLI） | `~\.gemini\config\mcp_config.json` の `mcpServers.mxstage`（3 つとも同じファイル） | `~\.gemini\config\skills\<名前>\SKILL.md`（2.0・IDE が読む。`agy` CLI は別の場所を読むので置かない） | 新しい会話を始める |
 | Codex（ChatGPT デスクトップアプリの Codex・CLI・IDE 拡張） | `~\.codex\config.toml` の `[mcp_servers.mxstage]`（3 つとも同じファイル。`CODEX_HOME` があればそこ） | `~\.agents\skills\<名前>\SKILL.md`（ほかのエージェントも読むことがある） | Codex を終了して開き直す |
+| IBM Bob | `~\.bob\settings\mcp.json` の `mcpServers.mxstage` | `~\.bob\skills\<名前>\SKILL.md` | IBM Bob を再起動する |
 
 入る Skill は、アプリ既定の `mxstage-workbench` と、利用者の Skill（`~\.config\mxstage\skills\` にあるもの）。
 Skill のファイルを置かない環境（Claude Desktop のチャット・`agy` CLI）にも、基本手順はツールの結果で届く（下の「Skill」）。
@@ -82,7 +85,7 @@ node scripts/setup-local.mjs --uninstall
 | 外すもの | 残すもの |
 |---|---|
 | 上の表の全環境の MCP 設定の `mxstage`（導入が置き換えた利用者の設定があれば、控えから元に戻す） | ほかの MCP サーバとほかの設定 |
-| 導入が写した Skill（`~\.claude\skills`・`~\.gemini\config\skills`・`~\.agents\skills` の下） | 写したあとに書き換えられた Skill |
+| 導入が写した Skill（`~\.claude\skills`・`~\.gemini\config\skills`・`~\.agents\skills`・`~\.bob\skills` の下） | 写したあとに書き換えられた Skill |
 | ログイン時の自動起動（スタートアップの `mxstage-bridge.lnk`）とデスクトップの `mxstage` | 利用者の Skill の元（`~\.config\mxstage\skills\`） |
 | 導入が起動した橋渡し | LLM が起動した橋渡し（その LLM を終了すると止まる） |
 | 導入の記録（`~\.config\mxstage\setup.json`） | 控え（`~\.config\mxstage\backup\`） |
@@ -104,9 +107,11 @@ node scripts/setup-local.mjs --uninstall
 | Claude Desktop（チャット・Code タブ） | Settings の「Developer」→「Edit Config」で開く `claude_desktop_config.json` の `mcpServers` から `"mxstage"` の項目を消し、Claude Desktop を開き直す。Code タブからも外すなら、Claude Code の分も外す | チャットには置いていない。Code タブは Claude Code と同じ |
 | Antigravity | `~\.gemini\config\mcp_config.json` の `mcpServers` から `"mxstage"` の項目を消す（IDE では「View raw config」で開ける） | `~\.gemini\config\skills\` の下の同じ名前のフォルダを消す |
 | Codex | `~\.codex\config.toml` から `[mcp_servers.mxstage]` の表（次の `[` の行の手前まで）を消し、Codex を開き直す | `~\.agents\skills\` の下の同じ名前のフォルダを消す |
+| IBM Bob | `~\.bob\settings\mcp.json` の `mcpServers` から `"mxstage"` の項目を消し、IBM Bob を再起動する | `~\.bob\skills\` の下の同じ名前のフォルダを消す |
 
-外したあとに導入をもう一度実行すると、その環境にまた登録する。Antigravity と Codex は、導入に `--no-antigravity`・`--no-codex` を付けると登録しない
-（Claude Code と Claude Desktop は、登録しない引数が無い）。
+外したあとに導入をもう一度実行すると、その環境にまた登録する。Claude Desktop・Antigravity・Codex・IBM Bob は、導入に
+`--no-claude-desktop`・`--no-antigravity`・`--no-codex`・`--no-bob` を付けると登録しない（Claude Code は、登録しない引数が無い）。
+Claude Desktop は、拡張機能（`.mcpb`）の MX Stage を入れて有効にしておけば、導入は設定ファイルに登録しない。
 
 ## 導入手順（Claude Code 向け）
 
@@ -136,7 +141,7 @@ node scripts/setup-local.mjs --uninstall
 | 対象 | 内容 |
 |---|---|
 | 橋渡し | ポート `8788`（固定。ずらさない）で起動する。PC に 1 つだけで、LLM クライアントが起動した分はここへ中継する |
-| MCP と Skill | 上の「環境ごとの置き場所」の表のとおりに登録する。登録しないときは `--no-antigravity`・`--no-codex`・`--no-skills` |
+| MCP と Skill | 上の「環境ごとの置き場所」の表のとおりに登録する。登録しないときは `--no-claude-desktop`・`--no-antigravity`・`--no-codex`・`--no-bob`・`--no-skills` |
 | 自動起動・ショートカット | ログイン時に橋渡しを起動するショートカットと、デスクトップの `mxstage` を作る |
 
 何度実行しても壊れない。詳しくは [docs/local.md](docs/local.md)。
@@ -172,7 +177,7 @@ npm run typecheck      # tsc（app / bridge）
 npx vitest run         # 試験（app / bridge）
 npm run test:setup     # 導入スクリプトの試験（一時フォルダだけに書き、本物の claude コマンドは呼ばない）
 npm run build          # アプリ既定の Skill の生成と画面のビルド（dist/app）
-npm run dev:app        # 画面の開発サーバ（http://localhost:5173/app?demo=1 で架空のサンプルを表示）
+npm run dev:app        # 画面の開発サーバ（http://localhost:5173/app?demo=1 で架空のサンプルを表示。中継は開発用の橋渡し 8790 へ）
 node scripts/check-publish.mjs --worktree   # 送る前の検査（docs/publish.md）
 ```
 

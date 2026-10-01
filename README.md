@@ -22,7 +22,8 @@ Several Maximo MCP servers let the AI call the REST API. That is fine for readin
 | Claude Desktop (chat and Code tab) | Supported |
 | ChatGPT desktop — **Codex** or **Work** mode (Chat mode cannot use local MCP servers) | Supported |
 | Claude Code, Codex CLI and IDE extension, Antigravity | Work, not officially supported |
-| IBM Bob, LM Studio | Coming |
+| IBM Bob | Supported (registered by the installer) |
+| LM Studio | Coming |
 
 ## Requirements
 
@@ -45,15 +46,16 @@ To update, say "update MX Stage"; to remove it, say "uninstall MX Stage" (see [U
 
 ## Where it is registered
 
-`~` is `%USERPROFILE%`. The installer only touches assistants that are installed, backs up every file before changing it (to `~\.config\mxstage\backup\`), and never changes other servers' settings. `node scripts/setup-local.mjs --status` shows what is registered without changing anything.
+`~` is `%USERPROFILE%`. The installer only touches assistants that are installed (Claude Desktop: its settings folder exists; Antigravity: `~\.gemini`; Codex: `~\.codex`; IBM Bob: `~\.bob`), backs up every file before changing it (to `~\.config\mxstage\backup\`), and never changes other servers' settings. `node scripts/setup-local.mjs --status` shows what is registered without changing anything. To leave an assistant out, add `--no-claude-desktop`, `--no-antigravity`, `--no-codex` or `--no-bob` (`--no-skills` copies no Skills).
 
 | Assistant | MCP server | Skills | After installing or updating |
 |---|---|---|---|
 | Claude Code (CLI) | `mcpServers.mxstage` in `~\.claude.json` | `~\.claude\skills\<name>\SKILL.md` | Restart Claude Code |
 | Claude Desktop (Code tab) | Same as Claude Code | Same as Claude Code | Quit Claude Desktop from the system tray and open it again |
-| Claude Desktop (chat) | `mcpServers.mxstage` in `%APPDATA%\Claude\claude_desktop_config.json` | Not copied (see [Skills](#skills)) | Quit from the system tray (closing the window is not enough) and open again |
+| Claude Desktop (chat) | `mcpServers.mxstage` in `%APPDATA%\Claude\claude_desktop_config.json`. Microsoft Store version: also in `%LOCALAPPDATA%\Packages\Claude_<publisher ID>\LocalCache\Roaming\Claude\claude_desktop_config.json` when that folder exists. **Not registered** when the MX Stage extension (`.mcpb`) is installed and enabled in Claude Desktop (an entry the installer added earlier is removed) | Not copied (see [Skills](#skills)) | Quit from the system tray (closing the window is not enough) and open again |
 | Antigravity | `mcpServers.mxstage` in `~\.gemini\config\mcp_config.json` | `~\.gemini\config\skills\<name>\SKILL.md` | Start a new conversation |
 | Codex (ChatGPT desktop, CLI, IDE extension) | `[mcp_servers.mxstage]` in `~\.codex\config.toml` | `~\.agents\skills\<name>\SKILL.md` | Restart Codex |
+| IBM Bob | `mcpServers.mxstage` in `~\.bob\settings\mcp.json` | `~\.bob\skills\<name>\SKILL.md` | Restart IBM Bob |
 
 ## Uninstall
 
@@ -107,7 +109,7 @@ npm run typecheck      # tsc (app and bridge)
 npx vitest run         # tests (app and bridge)
 npm run test:setup     # installer tests (write only to temporary folders)
 npm run build          # build the built-in Skill and the work screen (dist/app)
-npm run dev:app        # dev server for the work screen (http://localhost:5173/app?demo=1 shows sample data)
+npm run dev:app        # dev server for the work screen (http://localhost:5173/app?demo=1 shows sample data; relays to the dev bridge on 8790)
 npm run dev:fake-maximo  # a fake Maximo at https://127.0.0.1:9797 (API key: test-api-key)
 npm run dev:bridge     # a bridge on port 8790 that accepts the development license for the fake Maximo
 ```

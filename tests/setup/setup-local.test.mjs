@@ -2,7 +2,7 @@
 //
 //   npm run test:setup
 //
-// 実在の設定ファイル（~/.claude.json・Claude Desktop・Antigravity（~/.gemini）・スタートアップ・デスクトップ・~/.config/mxstage）には一切触らない。
+// 実在の設定ファイル（~/.claude.json・Claude Desktop（Microsoft Store 版を含む）・Antigravity（~/.gemini）・Codex・IBM Bob（~/.bob）・スタートアップ・デスクトップ・~/.config/mxstage）には一切触らない。
 // - 書き先はすべて一時フォルダに差し替える。
 // - MXSTAGE_SETUP_TEST=1 を立てる。setup-local.mjs はこの印があると、書き先が一時フォルダでない・--port / --bridge /
 //   --no-open が無いときは何もせずに止まり、本物の claude コマンドを**探しもしない**。
@@ -26,6 +26,11 @@ import { fileURLToPath } from "node:url";
 import {
   antigravityPaths,
   antigravityWanted,
+  bobPaths,
+  bobWanted,
+  desktopLocations,
+  findDesktopExtension,
+  msixDesktopConfigs,
   buildCodexBlock,
   codexPaths,
   codexWanted,
@@ -137,6 +142,10 @@ function realTargets() {
     { path: path.join(home, ".gemini", "skills"), type: "dir", owner: "Gemini CLI" },
     { path: path.join(process.env.CODEX_HOME || path.join(home, ".codex"), "config.toml"), type: "toml", owner: "Codex" },
     { path: path.join(home, ".agents", "skills"), type: "dir", owner: "Codex などのエージェント" },
+    { path: path.join(home, ".bob", "settings", "mcp.json"), type: "json", owner: "IBM Bob" },
+    { path: path.join(home, ".bob", "skills"), type: "dir", owner: "IBM Bob" },
+    // Microsoft Store 版の Claude Desktop（パッケージの中の設定。あるものだけ）
+    ...msixDesktopConfigs(path.join(localAppData, "Packages")).map((c) => ({ path: c.configPath, type: "json", owner: "Claude Desktop（Microsoft Store 版）" })),
     // ほかに書くプログラムが無い場所。更新時刻が変わったらそれだけで失敗にする
     { path: path.join(home, ".config", "mxstage"), type: "strict", owner: null },
     // 導入の記録と控え。控えのフォルダが既にあると、中に控えが増えても親フォルダの更新時刻は変わらないので、別に見る
@@ -319,8 +328,8 @@ test("antigravityPaths / antigravityWanted / skillTargets: ~/.gemini がある�
   assert.equal(antigravityWanted(on, paths, () => true).ok, true);
   assert.match(antigravityWanted(on, paths, () => false).reason, /設定フォルダ.*が無い/);
   assert.match(antigravityWanted(parseArgs(["--no-antigravity"]), paths, () => true).reason, /--no-antigravity/);
-  // Codex の分は別の試験で見る（ここでは Antigravity の分だけ）
-  const noCodex = parseArgs(["--no-codex"]);
+  // Codex と IBM Bob の分は別の試験で見る（ここでは Antigravity の分だけ）
+  const noCodex = parseArgs(["--no-codex", "--no-bob"]);
   assert.deepEqual(skillTargets(noCodex, paths, () => true).map((t) => [t.id, t.dir]), [
     ["skills", paths.claudeSkillsDir],
     ["antigravity_skills", ag.antigravitySkillsDir],
@@ -1018,9 +1027,24 @@ test("testSandboxProblem: TEMP がホームフォルダに向いていても、�
     path.join(home, ".codex"),
     "--agents-skills-dir",
     path.join(home, ".agents", "skills"),
+    "--bob-dir",
+    path.join(home, ".bob"),
+    "--claude-desktop-packages-dir",
+    path.join(home, "AppData", "Local", "Packages"),
   ];
   const problem = testSandboxProblem(parseArgs(args), home, real);
-  for (const flag of ["--state-dir", "--claude-code-config", "--claude-desktop-config", "--startup-dir", "--desktop-dir", "--antigravity-dir", "--codex-dir", "--agents-skills-dir"]) {
+  for (const flag of [
+    "--state-dir",
+    "--claude-code-config",
+    "--claude-desktop-config",
+    "--startup-dir",
+    "--desktop-dir",
+    "--antigravity-dir",
+    "--codex-dir",
+    "--agents-skills-dir",
+    "--bob-dir",
+    "--claude-desktop-packages-dir",
+  ]) {
     assert.match(problem, new RegExp(`${flag} が本物の書き先です`), flag);
   }
   // ホームの中でも、本物の書き先でない場所は通す
@@ -1288,6 +1312,9 @@ function sandboxArgs(dir, extra = []) {
     path.join(dir, "codex"),
     "--agents-skills-dir",
     path.join(dir, "agents-skills"),
+    // IBM Bob も同じ（~/.bob を作った試験だけが登録する）
+    "--bob-dir",
+    path.join(dir, "bob"),
     ...extra,
   ];
 }
@@ -1971,7 +1998,7 @@ test("parseArgs / legacyStateDirOf: --legacy-state-dir を受け、無ければ 
 
 test("testSandboxProblem: --legacy-state-dir も一時フォルダの中で、本物の置き場所（~/.config/mxstudio）は拒む", () => {
   const tmp = path.join(os.tmpdir(), "mxs-guard");
-  const base = { ...parseArgs([]), stateDir: path.join(tmp, "s"), claudeCodeConfig: path.join(tmp, "a.json"), claudeDesktopConfig: path.join(tmp, "b.json"), startupDir: path.join(tmp, "st"), desktopDir: path.join(tmp, "d"), skills: false, antigravity: false, codex: false, port: 1234, bridge: "x", open: false, install: false, build: false };
+  const base = { ...parseArgs([]), stateDir: path.join(tmp, "s"), claudeCodeConfig: path.join(tmp, "a.json"), claudeDesktopConfig: path.join(tmp, "b.json"), startupDir: path.join(tmp, "st"), desktopDir: path.join(tmp, "d"), skills: false, antigravity: false, codex: false, bob: false, port: 1234, bridge: "x", open: false, install: false, build: false };
   assert.equal(testSandboxProblem(base, os.tmpdir(), []), null);
   assert.match(testSandboxProblem({ ...base, legacyStateDir: path.join(os.homedir(), "elsewhere") }, os.tmpdir(), []) ?? "", /--legacy-state-dir が一時フォルダ/);
   const real = path.join(tmp, ".config", "mxstudio");
@@ -2369,6 +2396,427 @@ test("橋渡しの入口が無いときは、何も書き換えずに NG で終�
 });
 
 // ---------------------------------------------------------------------------
+// Claude Desktop（Microsoft Store 版・拡張機能・--no-claude-desktop）と IBM Bob
+// ---------------------------------------------------------------------------
+
+/**
+ * 偽の Claude Desktop の拡張機能を、設定フォルダ（userData）に置く（Claude Desktop 2.16120 の置き方に合わせる）。
+ * index: extensions-installations.json に載せるか / settings: Claude Extensions Settings\<id>.json を置くか
+ */
+function putDesktopExtension(userDataDir, { id = "local.mcpb.kazuhiro-muto.mxstage", name = "mxstage", enabled = true, index = true, settings = true } = {}) {
+  const extDir = path.join(userDataDir, "Claude Extensions", id);
+  mkdirSync(extDir, { recursive: true });
+  writeFileSync(path.join(extDir, "manifest.json"), JSON.stringify({ manifest_version: "0.3", name, version: "0.2.0", author: { name: "Kazuhiro Muto" } }), "utf8");
+  if (index) {
+    const indexPath = path.join(userDataDir, "extensions-installations.json");
+    const current = existsSync(indexPath) ? JSON.parse(readFileSync(indexPath, "utf8")) : { extensions: {} };
+    current.extensions[id] = { id, version: "0.2.0", hash: "x", installedAt: "2026-10-01T00:00:00.000Z", manifest: { name, version: "0.2.0" }, source: "local" };
+    writeFileSync(indexPath, JSON.stringify(current, null, 2), "utf8");
+  }
+  if (settings) {
+    mkdirSync(path.join(userDataDir, "Claude Extensions Settings"), { recursive: true });
+    writeFileSync(path.join(userDataDir, "Claude Extensions Settings", `${id}.json`), JSON.stringify({ isEnabled: enabled }), "utf8");
+  }
+  return id;
+}
+
+test("msixDesktopConfigs / desktopLocations: Microsoft Store 版はパッケージ（Claude_<発行元 ID>）の中に設定フォルダがあるものだけを探す", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-msixpaths-"));
+  try {
+    const packages = path.join(dir, "Packages");
+    const roaming = (name) => path.join(packages, name, "LocalCache", "Roaming");
+    mkdirSync(path.join(roaming("Claude_pzs8sxrjxfjjc"), "Claude"), { recursive: true });
+    // 一度も起動していない（設定フォルダが無い）・3P 版の設定フォルダだけ・名前の形が違う・ほかのアプリ
+    mkdirSync(path.join(roaming("Claude_abcdefghijklm"), "Claude-3p"), { recursive: true });
+    mkdirSync(path.join(roaming("Claude-3p_x"), "Claude"), { recursive: true });
+    mkdirSync(path.join(roaming("Microsoft.WindowsTerminal_8wekyb3d8bbwe"), "Claude"), { recursive: true });
+    const found = msixDesktopConfigs(packages);
+    assert.deepEqual(found, [{ packageName: "Claude_pzs8sxrjxfjjc", configPath: path.join(roaming("Claude_pzs8sxrjxfjjc"), "Claude", "claude_desktop_config.json") }]);
+    assert.deepEqual(msixDesktopConfigs(null), [], "探す場所が無ければ探さない");
+    assert.deepEqual(msixDesktopConfigs(path.join(dir, "無い")), []);
+
+    const standard = path.join(dir, "Roaming", "Claude", "claude_desktop_config.json");
+    const locations = desktopLocations({ claudeDesktopConfig: standard, claudeDesktopMsixConfigs: found });
+    assert.deepEqual(
+      locations.map((l) => [l.id, l.key, l.installedKey, l.present]),
+      [
+        ["claude_desktop", "claudeDesktop", "claudeDesktop", false],
+        ["claude_desktop_msix", "claudeDesktopMsix:Claude_pzs8sxrjxfjjc", "claudeDesktopMsix", true],
+      ],
+    );
+    assert.match(locations[1].label, /Microsoft Store 版/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("findDesktopExtension: 拡張機能（.mcpb）の MX Stage を manifest の name で探し、有効かどうかを設定の isEnabled で見る", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-ext-"));
+  try {
+    const at = (name) => {
+      const d = path.join(dir, name);
+      mkdirSync(d, { recursive: true });
+      return d;
+    };
+    assert.equal(findDesktopExtension(at("none")), null, "拡張機能を 1 つも入れていない");
+
+    const enabled = at("enabled");
+    putDesktopExtension(enabled, { id: "ant.dir.gh.tomtom.tomtom-mcp", name: "tomtom-mcp" });
+    assert.equal(findDesktopExtension(enabled), null, "ほかの拡張機能は見ない");
+    putDesktopExtension(enabled);
+    assert.deepEqual(findDesktopExtension(enabled), { id: "local.mcpb.kazuhiro-muto.mxstage", enabled: true });
+
+    const disabled = at("disabled");
+    putDesktopExtension(disabled, { enabled: false });
+    assert.deepEqual(findDesktopExtension(disabled), { id: "local.mcpb.kazuhiro-muto.mxstage", enabled: false });
+
+    // 設定が無い・読めないときは無効と見なす（ふつうに登録する。取り違えても二重になるだけ）
+    const noSettings = at("no-settings");
+    putDesktopExtension(noSettings, { settings: false });
+    assert.deepEqual(findDesktopExtension(noSettings), { id: "local.mcpb.kazuhiro-muto.mxstage", enabled: false });
+    const brokenSettings = at("broken-settings");
+    putDesktopExtension(brokenSettings);
+    writeFileSync(path.join(brokenSettings, "Claude Extensions Settings", "local.mcpb.kazuhiro-muto.mxstage.json"), "{ 壊れた", "utf8");
+    assert.equal(findDesktopExtension(brokenSettings).enabled, false);
+
+    // 一覧（extensions-installations.json）が無くても、展開したフォルダの manifest.json から見つける（id の形には頼らない）
+    const dirOnly = at("dir-only");
+    putDesktopExtension(dirOnly, { id: "ant.dir.gh.mxstage.mxstage", index: false });
+    assert.deepEqual(findDesktopExtension(dirOnly), { id: "ant.dir.gh.mxstage.mxstage", enabled: true });
+
+    // 一覧に載っていても、展開したフォルダが無ければ入っていない（消したあとの残り）
+    const stale = at("stale");
+    putDesktopExtension(stale);
+    rmSync(path.join(stale, "Claude Extensions"), { recursive: true, force: true });
+    assert.equal(findDesktopExtension(stale), null);
+
+    // 無効なものと有効なものがあれば、有効なものを返す
+    const both = at("both");
+    putDesktopExtension(both, { id: "local.dxt.kazuhiro-muto.mxstage", enabled: false });
+    putDesktopExtension(both, { id: "local.mcpb.kazuhiro-muto.mxstage", enabled: true });
+    assert.deepEqual(findDesktopExtension(both), { id: "local.mcpb.kazuhiro-muto.mxstage", enabled: true });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("Claude Desktop の Microsoft Store 版: パッケージの中の設定にも登録し（控えを取る）、状態に出し、取り消しで外す", { timeout: 120_000 }, async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-msix-"));
+  try {
+    const bridge = path.join(dir, "fake-bridge.mjs");
+    writeFileSync(bridge, FAKE_BRIDGE, "utf8");
+    const port = await freePort();
+    const packages = path.join(dir, "Packages");
+    const msixDir = path.join(packages, "Claude_pzs8sxrjxfjjc", "LocalCache", "Roaming", "Claude");
+    const msixConfig = path.join(msixDir, "claude_desktop_config.json");
+    const standardConfig = path.join(dir, "claude_desktop_config.json");
+    const other = { command: "npx", args: ["other-mcp"] };
+    mkdirSync(msixDir, { recursive: true });
+    writeFileSync(msixConfig, JSON.stringify({ mcpServers: { other }, preferences: { sidebarMode: "chat" } }, null, 2), "utf8");
+    writeFileSync(standardConfig, JSON.stringify({ mcpServers: { other } }, null, 2), "utf8");
+    // 設定フォルダの無いパッケージ（一度も起動していない）
+    const unused = path.join(packages, "Claude_abcdefghijklm", "LocalCache", "Roaming");
+    mkdirSync(unused, { recursive: true });
+    const common = [...sandboxArgs(dir, ["--claude-desktop-packages-dir", packages]), "--no-start", "--no-autostart", "--no-shortcut", "--port", String(port), "--bridge", bridge];
+
+    const first = await runJson(common);
+    assert.equal(first.code, 0, first.stdout);
+    const expected = { command: process.execPath, args: [bridge, "--port", String(port)] };
+    const written = JSON.parse(readFileSync(msixConfig, "utf8"));
+    assert.deepEqual(written.mcpServers.mxstage, expected, "Microsoft Store 版の設定に登録する");
+    assert.deepEqual(written.mcpServers.other, other, "ほかのサーバは残す");
+    assert.deepEqual(written.preferences, { sidebarMode: "chat" });
+    assert.deepEqual(JSON.parse(readFileSync(standardConfig, "utf8")).mcpServers.mxstage, expected, "ふつうの版の設定にも登録する");
+    const msixStep = stepOf(first.json, "claude_desktop_msix");
+    assert.equal(msixStep.length, 1);
+    assert.equal(msixStep[0].level, "ok");
+    assert.match(msixStep[0].message, /Microsoft Store 版・Claude_pzs8sxrjxfjjc/);
+    assert.ok(first.json.result.installed.claudeDesktop && first.json.result.installed.claudeDesktopMsix);
+    assert.equal(stepOf(first.json, "claude_desktop_restart").length, 1, "再起動の案内は 1 回だけ");
+    assert.equal(existsSync(path.join(unused, "Claude")), false, "設定フォルダの無いパッケージには作らない");
+
+    // 控えは置き場所ごとに取る（同じファイル名でも上書きしない）
+    const state = JSON.parse(readFileSync(path.join(dir, "state", "setup.json"), "utf8"));
+    const desktopBackups = state.backups.filter((b) => path.basename(b).startsWith("claude_desktop_config.json."));
+    assert.equal(desktopBackups.length, 2, state.backups.join("\n"));
+    const backedUp = desktopBackups.map((b) => JSON.parse(readFileSync(b, "utf8")));
+    assert.ok(backedUp.some((j) => j.preferences?.sidebarMode === "chat"), "Microsoft Store 版の控え");
+    assert.ok(backedUp.some((j) => j.preferences === undefined), "ふつうの版の控え");
+    assert.equal(state.previous["claudeDesktopMsix:Claude_pzs8sxrjxfjjc"], null, "前に MX Stage は無かったので戻す先は無い");
+
+    // --- 状態を見る ---
+    const status = await runJson([...common, "--status"]);
+    assert.equal(stepOf(status.json, "claude_desktop")[0].level, "ok");
+    assert.equal(stepOf(status.json, "claude_desktop_msix")[0].level, "ok");
+
+    // --- もう一度（冪等）---
+    const again = await runJson(common);
+    assert.match(stepOf(again.json, "claude_desktop_msix")[0].message, /既に同じ設定/);
+    assert.equal(stepOf(again.json, "claude_desktop_restart").length, 0, "書き換えていなければ再起動の案内は出さない");
+
+    // --- 取り消し ---
+    assert.equal(await quietMain([...common, "--uninstall"]), 0);
+    const after = JSON.parse(readFileSync(msixConfig, "utf8"));
+    assert.equal("mxstage" in after.mcpServers, false, "Microsoft Store 版からも外す");
+    assert.deepEqual(after.mcpServers.other, other);
+    assert.equal("mxstage" in JSON.parse(readFileSync(standardConfig, "utf8")).mcpServers, false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("Claude Desktop が入っていない（設定フォルダが無い）なら、何も作らない", { timeout: 60_000 }, async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-nodesktop-"));
+  try {
+    const bridge = path.join(dir, "fake-bridge.mjs");
+    writeFileSync(bridge, FAKE_BRIDGE, "utf8");
+    const port = await freePort();
+    const desktopDir = path.join(dir, "Roaming", "Claude");
+    const common = [...sandboxArgs(dir, ["--claude-desktop-config", path.join(desktopDir, "claude_desktop_config.json")]), "--no-start", "--no-autostart", "--no-shortcut", "--port", String(port), "--bridge", bridge];
+    const install = await runJson(common);
+    assert.equal(install.code, 0, install.stdout);
+    const s = stepOf(install.json, "claude_desktop");
+    assert.equal(s.length, 1);
+    assert.equal(s[0].level, "skip");
+    assert.match(s[0].message, /設定フォルダが無い/);
+    assert.equal(stepOf(install.json, "claude_desktop_restart").length, 0);
+    assert.equal(install.json.result.installed.claudeDesktop, false);
+    assert.equal(existsSync(desktopDir), false, "入れていない PC に %APPDATA%\\Claude を作らない");
+    assert.equal(stepOf((await runJson([...common, "--status"])).json, "claude_desktop")[0].level, "skip");
+    assert.equal(await quietMain([...common, "--uninstall"]), 0);
+    assert.equal(existsSync(desktopDir), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test(
+  "Claude Desktop に拡張機能（.mcpb）の MX Stage が入っていて有効なら、設定ファイルには登録せず、前にこの導入が書いた登録だけを外す",
+  { timeout: 120_000 },
+  async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-mcpb-"));
+    try {
+      const bridge = path.join(dir, "fake-bridge.mjs");
+      writeFileSync(bridge, FAKE_BRIDGE, "utf8");
+      const port = await freePort();
+      const desktopConfig = path.join(dir, "claude_desktop_config.json");
+      const other = { command: "npx", args: ["other-mcp"] };
+      writeFileSync(desktopConfig, JSON.stringify({ mcpServers: { other } }, null, 2), "utf8");
+      const common = [...sandboxArgs(dir), "--no-start", "--no-autostart", "--no-shortcut", "--port", String(port), "--bridge", bridge];
+      const readDesktop = () => JSON.parse(readFileSync(desktopConfig, "utf8"));
+
+      // まだ拡張機能が無い: ふつうに登録する
+      assert.equal(await quietMain(common), 0);
+      assert.ok(readDesktop().mcpServers.mxstage, "登録した");
+
+      // 拡張機能を入れた（有効）: この導入が書いた登録を外す
+      const id = putDesktopExtension(dir);
+      const second = await runJson(common);
+      assert.equal(second.code, 0, second.stdout);
+      assert.equal("mxstage" in readDesktop().mcpServers, false, "設定ファイルからは外す");
+      assert.deepEqual(readDesktop().mcpServers.other, other, "ほかのサーバは残す");
+      const s = stepOf(second.json, "claude_desktop")[0];
+      assert.equal(s.level, "ok");
+      assert.match(s.message, /拡張機能（\.mcpb）/);
+      assert.match(s.message, new RegExp(id.replace(/\./g, "\\.")));
+      assert.match(s.message, /外しました/);
+      assert.match(s.hint, /控え/);
+      assert.equal(second.json.result.installed.claudeDesktopExtension, id);
+      assert.equal(second.json.result.installed.claudeDesktop, false);
+      assert.equal(stepOf(second.json, "claude_desktop_restart").length, 1, "外したので再起動を案内する");
+      const printed = await runMain(common);
+      assert.match(printed.stdout, /拡張機能（\.mcpb）の MX Stage を使います/);
+
+      // もう一度: 何も変えない
+      const before = readFileSync(desktopConfig, "utf8");
+      const third = await runJson(common);
+      assert.equal(readFileSync(desktopConfig, "utf8"), before);
+      assert.equal(stepOf(third.json, "claude_desktop")[0].level, "ok");
+      assert.doesNotMatch(stepOf(third.json, "claude_desktop")[0].message, /外しました/);
+      assert.equal(stepOf(third.json, "claude_desktop_restart").length, 0);
+
+      // 状態を見る
+      const status = await runJson([...common, "--status"]);
+      assert.equal(stepOf(status.json, "claude_desktop")[0].level, "ok");
+      assert.match(stepOf(status.json, "claude_desktop")[0].message, /拡張機能（\.mcpb）の mxstage が入っていて有効/);
+
+      // 利用者が手で書いた mxstage は外さずに知らせる（二重になる）
+      const userEntry = { command: "npx", args: ["-y", "some-mxstage-wrapper"] };
+      writeFileSync(desktopConfig, JSON.stringify({ mcpServers: { other, mxstage: userEntry } }, null, 2), "utf8");
+      const kept = await runJson(common);
+      assert.equal(kept.code, 0, kept.stdout);
+      assert.deepEqual(readDesktop().mcpServers.mxstage, userEntry, "利用者の設定は残す");
+      assert.equal(stepOf(kept.json, "claude_desktop")[0].level, "warn");
+      assert.match(stepOf(kept.json, "claude_desktop")[0].message, /この導入が書いたものではない/);
+      const doubled = await runJson([...common, "--status"]);
+      assert.equal(stepOf(doubled.json, "claude_desktop")[0].level, "warn");
+      assert.match(stepOf(doubled.json, "claude_desktop")[0].message, /二重/);
+
+      // 拡張機能を無効にした: 設定ファイルに登録する（無効の拡張機能があることも出す）
+      writeFileSync(desktopConfig, JSON.stringify({ mcpServers: { other } }, null, 2), "utf8");
+      putDesktopExtension(dir, { enabled: false });
+      const disabled = await runJson(common);
+      assert.equal(disabled.code, 0, disabled.stdout);
+      assert.deepEqual(readDesktop().mcpServers.mxstage, { command: process.execPath, args: [bridge, "--port", String(port)] });
+      assert.match(stepOf(disabled.json, "claude_desktop")[0].hint, /無効/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  },
+);
+
+test("--no-claude-desktop: Claude Desktop の設定に触らない（試験の囲いでも --claude-desktop-config が要らない）", { timeout: 120_000 }, async () => {
+  assert.equal(parseArgs(["--no-claude-desktop"]).claudeDesktop, false);
+  assert.equal(parseArgs([]).claudeDesktop, true);
+  const drop = (flag) => (a, i, all) => a !== flag && all[i - 1] !== flag;
+  const guardDir = path.join(os.tmpdir(), "mxs-nodesktop-guard");
+  const base = ["--port", "19001", "--bridge", path.join(guardDir, "b.mjs")];
+  const without = sandboxArgs(guardDir).filter(drop("--claude-desktop-config"));
+  assert.match(testSandboxProblem(parseArgs([...without, ...base])) ?? "", /--claude-desktop-config がありません（Claude Desktop に登録しないなら --no-claude-desktop）/);
+  assert.equal(testSandboxProblem(parseArgs([...without, ...base, "--no-claude-desktop"])), null);
+  // Microsoft Store 版を探すフォルダも、一時フォルダの外・本物の場所は拒む
+  const outside = parseArgs([...sandboxArgs(guardDir), ...base, "--claude-desktop-packages-dir", path.join(os.homedir(), "AppData", "Local", "Packages")]);
+  assert.match(testSandboxProblem(outside) ?? "", /--claude-desktop-packages-dir が/);
+
+  const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-nodesktop-flag-"));
+  try {
+    const bridge = path.join(dir, "fake-bridge.mjs");
+    writeFileSync(bridge, FAKE_BRIDGE, "utf8");
+    const port = await freePort();
+    const desktopConfig = path.join(dir, "claude_desktop_config.json");
+    const original = JSON.stringify({ mcpServers: { other: { command: "npx", args: ["x"] } } }, null, 2);
+    writeFileSync(desktopConfig, original, "utf8");
+    const common = [...sandboxArgs(dir), "--no-start", "--no-autostart", "--no-shortcut", "--port", String(port), "--bridge", bridge];
+
+    const skipped = await runJson([...common, "--no-claude-desktop"]);
+    assert.equal(skipped.code, 0, skipped.stdout);
+    assert.equal(readFileSync(desktopConfig, "utf8"), original, "書き換えない");
+    assert.equal(stepOf(skipped.json, "claude_desktop")[0].level, "skip");
+    assert.match(stepOf(skipped.json, "claude_desktop")[0].message, /--no-claude-desktop/);
+    assert.equal(stepOf((await runJson([...common, "--no-claude-desktop", "--status"])).json, "claude_desktop")[0].level, "skip");
+
+    // ふつうに入れたあと、--no-claude-desktop で取り消すと Claude Desktop の分は残す
+    assert.equal(await quietMain(common), 0);
+    const registered = readFileSync(desktopConfig, "utf8");
+    assert.ok(JSON.parse(registered).mcpServers.mxstage);
+    const un = await runJson([...common, "--no-claude-desktop", "--uninstall"]);
+    assert.equal(un.code, 0, un.stdout);
+    assert.equal(readFileSync(desktopConfig, "utf8"), registered, "--no-claude-desktop の取り消しでは触らない");
+    assert.equal(stepOf(un.json, "claude_desktop")[0].level, "skip");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("--no-bob / bobPaths / bobWanted / skillTargets: ~/.bob があるときだけ IBM Bob に登録し、Skill は ~/.bob/skills に写す", () => {
+  assert.equal(parseArgs(["--no-bob"]).bob, false);
+  assert.equal(parseArgs([]).bob, true);
+  assert.equal(parseArgs(["--bob-dir", "x"]).bobDir, "x");
+  const dir = path.join(os.tmpdir(), "mxs-bob-paths", ".bob");
+  const bp = bobPaths(dir);
+  assert.equal(bp.bobConfig, path.join(dir, "settings", "mcp.json"));
+  assert.equal(bp.bobSkillsDir, path.join(dir, "skills"));
+  const on = parseArgs([]);
+  assert.equal(bobWanted(on, bp, () => true).ok, true);
+  assert.match(bobWanted(on, bp, () => false).reason, /IBM Bob の設定フォルダ.*が無い/);
+  assert.match(bobWanted(parseArgs(["--no-bob"]), bp, () => true).reason, /--no-bob/);
+  const paths = { ...bp, claudeSkillsDir: "x", antigravityDir: "none", codexDir: "none" };
+  assert.deepEqual(
+    skillTargets(on, paths, (p) => p === dir).map((t) => [t.id, t.dir]),
+    [
+      ["skills", "x"],
+      ["bob_skills", bp.bobSkillsDir],
+    ],
+  );
+  assert.deepEqual(skillTargets(parseArgs(["--no-bob"]), paths, () => true).map((t) => t.id).includes("bob_skills"), false);
+
+  // 試験の囲い: --no-bob なら --bob-dir は要らない。本物の ~/.bob は拒む
+  const guardDir = path.join(os.tmpdir(), "mxs-nobob");
+  const base = ["--port", "19001", "--bridge", path.join(guardDir, "b.mjs")];
+  const without = sandboxArgs(guardDir).filter((a, i, all) => a !== "--bob-dir" && all[i - 1] !== "--bob-dir");
+  assert.match(testSandboxProblem(parseArgs([...without, ...base])) ?? "", /--bob-dir がありません（IBM Bob に登録しないなら --no-bob）/);
+  assert.equal(testSandboxProblem(parseArgs([...without, ...base, "--no-bob"])), null);
+  assert.match(testSandboxProblem(parseArgs([...without, ...base, "--bob-dir", path.join(os.homedir(), ".bob")])) ?? "", /--bob-dir が/);
+});
+
+test("IBM Bob: 入っていれば ~/.bob/settings/mcp.json に登録し Skill も写す（ほかのサーバは残す）。状態に出し、取り消しで外す。入っていなければ・--no-bob なら触らない", { timeout: 120_000 }, async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-bob-"));
+  try {
+    const bridge = path.join(dir, "fake-bridge.mjs");
+    writeFileSync(bridge, FAKE_BRIDGE, "utf8");
+    const port = await freePort();
+    const common = [...sandboxArgs(dir), "--no-start", "--no-autostart", "--no-shortcut", "--port", String(port), "--bridge", bridge];
+    const bobDir = path.join(dir, "bob");
+    const bobConfig = path.join(bobDir, "settings", "mcp.json");
+    const bobSkills = path.join(bobDir, "skills");
+    const repoSkills = readRepoSkills(REPO_ROOT);
+
+    // --- IBM Bob が入っていない（~/.bob が無い）: 何も作らない ---
+    const absent = await runJson(common);
+    assert.equal(absent.code, 0, absent.stdout);
+    assert.equal(stepOf(absent.json, "bob")[0].level, "skip");
+    assert.equal(existsSync(bobDir), false, "入れていない PC に ~/.bob を作らない");
+    assert.equal(stepOf(absent.json, "bob_skills").length, 0);
+    assert.equal(stepOf((await runJson([...common, "--status"])).json, "bob")[0].level, "skip");
+
+    // --- 入っている: ほかのサーバ（利用者の設定）を残して 1 ブロックだけ足す ---
+    const other = { command: "npx", args: ["-y", "@ibm/maximo-mcp"], disabled: false, alwaysAllow: [] };
+    mkdirSync(path.dirname(bobConfig), { recursive: true });
+    writeFileSync(bobConfig, JSON.stringify({ mcpServers: { other } }, null, 2), "utf8");
+    mkdirSync(path.join(bobSkills, "bob-own"), { recursive: true });
+    writeFileSync(path.join(bobSkills, "bob-own", "SKILL.md"), "---\nname: bob-own\n---\n利用者の Skill\n", "utf8");
+
+    // --no-bob なら、入っていても触らない
+    const before = readFileSync(bobConfig, "utf8");
+    const off = await runJson([...common, "--no-bob"]);
+    assert.equal(off.code, 0, off.stdout);
+    assert.equal(readFileSync(bobConfig, "utf8"), before);
+    assert.match(stepOf(off.json, "bob")[0].message, /--no-bob/);
+    assert.equal(existsSync(path.join(bobSkills, repoSkills[0].name)), false);
+
+    const first = await runJson(common);
+    assert.equal(first.code, 0, first.stdout);
+    const written = JSON.parse(readFileSync(bobConfig, "utf8"));
+    assert.deepEqual(written.mcpServers.other, other, "ほかの MCP サーバを消していない");
+    assert.deepEqual(written.mcpServers.mxstage, { command: process.execPath, args: [bridge, "--port", String(port)] }, "Claude Desktop と同じ stdio の形");
+    const s = stepOf(first.json, "bob")[0];
+    assert.equal(s.level, "ok");
+    assert.match(s.hint, /IBM Bob を再起動/);
+    assert.match(s.hint, /控え/);
+    assert.ok(first.json.result.installed.bob);
+    for (const skill of repoSkills) {
+      assert.equal(readFileSync(path.join(bobSkills, skill.name, "SKILL.md"), "utf8"), skill.text, `${skill.name} を IBM Bob にも入れた`);
+    }
+    assert.equal(stepOf(first.json, "bob_skills")[0].level, "ok");
+    const state = JSON.parse(readFileSync(path.join(dir, "state", "setup.json"), "utf8"));
+    assert.deepEqual(state.installed.bobSkills.map((sk) => sk.name), repoSkills.map((sk) => sk.name));
+    assert.equal(state.skillDirs.bobSkills, bobSkills);
+    assert.equal(state.previous.bob, null);
+    assert.match((await runMain(common)).stdout, /IBM Bob: 再起動すると/);
+
+    // --- 状態を見る・もう一度（冪等）---
+    const status = await runJson([...common, "--status"]);
+    assert.equal(stepOf(status.json, "bob")[0].level, "ok");
+    assert.equal(stepOf(status.json, "bob_skills")[0].level, "ok");
+    const again = await runJson(common);
+    assert.match(stepOf(again.json, "bob")[0].message, /既に同じ設定/);
+    assert.deepEqual(JSON.parse(readFileSync(bobConfig, "utf8")), written);
+
+    // --- 取り消し ---
+    const un = await runJson([...common, "--uninstall"]);
+    assert.equal(un.code, 0, un.stdout);
+    const after = JSON.parse(readFileSync(bobConfig, "utf8"));
+    assert.equal("mxstage" in after.mcpServers, false, "IBM Bob から外れる");
+    assert.deepEqual(after.mcpServers.other, other);
+    for (const skill of repoSkills) assert.equal(existsSync(path.join(bobSkills, skill.name)), false, `${skill.name} は消す`);
+    assert.equal(existsSync(path.join(bobSkills, "bob-own", "SKILL.md")), true, "利用者の Skill は消さない");
+    assert.equal(stepOf(un.json, "bob")[0].level, "ok");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // 最後に: 本物の設定ファイルとフォルダに触れていない（この試験の前後で更新時刻を比べる）
 // ---------------------------------------------------------------------------
 
@@ -2434,7 +2882,7 @@ test("npmEnv:npm には IBM のテレメトリを止める変数を渡し、ほ�
   assert.equal(npmEnv().IBM_TELEMETRY_DISABLED, "true");
 });
 
-test("本物の ~/.claude.json・Claude Desktop・Antigravity・Codex・スタートアップ・デスクトップ・~/.config/mxstage・改名前の ~/.config/mxstudio に触れていない（更新時刻を比べる）", (t) => {
+test("本物の ~/.claude.json・Claude Desktop（Microsoft Store 版を含む）・Antigravity・Codex・IBM Bob・スタートアップ・デスクトップ・~/.config/mxstage・改名前の ~/.config/mxstudio に触れていない（更新時刻を比べる）", (t) => {
   const after = snapshotReal(REAL_TARGETS);
   const problems = [];
   const notes = [];

@@ -33,11 +33,13 @@ node scripts/setup-local.mjs
 `node scripts/setup-local.mjs --help` で全オプションが出ます。
 
 終わったら **Claude Code を終了して開き直してください**（新しいセッションからツールと Skill が使えます）。
-Claude Desktop にも登録されるので、Claude Desktop を使っているならそちらも開き直します
-（タスクトレイのアイコンから終了します。ウィンドウの × では終わりません）。
+Claude Desktop が入っていれば（設定フォルダがあれば。Microsoft Store 版を含む）そちらにも登録されるので、Claude Desktop を使っているならそちらも開き直します
+（タスクトレイのアイコンから終了します。ウィンドウの × では終わりません）。Claude Desktop に拡張機能（`.mcpb`）の MX Stage を入れて有効にしているときは、
+設定ファイルには登録しません（同じ MX Stage が二重に出ないように。前にこの導入が書いた分は外します）。
 Antigravity（2.0・IDE・`agy` CLI）が入っていれば（`~\.gemini` があれば）そちらにも登録されます。新しい会話からツールと Skill が使えます
 （`agy` CLI は Skill のファイルを別の場所から読むので、基本手順はツールの結果で届く分だけです。2 章の「Skill」）。
 Codex（ChatGPT デスクトップアプリの Codex・CLI・IDE 拡張）が入っていれば（`~\.codex` があれば）そちらにも登録されます。Codex を開き直すと、新しい会話からツールと Skill が使えます。
+IBM Bob が入っていれば（`~\.bob` があれば）そちらにも登録されます。IBM Bob を再起動すると、ツールと Skill が使えます。
 環境ごとの設定ファイルと、画面のどこで確かめるかは README の「環境ごとの置き場所」にまとめています。
 
 ### 何が起きるか（何度実行しても壊れません）
@@ -49,10 +51,11 @@ Codex（ChatGPT デスクトップアプリの Codex・CLI・IDE 拡張）が入
 | ポート | `8788` を使います。**ずらしません。** 既に橋渡しが動いていればそれを使います。橋渡しではない別のプログラムが `8788` を使っているときは、**何も書き換えずに NG で止まります**（そのプログラムを止めるか、`--port <番号>` で別の番号を指定します） |
 | 橋渡しの起動 | `node --experimental-strip-types src\bridge\cli.ts --no-mcp --port 8788` を裏で起動し、応えるまで（最大 20 秒）待ちます。`--no-mcp` は「画面と中継だけで、stdio の MCP は開かない」という意味です。ウィンドウは出しません。既に橋渡しが動いていれば起動し直しません |
 | Claude Code | `~\.claude.json` の `mcpServers.mxstage` に登録（`claude mcp add --scope user MX Stage -- <node> --experimental-strip-types <入口> --port 8788` と同じ内容） |
-| Claude Desktop | `%APPDATA%\Claude\claude_desktop_config.json` の `mcpServers.mxstage` に登録 |
+| Claude Desktop | 設定フォルダがある置き場所すべての `claude_desktop_config.json` の `mcpServers.mxstage` に登録します。ふつうの版は `%APPDATA%\Claude\`、Microsoft Store 版（MSIX）は `%LOCALAPPDATA%\Packages\Claude_<発行元 ID>\LocalCache\Roaming\Claude\`（パッケージが `%APPDATA%` に新しく作るフォルダはここへ振り替えられます。`%APPDATA%\Claude` が先にあればそちらが使われます）。どちらの設定フォルダも無ければ（入れていない・一度も起動していない）何も作りません。その置き場所に**拡張機能（`.mcpb`）の MX Stage が入っていて有効なら登録せず**、前にこの導入が書いた `mxstage` を外します（拡張機能は同じ設定フォルダの `Claude Extensions\<id>\`・`Claude Extensions Settings\<id>.json` の `isEnabled`・`extensions-installations.json` で見分けます。利用者が手で書いた `mxstage` は残して警告します）。登録しないときは `--no-claude-desktop` |
 | Antigravity | `~\.gemini` があるときだけ、`~\.gemini\config\mcp_config.json` の `mcpServers.mxstage` に登録（2.0・IDE・`agy` CLI が同じファイルを読みます）。無ければ何も作りません。登録しないときは `--no-antigravity` |
 | Codex | `~\.codex`（`CODEX_HOME` があればそこ）があるときだけ、`config.toml` に `[mcp_servers.mxstage]` の表を 1 つだけ足します（デスクトップ・CLI・IDE 拡張が同じファイルを読みます。ほかの行・コメントには触りません）。表ではない書き方の MX Stage があれば触りません。登録しないときは `--no-codex` |
-| Skill | アプリ既定（リポジトリの `skills\`）と利用者の Skill（`~\.config\mxstage\skills\`）を `~\.claude\skills\<名前>\SKILL.md` に写す（2 章の「Skill」）。Antigravity に登録したときは `~\.gemini\config\skills\<名前>\SKILL.md`（2.0・IDE が読む場所）、Codex に登録したときは `~\.agents\skills\<名前>\SKILL.md` にも写す。以前の導入が `~\.gemini\skills` に写した分は、書き換えられていなければ片付けます。入れないときは `--no-skills` |
+| IBM Bob | `~\.bob` があるときだけ、`~\.bob\settings\mcp.json` の `mcpServers.mxstage` に登録（Claude Desktop と同じ stdio の形）。無ければ何も作りません。登録しないときは `--no-bob` |
+| Skill | アプリ既定（リポジトリの `skills\`）と利用者の Skill（`~\.config\mxstage\skills\`）を `~\.claude\skills\<名前>\SKILL.md` に写す（2 章の「Skill」）。Antigravity に登録したときは `~\.gemini\config\skills\<名前>\SKILL.md`（2.0・IDE が読む場所）、Codex に登録したときは `~\.agents\skills\<名前>\SKILL.md`、IBM Bob に登録したときは `~\.bob\skills\<名前>\SKILL.md` にも写す。以前の導入が `~\.gemini\skills` に写した分は、書き換えられていなければ片付けます。入れないときは `--no-skills` |
 | 自動起動 | スタートアップに `mxstage-bridge.lnk`（最小化で橋渡しを起動） |
 | ショートカット | デスクトップに `mxstage.lnk`（Chrome か Edge の**アプリ窓**で `/app` を開く。どちらも無ければ `mxstage.url` で既定のブラウザ） |
 | 橋渡しの確認 | 最後に `/_mxstage/health` に聞き、「橋渡しが 1 つ動いています」と出します。古い版の橋渡しや、取り決めの版（`protocol`）が違う橋渡しが動いていれば警告します |
@@ -221,10 +224,10 @@ node scripts/setup-local.mjs --uninstall
   含まれるものだけを止めます。ファイル名が同じだけの別のプロセスは止めません。
 - ポートを持っているのが Claude の起動した橋渡し（`--no-mcp` の無いもの）なら、**止めずに**警告します
   （Claude の中で使っている最中のツールを、Claude に知らせずに切らないためです。Claude を終了すると止まります）。
-- Claude Code / Claude Desktop / Antigravity / Codex の設定から `mxstage` を外します。**置き換える前の利用者の設定があれば、控えから読み直して元に戻します。**
+- Claude Code / Claude Desktop（Microsoft Store 版を含む）/ Antigravity / Codex / IBM Bob の設定から `mxstage` を外します。**置き換える前の利用者の設定があれば、控えから読み直して元に戻します。**
   ほかの MCP サーバとほかの設定には触りません。
 - スタートアップとデスクトップのショートカットを消します。
-- この導入が入れた Skill（`~\.claude\skills\<名前>`・`~\.gemini\config\skills\<名前>`・`~\.agents\skills\<名前>`。以前の導入のまま取り消すときは `~\.gemini\skills\<名前>`）を消します。**書き換えられている Skill は残します。**
+- この導入が入れた Skill（`~\.claude\skills\<名前>`・`~\.gemini\config\skills\<名前>`・`~\.agents\skills\<名前>`・`~\.bob\skills\<名前>`。以前の導入のまま取り消すときは `~\.gemini\skills\<名前>`）を消します。**書き換えられている Skill は残します。**
   **利用者の Skill の元（`~\.config\mxstage\skills\`）は消しません。**
 - 記録（`setup.json`）を消します。**控え（`backup\`）は残します。**
 
@@ -295,11 +298,14 @@ Claude の設定・自動起動・ショートカットもその番号で作ら�
 | 場所 | 何を |
 |---|---|
 | `~\.claude.json` の `mcpServers.mxstage` | Claude Code の MCP 設定（stdio・`node <入口> --port <番号>`） |
-| `%APPDATA%\Claude\claude_desktop_config.json` の `mcpServers.mxstage` | Claude Desktop の MCP 設定 |
+| `%APPDATA%\Claude\claude_desktop_config.json` の `mcpServers.mxstage` | Claude Desktop の MCP 設定（`%APPDATA%\Claude` があるときだけ。拡張機能（`.mcpb`）の MX Stage が有効なら書かない） |
+| `%LOCALAPPDATA%\Packages\Claude_<発行元 ID>\LocalCache\Roaming\Claude\claude_desktop_config.json` の `mcpServers.mxstage` | Microsoft Store 版の Claude Desktop の MCP 設定（そのフォルダがあるときだけ。拡張機能の扱いは同じ） |
 | `~\.gemini\config\mcp_config.json` の `mcpServers.mxstage` | Antigravity の MCP 設定（`~\.gemini` があるときだけ） |
 | `~\.gemini\config\skills\<名前>\SKILL.md` | Antigravity（2.0・IDE）の Skill（Claude Code の分と同じ中身・同じ扱い）。以前の導入は `~\.gemini\skills`（Gemini CLI の置き場所）に写していました |
 | `~\.codex\config.toml` の `[mcp_servers.mxstage]` | Codex の MCP 設定（`~\.codex` があるときだけ。デスクトップ・CLI・IDE 拡張共通） |
 | `~\.agents\skills\<名前>\SKILL.md` | Codex が読む個人の Skill（Claude Code の分と同じ中身・同じ扱い。ほかのエージェントも読むことがあります） |
+| `~\.bob\settings\mcp.json` の `mcpServers.mxstage` | IBM Bob の MCP 設定（`~\.bob` があるときだけ） |
+| `~\.bob\skills\<名前>\SKILL.md` | IBM Bob の Skill（Claude Code の分と同じ中身・同じ扱い） |
 | `~\.claude\skills\<名前>\SKILL.md` | Claude Code の Skill（アプリ既定と利用者の Skill の写し。記録には名前・出どころ・中身のハッシュだけを書き、取り消しでは書き換えられていないものだけを消す） |
 | スタートアップフォルダ（`shell:startup`） | `mxstage-bridge.lnk` |
 | デスクトップ | `mxstage.lnk` または `mxstage.url` |
@@ -322,7 +328,9 @@ Claude の設定・自動起動・ショートカットもその番号で作ら�
 ### 試験のときの決まり
 
 `npm run test:setup` は印 `MXSTAGE_SETUP_TEST=1` を立てて動きます。この印があるときは、本物の `claude` コマンドを探さず、
-書き先（`--state-dir`・`--claude-code-config`・`--claude-desktop-config`・`--startup-dir`・`--desktop-dir`）が
+書き先（`--state-dir`・`--claude-code-config`・`--claude-desktop-config`・`--startup-dir`・`--desktop-dir`。登録する環境の分は
+`--claude-skills-dir`・`--antigravity-dir`・`--codex-dir`・`--agents-skills-dir`・`--bob-dir` も。Microsoft Store 版の Claude Desktop は
+`--claude-desktop-packages-dir` を指定したときだけ探します）が
 すべて一時フォルダの中で、`--port`（`8788` 以外）・`--bridge`・`--no-open`・`--no-install`・`--no-build` がそろっていなければ、
 何もせずに終了コード 2 で止まります。最後の試験で、本物の書き先の更新時刻が試験の前後で変わっていないことを確かめます。
 

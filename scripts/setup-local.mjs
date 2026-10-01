@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // MX Stage をこの PC に入れる（1 ステップ導入）と、その取り消し。
-// 橋渡し（ローカルで動く Node のプロセス）を起動し、Claude Code と Claude Desktop と
-// Antigravity（2.0・IDE・agy CLI。入っているときだけ）と Codex（デスクトップ・CLI・IDE 拡張。入っているときだけ）に
-// MCP サーバとして登録し、
+// 橋渡し（ローカルで動く Node のプロセス）を起動し、Claude Code と Claude Desktop（入っているときだけ。Microsoft Store 版を含む）と
+// Antigravity（2.0・IDE・agy CLI。入っているときだけ）と Codex（デスクトップ・CLI・IDE 拡張。入っているときだけ）と
+// IBM Bob（入っているときだけ）に MCP サーバとして登録し、
 // ログイン時の自動起動とアプリのショートカットを作る。
 // Node の標準機能だけで動く（依存を足さない）。何度実行しても壊れない（冪等）。
 //
@@ -10,7 +10,8 @@
 //   node scripts/setup-local.mjs --uninstall         取り消す
 //   node scripts/setup-local.mjs --status            今の状態を見るだけ（何も書き換えない）
 //
-// 利用者の設定ファイル（~/.claude.json、Claude Desktop の設定、~/.gemini/config/mcp_config.json、~/.codex/config.toml）を書き換えるので、
+// 利用者の設定ファイル（~/.claude.json、Claude Desktop の設定、~/.gemini/config/mcp_config.json、~/.codex/config.toml、
+// ~/.bob/settings/mcp.json）を書き換えるので、
 // **書き換える前に必ずバックアップを取る**。既存の設定は消さない。取り消し方は画面と docs/local.md に出す。
 // 改名前（mxstudio）の導入が残したものがあれば、先に片付けて新しい名前へ移す（migrateLegacy）。
 // 秘密（個人トークン・API キー）は画面にも自分の記録（setup.json）にも書かない。
@@ -190,9 +191,12 @@ const USAGE = `MX Stage をこの PC に入れる（1 ステップ導入）
   --no-autostart           ログイン時の自動起動を作らない
   --no-shortcut            デスクトップのショートカットを作らない
   --no-open                最後にアプリを開かない
-  --no-skills              Claude Code・Antigravity・Codex に Skill（作業手順書）を入れない
+  --no-skills              Claude Code・Antigravity・Codex・IBM Bob に Skill（作業手順書）を入れない
   --no-antigravity         Antigravity（2.0・IDE・agy CLI）に登録しない（~/.gemini が無ければ、指定しなくても登録しない）
   --no-codex               Codex（デスクトップ・CLI・IDE 拡張）に登録しない（~/.codex が無ければ、指定しなくても登録しない）
+  --no-claude-desktop      Claude Desktop に登録しない・触らない（設定フォルダが無ければ、指定しなくても登録しない。
+                           拡張機能（.mcpb）の MX Stage が入っていて有効なら、設定ファイルには登録しない）
+  --no-bob                 IBM Bob に登録しない（~/.bob が無ければ、指定しなくても登録しない）
   --json                   機械可読な JSON で結果を出す
   --help                   この説明を出す
 
@@ -200,19 +204,24 @@ const USAGE = `MX Stage をこの PC に入れる（1 ステップ導入）
   --state-dir <パス>          記録とバックアップの置き場（既定: ~/.config/mxstage）
   --legacy-state-dir <パス>   改名前（mxstudio）の記録の置き場（既定: ~/.config/mxstudio。試験中は指定したときだけ移す）
   --claude-code-config <パス> Claude Code の設定ファイル（既定: ~/.claude.json）
-  --claude-desktop-config <パス> Claude Desktop の設定ファイル
+  --claude-desktop-config <パス> Claude Desktop の設定ファイル（既定: %APPDATA%\\Claude\\claude_desktop_config.json。
+                              指定すると、Microsoft Store 版の置き場所は --claude-desktop-packages-dir を指定したときだけ探す）
+  --claude-desktop-packages-dir <パス> Microsoft Store 版の Claude Desktop を探すフォルダ（既定: %LOCALAPPDATA%\\Packages。
+                              Claude_<発行元 ID>\\LocalCache\\Roaming\\Claude\\claude_desktop_config.json を見る）
   --startup-dir <パス>        スタートアップフォルダ
   --desktop-dir <パス>        デスクトップフォルダ
   --claude-skills-dir <パス>  Claude Code の Skill の置き場所（既定: ~/.claude/skills）
   --antigravity-dir <パス>    Antigravity の設定フォルダ（既定: ~/.gemini。MCP は config/mcp_config.json、Skill は config/skills/）
   --codex-dir <パス>          Codex の設定フォルダ（既定: CODEX_HOME か ~/.codex。MCP は config.toml）
   --agents-skills-dir <パス>  Codex が読む個人の Skill の置き場所（既定: ~/.agents/skills）
-  --claude-cli <パス>         claude コマンドの場所（環境変数 ${CLAUDE_CLI_ENV} でも指定できる）。
+  --bob-dir <パス>            IBM Bob の設定フォルダ（既定: ~/.bob。MCP は settings/mcp.json、Skill は skills/）
+  --claude-cli <パス>        claude コマンドの場所（環境変数 ${CLAUDE_CLI_ENV} でも指定できる）。
                               使うのは Claude Code の設定が既定の場所のときだけ（試験中は一時フォルダの偽物だけ）
   環境変数 ${TEST_GUARD_ENV}=1  試験中の印。書き先（一時フォルダの中で、本物の書き先でないこと）・--port・--bridge・
                               --no-open・--no-install・--no-build（Skill を入れるなら --claude-skills-dir、
                               Antigravity に登録するなら --antigravity-dir、Codex に登録するなら --codex-dir と
-                              --agents-skills-dir も）がそろっていなければ止まり、
+                              --agents-skills-dir、IBM Bob に登録するなら --bob-dir、Claude Desktop に登録するなら
+                              --claude-desktop-config も）がそろっていなければ止まり、
                               本物の claude コマンドを探さない
 
 終了コード: 0 = 終わった、1 = 失敗した手順がある、2 = 引数が不正`;
@@ -232,18 +241,22 @@ export function parseArgs(argv) {
     skills: true,
     antigravity: true,
     codex: true,
+    claudeDesktop: true,
+    bob: true,
     json: false,
     help: false,
     stateDir: null,
     legacyStateDir: null,
     claudeCodeConfig: null,
     claudeDesktopConfig: null,
+    claudeDesktopPackagesDir: null,
     startupDir: null,
     desktopDir: null,
     claudeSkillsDir: null,
     antigravityDir: null,
     codexDir: null,
     agentsSkillsDir: null,
+    bobDir: null,
     claudeCli: null,
   };
   const withValue = {
@@ -253,12 +266,14 @@ export function parseArgs(argv) {
     "--legacy-state-dir": "legacyStateDir",
     "--claude-code-config": "claudeCodeConfig",
     "--claude-desktop-config": "claudeDesktopConfig",
+    "--claude-desktop-packages-dir": "claudeDesktopPackagesDir",
     "--startup-dir": "startupDir",
     "--desktop-dir": "desktopDir",
     "--claude-skills-dir": "claudeSkillsDir",
     "--antigravity-dir": "antigravityDir",
     "--codex-dir": "codexDir",
     "--agents-skills-dir": "agentsSkillsDir",
+    "--bob-dir": "bobDir",
     "--claude-cli": "claudeCli",
   };
   for (let i = 0; i < argv.length; i++) {
@@ -275,6 +290,8 @@ export function parseArgs(argv) {
     else if (arg === "--no-skills") opts.skills = false;
     else if (arg === "--no-antigravity") opts.antigravity = false;
     else if (arg === "--no-codex") opts.codex = false;
+    else if (arg === "--no-claude-desktop") opts.claudeDesktop = false;
+    else if (arg === "--no-bob") opts.bob = false;
     else if (arg === "--json") opts.json = true;
     else if (arg === "--help" || arg === "-h") opts.help = true;
     else {
@@ -360,7 +377,10 @@ function timestamp() {
 function backupFile(filePath, backupDir) {
   if (!existsSync(filePath)) return null;
   mkdirSync(backupDir, { recursive: true });
-  const dest = path.join(backupDir, `${path.basename(filePath)}.${timestamp()}.bak`);
+  // 同じ名前の別のファイル（ふつうの版と Microsoft Store 版の claude_desktop_config.json など）を同じ時刻に控えても、上書きしない
+  const stamp = timestamp();
+  let dest = path.join(backupDir, `${path.basename(filePath)}.${stamp}.bak`);
+  for (let i = 2; existsSync(dest); i++) dest = path.join(backupDir, `${path.basename(filePath)}.${stamp}-${i}.bak`);
   copyFileSync(filePath, dest);
   return dest;
 }
@@ -926,6 +946,15 @@ function makePaths(opts) {
     claudeCodeConfig: opts.claudeCodeConfig ? path.resolve(opts.claudeCodeConfig) : codeConfigDefault,
     claudeCodeConfigDefault: codeConfigDefault,
     claudeDesktopConfig: opts.claudeDesktopConfig ? path.resolve(opts.claudeDesktopConfig) : path.join(appData(), "Claude", "claude_desktop_config.json"),
+    // Microsoft Store 版（MSIX）の Claude Desktop の設定ファイル（パッケージの中に設定フォルダがあるものだけ）。
+    // --claude-desktop-config で差し替えたとき・試験中は、--claude-desktop-packages-dir を指定したときだけ探す（試験で本物を探さないため）
+    claudeDesktopMsixConfigs: msixDesktopConfigs(
+      opts.claudeDesktopPackagesDir
+        ? path.resolve(opts.claudeDesktopPackagesDir)
+        : opts.claudeDesktopConfig || !IS_WINDOWS || isTestGuard()
+          ? null
+          : path.join(localAppData(), "Packages"),
+    ),
     startupDir: opts.startupDir ? path.resolve(opts.startupDir) : folders.startup,
     desktopDir: opts.desktopDir ? path.resolve(opts.desktopDir) : folders.desktop,
     // Claude Code の個人の Skill（Claude Code と同じ決め方: CLAUDE_CONFIG_DIR があればその下、無ければ ~/.claude）
@@ -936,7 +965,110 @@ function makePaths(opts) {
     ...codexPaths(opts.codexDir ? path.resolve(opts.codexDir) : process.env.CODEX_HOME || path.join(os.homedir(), ".codex")),
     // Codex が読む個人の Skill（~/.agents/skills。ほかのエージェントも読むことがある共通の置き場所）
     codexSkillsDir: opts.agentsSkillsDir ? path.resolve(opts.agentsSkillsDir) : path.join(os.homedir(), ".agents", "skills"),
+    // IBM Bob（MCP は settings/mcp.json、Skill は skills/）
+    ...bobPaths(opts.bobDir ? path.resolve(opts.bobDir) : path.join(os.homedir(), ".bob")),
   };
+}
+
+/** Microsoft Store 版の Claude Desktop のパッケージのフォルダ名（Claude_<発行元 ID>。例: Claude_pzs8sxrjxfjjc） */
+export const MSIX_DESKTOP_PACKAGE = /^Claude_[a-z0-9]+$/i;
+
+/**
+ * Microsoft Store 版（MSIX）の Claude Desktop の設定ファイルを探す。
+ * MSIX のアプリが %APPDATA% に新しく作るフォルダは、パッケージの中（%LOCALAPPDATA%\Packages\Claude_<発行元 ID>\LocalCache\Roaming）へ
+ * 振り替えられる（%APPDATA%\Claude が先にあれば振り替えずにそこを使う）。
+ * パッケージの中に設定フォルダ（LocalCache\Roaming\Claude）があるものだけを返す（無いものには作らない）。
+ * packagesDir が null なら探さない。
+ */
+export function msixDesktopConfigs(packagesDir, dirExists = isDir) {
+  if (!packagesDir) return [];
+  let names = [];
+  try {
+    names = readdirSync(packagesDir).filter((name) => MSIX_DESKTOP_PACKAGE.test(name)).sort();
+  } catch {
+    return [];
+  }
+  return names
+    .map((name) => ({ packageName: name, configPath: path.join(packagesDir, name, "LocalCache", "Roaming", "Claude", "claude_desktop_config.json") }))
+    .filter((c) => dirExists(path.dirname(c.configPath)));
+}
+
+/**
+ * Claude Desktop の設定ファイルの置き場所の一覧（ふつうの版と Microsoft Store 版）。
+ * present は設定フォルダがあるか（＝その置き場所の Claude Desktop が入っていて、一度は起動したか）。
+ * key は setup.json の previous / installed の名前、id は画面の行の id。
+ */
+export function desktopLocations(paths, dirExists = isDir) {
+  const list = [{ id: "claude_desktop", label: "Claude Desktop", key: "claudeDesktop", installedKey: "claudeDesktop", configPath: paths.claudeDesktopConfig }];
+  for (const c of paths.claudeDesktopMsixConfigs ?? []) {
+    list.push({
+      id: "claude_desktop_msix",
+      label: `Claude Desktop（Microsoft Store 版・${c.packageName}）`,
+      key: `claudeDesktopMsix:${c.packageName}`,
+      installedKey: "claudeDesktopMsix",
+      configPath: c.configPath,
+    });
+  }
+  return list.map((l) => ({ ...l, present: dirExists(path.dirname(l.configPath)) }));
+}
+
+/**
+ * Claude Desktop に拡張機能（.mcpb。以前の名前は .dxt）として入っている MX Stage を探す。何も書き換えない。
+ * Claude Desktop（Windows の 2.16120 で、アプリの中身から確かめた）は、設定フォルダ（userData。claude_desktop_config.json と同じフォルダ）に
+ * - extensions-installations.json: { "extensions": { "<id>": { "manifest": { "name": … }, … } } }（入っている拡張機能の一覧）
+ * - Claude Extensions\<id>\manifest.json: 展開した拡張機能
+ * - Claude Extensions Settings\<id>.json: { "isEnabled": true | false, … }（入れたときに true で作る。必須の設定が足りないと false）
+ * を置く。手元のファイルから入れた .mcpb の id は local.mcpb.<author.name を小文字にして空白を - にしたもの>.<name>
+ * （MX Stage なら local.mcpb.kazuhiro-muto.mxstage）、ディレクトリから入れたものは ant.dir.… なので、id の形には頼らず、
+ * manifest の name が MX Stage のもの（mcpb/manifest.template.json の "mxstage"）を探す。
+ * 拡張機能のフォルダ（Claude Extensions\<id>）が無いものは入っていないと見なす。
+ * 有効と見なすのは、設定の isEnabled がちょうど true のときだけ（無い・読めないときは無効と見なし、ふつうに登録する。
+ * 取り違えても二重に登録されるだけで、MX Stage が使えなくなることはないため）。
+ * 返す: 見つからなければ null。見つかれば { id, enabled }（有効なものを優先）
+ */
+export function findDesktopExtension(userDataDir, name = MCP_NAME) {
+  const extDir = path.join(userDataDir, "Claude Extensions");
+  const ids = new Set();
+  const index = readJsonFile(path.join(userDataDir, "extensions-installations.json"));
+  const extensions = index.json?.extensions;
+  if (extensions && typeof extensions === "object" && !Array.isArray(extensions)) {
+    for (const [id, entry] of Object.entries(extensions)) {
+      const manifestName = entry && typeof entry === "object" ? entry.manifest?.name : undefined;
+      if (manifestName === name || (manifestName === undefined && id.split(".").pop() === name)) ids.add(id);
+    }
+  }
+  let dirs = [];
+  try {
+    dirs = readdirSync(extDir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name);
+  } catch {
+    // 拡張機能を 1 つも入れていない
+  }
+  for (const id of dirs) if (readJsonFile(path.join(extDir, id, "manifest.json")).json?.name === name) ids.add(id);
+  const found = [...ids]
+    .filter((id) => !/[\\/]/.test(id) && id !== "." && id !== ".." && isDir(path.join(extDir, id)))
+    .sort()
+    .map((id) => ({ id, enabled: readJsonFile(path.join(userDataDir, "Claude Extensions Settings", `${id}.json`)).json?.isEnabled === true }));
+  return found.find((f) => f.enabled) ?? found[0] ?? null;
+}
+
+/** Claude Desktop に登録するか（--no-claude-desktop なら登録しない。設定フォルダがあるかは置き場所ごとに見る） */
+export function claudeDesktopWanted(opts) {
+  return opts.claudeDesktop ? { ok: true } : { ok: false, reason: "--no-claude-desktop なので" };
+}
+
+/** IBM Bob の設定フォルダ（~/.bob）から、MCP の設定と Skill の置き場所を決める */
+export function bobPaths(dir) {
+  return { bobDir: dir, bobConfig: path.join(dir, "settings", "mcp.json"), bobSkillsDir: path.join(dir, "skills") };
+}
+
+/**
+ * IBM Bob に登録するか。--no-bob か、設定フォルダ（~/.bob）が無い（IBM Bob を入れていない）なら登録しない。
+ * 入れていない PC に ~/.bob を作らないため。
+ */
+export function bobWanted(opts, paths, dirExists = isDir) {
+  if (!opts.bob) return { ok: false, reason: "--no-bob なので" };
+  if (!dirExists(paths.bobDir)) return { ok: false, reason: `IBM Bob の設定フォルダ（${paths.bobDir}）が無いので` };
+  return { ok: true };
 }
 
 /**
@@ -1120,6 +1252,9 @@ export function realWriteLocations(env = process.env, home = os.homedir(), tmpDi
     path.join(home, ".gemini"),
     path.join(home, ".codex"),
     path.join(home, ".agents"),
+    path.join(home, ".bob"),
+    // Microsoft Store 版の Claude Desktop の設定（パッケージの中）
+    path.join(localDir, "Packages"),
     mxstageHome(home),
     // 改名前（mxstudio）の置き場所と、それより前の版の置き場所（残っている PC があるので、試験ではここも拒む）
     path.join(home, ".config", LEGACY.stateDirName),
@@ -1144,28 +1279,36 @@ export function testSandboxProblem(opts, tmpDir = os.tmpdir(), realLocations = r
   for (const [key, flag] of [
     ["stateDir", "--state-dir"],
     ["claudeCodeConfig", "--claude-code-config"],
-    ["claudeDesktopConfig", "--claude-desktop-config"],
+    ...(opts.claudeDesktop ? [["claudeDesktopConfig", "--claude-desktop-config"]] : []),
     ["startupDir", "--startup-dir"],
     ["desktopDir", "--desktop-dir"],
     ...(opts.skills ? [["claudeSkillsDir", "--claude-skills-dir"]] : []),
     ...(opts.antigravity ? [["antigravityDir", "--antigravity-dir"]] : []),
     ...(opts.codex ? [["codexDir", "--codex-dir"], ...(opts.skills ? [["agentsSkillsDir", "--agents-skills-dir"]] : [])] : []),
+    ...(opts.bob ? [["bobDir", "--bob-dir"]] : []),
   ]) {
     const unless =
       {
+        claudeDesktopConfig: "（Claude Desktop に登録しないなら --no-claude-desktop）",
         claudeSkillsDir: "（Skill を入れないなら --no-skills）",
         antigravityDir: "（Antigravity に登録しないなら --no-antigravity）",
         codexDir: "（Codex に登録しないなら --no-codex）",
         agentsSkillsDir: "（Codex に Skill を入れないなら --no-codex か --no-skills）",
+        bobDir: "（IBM Bob に登録しないなら --no-bob）",
       }[key] ?? "";
     if (!opts[key]) problems.push(`${flag} がありません${unless}`);
     else if (!isInside(tmpDir, opts[key])) problems.push(`${flag} が一時フォルダ（${tmpDir}）の外です: ${opts[key]}`);
     else if (realLocations.some((real) => isSameOrInside(real, opts[key]))) problems.push(`${flag} が本物の書き先です: ${opts[key]}`);
   }
-  // 改名前の記録の置き場所は、試験で移行を確かめるときだけ指定する（指定しなければ移行そのものをしない）
-  if (opts.legacyStateDir) {
-    if (!isInside(tmpDir, opts.legacyStateDir)) problems.push(`--legacy-state-dir が一時フォルダ（${tmpDir}）の外です: ${opts.legacyStateDir}`);
-    else if (realLocations.some((real) => isSameOrInside(real, opts.legacyStateDir))) problems.push(`--legacy-state-dir が本物の書き先です: ${opts.legacyStateDir}`);
+  // 改名前の記録の置き場所は、試験で移行を確かめるときだけ指定する（指定しなければ移行そのものをしない）。
+  // Microsoft Store 版の Claude Desktop を探すフォルダも、指定したときだけ探す（--claude-desktop-config を差し替えると、指定しなければ探さない）
+  for (const [key, flag] of [
+    ["legacyStateDir", "--legacy-state-dir"],
+    ["claudeDesktopPackagesDir", "--claude-desktop-packages-dir"],
+  ]) {
+    if (!opts[key]) continue;
+    if (!isInside(tmpDir, opts[key])) problems.push(`${flag} が一時フォルダ（${tmpDir}）の外です: ${opts[key]}`);
+    else if (realLocations.some((real) => isSameOrInside(real, opts[key]))) problems.push(`${flag} が本物の書き先です: ${opts[key]}`);
   }
   if (opts.claudeCli && !isInside(tmpDir, opts.claudeCli)) problems.push(`--claude-cli が一時フォルダの外です: ${opts.claudeCli}`);
   if (opts.port === null) problems.push("--port がありません");
@@ -1615,7 +1758,21 @@ async function install(opts, paths, out) {
     bridgeEntry: null,
     port: null,
     appUrl: null,
-    installed: { claudeCode: false, claudeDesktop: false, antigravity: false, codex: false, startup: null, desktopShortcut: null, skills: [], antigravitySkills: [], codexSkills: [] },
+    installed: {
+      claudeCode: false,
+      claudeDesktop: false,
+      claudeDesktopMsix: false,
+      claudeDesktopExtension: null,
+      antigravity: false,
+      codex: false,
+      bob: false,
+      startup: null,
+      desktopShortcut: null,
+      skills: [],
+      antigravitySkills: [],
+      codexSkills: [],
+      bobSkills: [],
+    },
     previous: state.previous ?? {},
     backups: Array.isArray(state.backups) ? state.backups : [],
   };
@@ -1773,9 +1930,10 @@ async function install(opts, paths, out) {
   const codeEntry = buildCodeEntry(nodePath, found.entry, port);
   registerCode(opts, paths, codeEntry, found.entry, lastWritten, result, out);
 
-  // --- Claude Desktop ---
-  const desktopEntry = buildDesktopEntry(nodePath, found.entry, port);
-  registerDesktop(opts, paths, desktopEntry, found.entry, lastWritten, result, out);
+  // --- Claude Desktop（入っているときだけ。ふつうの版と Microsoft Store 版。拡張機能（.mcpb）で入っていれば設定ファイルには登録しない）---
+  const desktop = claudeDesktopWanted(opts);
+  if (desktop.ok) installDesktop(opts, paths, buildDesktopEntry(nodePath, found.entry, port), found.entry, lastWritten, result, out);
+  else out.push(step("skip", "claude_desktop", `${desktop.reason}、Claude Desktop には登録していません。`));
 
   // --- Antigravity（入っているときだけ）---
   const antigravity = antigravityWanted(opts, paths);
@@ -1786,6 +1944,11 @@ async function install(opts, paths, out) {
   const codex = codexWanted(opts, paths);
   if (codex.ok) registerCodex(opts, paths, nodePath, found.entry, port, lastWritten, result, out);
   else out.push(step("skip", "codex", `${codex.reason}、Codex には登録していません。`));
+
+  // --- IBM Bob（入っているときだけ）---
+  const bob = bobWanted(opts, paths);
+  if (bob.ok) registerBob(opts, paths, buildDesktopEntry(nodePath, found.entry, port), found.entry, lastWritten, result, out);
+  else out.push(step("skip", "bob", `${bob.reason}、IBM Bob には登録していません。`));
 
   // --- Skill（アプリ既定と利用者の Skill を Claude Code の ~/.claude/skills、Antigravity の ~/.gemini/config/skills、Codex の ~/.agents/skills へ）---
   installSkills(opts, paths, state, result, out);
@@ -2012,11 +2175,89 @@ function registerCode(opts, paths, entry, bridgeEntry, lastWritten, result, out)
   out.push(...previousEntrySteps("claude_code", merged.previous, classification, backup));
 }
 
-/** Claude Desktop（claude_desktop_config.json）に登録する */
-function registerDesktop(opts, paths, entry, bridgeEntry, lastWritten, result, out) {
-  const target = { id: "claude_desktop", label: "Claude Desktop", key: "claudeDesktop", configPath: paths.claudeDesktopConfig };
-  if (!registerMcpConfigFile(opts, paths, target, entry, bridgeEntry, lastWritten, result, out)) return;
-  out.push(step("warn", "claude_desktop_restart", "Claude Desktop は再起動するまで新しい設定を読みません。", "タスクトレイのアイコンから終了して、開き直してください（ウィンドウを閉じるだけでは終わりません）。"));
+/**
+ * Claude Desktop（claude_desktop_config.json）に登録する。設定フォルダがある置き場所（ふつうの版の %APPDATA%\Claude と、
+ * Microsoft Store 版のパッケージの中）すべてに書く。どこにも無ければ（Claude Desktop を入れていない）何も作らない。
+ * その置き場所に拡張機能（.mcpb）の MX Stage が入っていて有効なら、設定ファイルには登録せず、前にこの導入が書いた登録を外す。
+ */
+function installDesktop(opts, paths, entry, bridgeEntry, lastWritten, result, out) {
+  const locations = desktopLocations(paths);
+  const present = locations.filter((l) => l.present);
+  if (present.length === 0) {
+    out.push(
+      step(
+        "skip",
+        "claude_desktop",
+        `Claude Desktop の設定フォルダが無いので（${locations.map((l) => path.dirname(l.configPath)).join(" / ")}）、Claude Desktop には登録していません。`,
+        "Claude Desktop を入れて一度起動してから、この導入をもう一度実行すると登録します。",
+      ),
+    );
+    return;
+  }
+  let wrote = false;
+  for (const location of present) {
+    const extension = findDesktopExtension(path.dirname(location.configPath));
+    if (extension?.enabled) {
+      result.installed.claudeDesktopExtension = extension.id;
+      if (retireDesktopEntryForExtension(opts, paths, location, extension, bridgeEntry, lastWritten, result, out)) wrote = true;
+      continue;
+    }
+    const hint = extension ? `拡張機能（.mcpb）の ${MCP_NAME} も入っていますが無効なので（${extension.id}）、設定ファイルに登録しました。` : undefined;
+    if (registerMcpConfigFile(opts, paths, { ...location, hint }, entry, bridgeEntry, lastWritten, result, out)) wrote = true;
+  }
+  if (wrote) out.push(step("warn", "claude_desktop_restart", "Claude Desktop は再起動するまで新しい設定を読みません。", "タスクトレイのアイコンから終了して、開き直してください（ウィンドウを閉じるだけでは終わりません）。"));
+}
+
+/**
+ * 拡張機能（.mcpb）の MX Stage が有効な Claude Desktop では、claude_desktop_config.json に登録しない（同じ MX Stage が二重に出るため）。
+ * 前にこの導入が書いた mcpServers.mxstage があれば外す（この導入が書いたもの＝classifyPrevious が "ours" のものだけ。利用者の設定は残して知らせる）。
+ * 書き換えた（書き換えることになった）ときだけ true を返す。
+ */
+function retireDesktopEntryForExtension(opts, paths, location, extension, bridgeEntry, lastWritten, result, out) {
+  const { id, label, configPath } = location;
+  const why = `${label} には拡張機能（.mcpb）の ${MCP_NAME} が入っていて有効なので（${extension.id}）、設定ファイルには登録しません（二重に登録しないため）。`;
+  const read = readJsonFile(configPath);
+  if (read.error) {
+    out.push(step("warn", id, `${why}設定ファイルは読めないので触っていません（${read.error}）。`));
+    return false;
+  }
+  const current = read.json?.mcpServers?.[MCP_NAME];
+  if (!current) {
+    out.push(step("ok", id, why, "拡張機能を外したときは、この導入をもう一度実行すると設定ファイルに登録します。"));
+    return false;
+  }
+  if (classifyPrevious(current, { bridgeEntry, lastWritten }).kind !== "ours") {
+    out.push(
+      step(
+        "warn",
+        id,
+        `${why}ただし設定ファイル（${configPath}）にも、この導入が書いたものではない ${MCP_NAME} があるので残しました: ${JSON.stringify(redactEntry(current))}`,
+        "同じ名前のサーバが 2 つ読み込まれます。どちらかを外してください（設定ファイルの mcpServers から消すか、Settings の「Extensions」で拡張機能を無効にする）。",
+      ),
+    );
+    return false;
+  }
+  if (opts.dryRun) {
+    out.push(step("skip", id, `${why}前にこの導入が書いた ${MCP_NAME} を設定ファイルから外します（${configPath}）。--dry-run なので書いていません。`));
+    return false;
+  }
+  let backup = null;
+  try {
+    backup = backupFile(configPath, paths.backupDir);
+    if (backup) result.backups.push(backup);
+    writeJsonFileAtomic(configPath, removeMcpServer(read.json, MCP_NAME, null).next);
+  } catch (err) {
+    out.push(step("error", id, `${label} の設定を書けませんでした: ${err instanceof Error ? err.message : String(err)}`, backup ? `控え: ${backup}` : undefined));
+    return false;
+  }
+  out.push(step("ok", id, `${why}前にこの導入が書いた ${MCP_NAME} を設定ファイルから外しました（${configPath}）。`, backup ? `書き換える前の控え: ${backup}` : undefined));
+  return true;
+}
+
+/** IBM Bob（~/.bob/settings/mcp.json）に登録する */
+function registerBob(opts, paths, entry, bridgeEntry, lastWritten, result, out) {
+  const target = { id: "bob", label: "IBM Bob", key: "bob", configPath: paths.bobConfig, hint: "IBM Bob を再起動すると、MX Stage のツールが使えます。" };
+  registerMcpConfigFile(opts, paths, target, entry, bridgeEntry, lastWritten, result, out);
 }
 
 /** Antigravity（~/.gemini/config/mcp_config.json。2.0・IDE・agy CLI が共有する）に登録する */
@@ -2099,6 +2340,8 @@ function registerCodex(opts, paths, nodePath, bridgeEntry, port, lastWritten, re
  */
 function registerMcpConfigFile(opts, paths, target, entry, bridgeEntry, lastWritten, result, out) {
   const { id, label, key, configPath, hint } = target;
+  // installedKey: setup.json の installed の名前（previous の名前 key と分けたいとき。Microsoft Store 版の Claude Desktop）
+  const installedKey = target.installedKey ?? key;
   const read = readJsonFile(configPath);
   if (read.error) {
     out.push(step("error", id, `${configPath} を読めないので触りません（${read.error}）。`, "ファイルを直してから、この導入をもう一度実行してください。"));
@@ -2106,7 +2349,7 @@ function registerMcpConfigFile(opts, paths, target, entry, bridgeEntry, lastWrit
   }
   const merged = mergeMcpServer(read.json, MCP_NAME, entry);
   if (!merged.changed) {
-    result.installed[key] = true;
+    result.installed[installedKey] = true;
     out.push(step("ok", id, `${label} には既に同じ設定が入っています（${configPath}）。`));
     return false;
   }
@@ -2132,7 +2375,7 @@ function registerMcpConfigFile(opts, paths, target, entry, bridgeEntry, lastWrit
     out.push(step("error", id, `${label} の設定を書けませんでした: ${err instanceof Error ? err.message : String(err)}`, backup ? `控え: ${backup}` : undefined));
     return false;
   }
-  result.installed[key] = true;
+  result.installed[installedKey] = true;
   const hints = [backup ? `書き換える前の控え: ${backup}` : null, hint ?? null].filter(Boolean);
   out.push(step("ok", id, `${label} に ${MCP_NAME} を登録しました${replacedNote(classification.kind)}（${configPath}）。`, hints.length > 0 ? hints.join(" ") : undefined));
   out.push(...previousEntrySteps(id, merged.previous, classification, backup));
@@ -2294,6 +2537,16 @@ export function skillTargets(opts, paths, dirExists = isDir) {
       readyHint: "Codex（デスクトップ・CLI・IDE 拡張）は新しい会話から使えます（~/.agents/skills はほかのエージェントも読むことがあります）。",
     });
   }
+  if (bobWanted(opts, paths, dirExists).ok) {
+    targets.push({
+      id: "bob_skills",
+      label: "IBM Bob",
+      dir: paths.bobSkillsDir,
+      record: "bobSkills",
+      backupPrefix: "bob-skill",
+      readyHint: "IBM Bob は再起動すると使えます。",
+    });
+  }
   return targets;
 }
 
@@ -2422,6 +2675,8 @@ function uninstallSkills(opts, paths, state, out) {
       : []),
     // Codex の分も、記録があるときだけ。--no-codex なら触らない
     ...(opts.codex && recordedSkills(state, "codexSkills").length > 0 ? [{ id: "codex_skills", label: "Codex", dir: paths.codexSkillsDir, record: "codexSkills" }] : []),
+    // IBM Bob の分も、記録があるときだけ。--no-bob なら触らない
+    ...(opts.bob && recordedSkills(state, "bobSkills").length > 0 ? [{ id: "bob_skills", label: "IBM Bob", dir: paths.bobSkillsDir, record: "bobSkills" }] : []),
   ];
   // 消すのは、前回の導入が実際に写した場所（写す先が変わる前の導入なら、前の場所）
   for (const t of targets) uninstallSkillsFrom({ ...t, dir: previousSkillDir(state, t) }, opts, paths, state, out);
@@ -2604,6 +2859,7 @@ export function findLegacyLeftovers(paths, legacyDir) {
   for (const [id, label, file] of [
     ["claude_code", "Claude Code", paths.claudeCodeConfig],
     ["claude_desktop", "Claude Desktop", paths.claudeDesktopConfig],
+    ...(paths.claudeDesktopMsixConfigs ?? []).map((c) => ["claude_desktop_msix", `Claude Desktop（Microsoft Store 版・${c.packageName}）`, c.configPath]),
     ["antigravity", "Antigravity", paths.antigravityConfig],
   ]) {
     const read = readJsonFile(file);
@@ -2627,6 +2883,11 @@ export function findLegacyLeftovers(paths, legacyDir) {
     if (existsSync(file)) found.push({ kind: "shortcut", path: file });
   }
   return found;
+}
+
+/** --no-claude-desktop のときは、Claude Desktop の設定に残った改名前の登録にも触らない（見ない） */
+function withoutSkippedClients(opts, leftovers) {
+  return opts.claudeDesktop ? leftovers : leftovers.filter((l) => !(l.kind === "mcp" && l.id.startsWith("claude_desktop")));
 }
 
 /** --status の行: 改名前（mxstudio）の導入が残したもの（無ければ null） */
@@ -2837,7 +3098,7 @@ async function migrateLegacy(opts, paths, out, { port, bridgeEntry, mode }) {
   const legacyDir = legacyStateDirOf(opts);
   const statePath = path.join(legacyDir, "setup.json");
   const legacyState = readState(statePath);
-  const leftovers = findLegacyLeftovers(paths, legacyDir);
+  const leftovers = withoutSkippedClients(opts, findLegacyLeftovers(paths, legacyDir));
   const legacyBridge = Number.isInteger(port) && (await probeLegacyBridge(port)) !== null;
   const marker = path.join(paths.stateDir, LEGACY.migratedMarker);
   const copying = install && isDir(legacyDir) && !existsSync(marker);
@@ -2982,7 +3243,15 @@ async function uninstall(opts, paths, out) {
   // --- Claude Code / Claude Desktop ---
   const lastWritten = lastWrittenEntries(state);
   unregister(opts, paths, paths.claudeCodeConfig, state?.previous?.claudeCode, bridgeEntry, lastWritten, "claude_code", "Claude Code", out);
-  unregister(opts, paths, paths.claudeDesktopConfig, state?.previous?.claudeDesktop, bridgeEntry, lastWritten, "claude_desktop", "Claude Desktop", out);
+  if (opts.claudeDesktop) {
+    // ふつうの版はいつも行を出す。Microsoft Store 版は、設定ファイルがあるときだけ
+    for (const l of desktopLocations(paths)) {
+      if (l.id !== "claude_desktop" && !existsSync(l.configPath)) continue;
+      unregister(opts, paths, l.configPath, state?.previous?.[l.key], bridgeEntry, lastWritten, l.id, l.label, out);
+    }
+  } else {
+    out.push(step("skip", "claude_desktop", "--no-claude-desktop なので、Claude Desktop の設定には触っていません。"));
+  }
   // Antigravity は入れていない PC が多いので、設定ファイルがあるか、記録に入れたとあるときだけ行を出す
   if (opts.antigravity && (state?.installed?.antigravity || existsSync(paths.antigravityConfig))) {
     unregister(opts, paths, paths.antigravityConfig, state?.previous?.antigravity, bridgeEntry, lastWritten, "antigravity", "Antigravity", out);
@@ -2990,6 +3259,10 @@ async function uninstall(opts, paths, out) {
   // Codex も同じく、設定ファイルがあるか、記録に入れたとあるときだけ
   if (opts.codex && (state?.installed?.codex || existsSync(paths.codexConfig))) {
     unregisterCodex(opts, paths, state?.previous?.codex, bridgeEntry, lastWritten, out);
+  }
+  // IBM Bob も同じく、設定ファイルがあるか、記録に入れたとあるときだけ
+  if (opts.bob && (state?.installed?.bob || existsSync(paths.bobConfig))) {
+    unregister(opts, paths, paths.bobConfig, state?.previous?.bob, bridgeEntry, lastWritten, "bob", "IBM Bob", out);
   }
 
   // --- Skill ---
@@ -3092,7 +3365,7 @@ function unregister(opts, paths, configPath, previous, bridgeEntry, lastWritten,
     return;
   }
   out.push(step("ok", id, `${label} から ${name} を${restore ? "外し、前の設定に戻しました" : "外しました"}（${configPath}）。`, backup ? `書き換える前の控え: ${backup}` : undefined));
-  if (id === "claude_desktop") out.push(step("warn", "claude_desktop_restart", "Claude Desktop は再起動するまで設定の変更を読みません。"));
+  if (id === "claude_desktop" || id === "claude_desktop_msix") out.push(step("warn", "claude_desktop_restart", "Claude Desktop は再起動するまで設定の変更を読みません。"));
 }
 
 /** Codex の設定（config.toml）から mxstage の表を外す（name を渡すとその名前の表）。置き換える前の設定があれば控えから戻す */
@@ -3170,26 +3443,48 @@ async function status(opts, paths, out) {
   if (others.length > 0) out.push(otherBridgesStep(others));
   // 改名前（mxstudio）の導入が残したもの（試験中は --legacy-state-dir を指定したときだけ見る）
   if (!isTestGuard() || opts.legacyStateDir) {
-    const legacy = legacyStatusStep(findLegacyLeftovers(paths, legacyStateDirOf(opts)), (await probeLegacyBridge(port)) !== null, port);
+    const legacy = legacyStatusStep(withoutSkippedClients(opts, findLegacyLeftovers(paths, legacyStateDirOf(opts))), (await probeLegacyBridge(port)) !== null, port);
     if (legacy) out.push(legacy);
   }
 
   const antigravity = antigravityWanted(opts, paths);
-  for (const [id, label, configPath] of [
-    ["claude_code", "Claude Code", paths.claudeCodeConfig],
-    ["claude_desktop", "Claude Desktop", paths.claudeDesktopConfig],
-    ...(antigravity.ok ? [["antigravity", "Antigravity", paths.antigravityConfig]] : []),
+  const bob = bobWanted(opts, paths);
+  const desktop = claudeDesktopWanted(opts);
+  const desktopPresent = desktop.ok ? desktopLocations(paths).filter((l) => l.present) : [];
+  for (const { id, label, configPath, extension } of [
+    { id: "claude_code", label: "Claude Code", configPath: paths.claudeCodeConfig },
+    ...desktopPresent.map((l) => ({ ...l, extension: findDesktopExtension(path.dirname(l.configPath)) })),
+    ...(antigravity.ok ? [{ id: "antigravity", label: "Antigravity", configPath: paths.antigravityConfig }] : []),
+    ...(bob.ok ? [{ id: "bob", label: "IBM Bob", configPath: paths.bobConfig }] : []),
   ]) {
     const read = readJsonFile(configPath);
-    if (!read.exists) out.push(step("warn", id, `${label} の設定ファイルがありません（${configPath}）。`));
-    else if (read.error) out.push(step("warn", id, `${label} の設定を読めません（${read.error}）。`));
-    else {
-      const entry = read.json?.mcpServers?.[MCP_NAME];
-      if (entry) out.push(step("ok", id, `${label}: ${JSON.stringify(redactEntry(entry))}`));
-      else out.push(step("warn", id, `${label} に ${MCP_NAME} の設定はありません。`));
+    const entry = read.exists && !read.error ? read.json?.mcpServers?.[MCP_NAME] : undefined;
+    if (extension?.enabled) {
+      // 拡張機能（.mcpb）で入っている。設定ファイルにも mxstage があれば二重になる
+      if (entry) {
+        out.push(
+          step(
+            "warn",
+            id,
+            `${label}: 拡張機能（.mcpb）の ${MCP_NAME} が有効で（${extension.id}）、設定ファイルにも ${MCP_NAME} があります（二重に登録されています）: ${JSON.stringify(redactEntry(entry))}`,
+            "導入をもう一度実行すると、この導入が書いた分は設定ファイルから外します。手で書いたものなら、設定ファイルから消すか拡張機能を無効にしてください。",
+          ),
+        );
+      } else {
+        out.push(step("ok", id, `${label}: 拡張機能（.mcpb）の ${MCP_NAME} が入っていて有効です（${extension.id}。設定ファイルには登録していません）。`));
+      }
+      continue;
     }
+    const disabled = extension ? `（拡張機能（.mcpb）の ${MCP_NAME} は入っていますが無効です: ${extension.id}）` : "";
+    if (!read.exists) out.push(step("warn", id, `${label} の設定ファイルがありません（${configPath}）。${disabled}`));
+    else if (read.error) out.push(step("warn", id, `${label} の設定を読めません（${read.error}）。`));
+    else if (entry) out.push(step("ok", id, `${label}: ${JSON.stringify(redactEntry(entry))}${disabled}`));
+    else out.push(step("warn", id, `${label} に ${MCP_NAME} の設定はありません。${disabled}`));
   }
+  if (!desktop.ok) out.push(step("skip", "claude_desktop", `${desktop.reason}、Claude Desktop は見ていません。`));
+  else if (desktopPresent.length === 0) out.push(step("skip", "claude_desktop", `Claude Desktop の設定フォルダが無いので（${path.dirname(paths.claudeDesktopConfig)}）、Claude Desktop は見ていません。`));
   if (!antigravity.ok) out.push(step("skip", "antigravity", `${antigravity.reason}、Antigravity は見ていません。`));
+  if (!bob.ok) out.push(step("skip", "bob", `${bob.reason}、IBM Bob は見ていません。`));
   const codex = codexWanted(opts, paths);
   if (!codex.ok) out.push(step("skip", "codex", `${codex.reason}、Codex は見ていません。`));
   else if (!existsSync(paths.codexConfig)) out.push(step("warn", "codex", `Codex の設定ファイルがありません（${paths.codexConfig}）。`));
@@ -3208,6 +3503,7 @@ async function status(opts, paths, out) {
     out.push(skillsStatusStep(paths, state, { id: "antigravity_skills", label: "Antigravity の Skill", dir: paths.antigravitySkillsDir, record: "antigravitySkills" }));
   }
   if (codex.ok) out.push(skillsStatusStep(paths, state, { id: "codex_skills", label: "Codex の Skill", dir: paths.codexSkillsDir, record: "codexSkills" }));
+  if (bob.ok) out.push(skillsStatusStep(paths, state, { id: "bob_skills", label: "IBM Bob の Skill", dir: paths.bobSkillsDir, record: "bobSkills" }));
   const startupPath = path.join(paths.startupDir, STARTUP_SHORTCUT);
   out.push(existsSync(startupPath) ? step("ok", "autostart", `自動起動: ${startupPath}`) : step("warn", "autostart", `自動起動: ありません（${startupPath}）`));
   // デスクトップは .lnk（アプリ窓）か .url（既定のブラウザ）のどちらか 1 つがあればよい
@@ -3241,11 +3537,13 @@ function printText(mode, steps, result, paths, dryRun) {
     if (errors === 0) {
       lines.push(warns === 0 ? "導入できました。" : `導入できました（警告 ${warns} 件。上の [警告] の行を読んでください）。`);
       if (result.appUrl) lines.push(`  作業画面: ${result.appUrl}${result.installed?.desktopShortcut ? "（デスクトップのショートカットからも開けます）" : ""}`);
-      if (result.port) lines.push(`  橋渡し: ポート ${result.port} の 1 つだけ（作業画面と Claude Code / Claude Desktop / Antigravity / Codex で共有します）`);
+      if (result.port) lines.push(`  橋渡し: ポート ${result.port} の 1 つだけ（作業画面と Claude Code / Claude Desktop / Antigravity / Codex / IBM Bob で共有します）`);
       if (result.installed?.claudeCode) lines.push("  Claude Code: 起動し直すと MX Stage のツールが使えます。");
-      if (result.installed?.claudeDesktop) lines.push("  Claude Desktop: いったん終了して開き直してください（再起動するまで設定を読みません）。");
+      if (result.installed?.claudeDesktop || result.installed?.claudeDesktopMsix) lines.push("  Claude Desktop: いったん終了して開き直してください（再起動するまで設定を読みません）。");
+      else if (result.installed?.claudeDesktopExtension) lines.push("  Claude Desktop: 拡張機能（.mcpb）の MX Stage を使います（設定ファイルには登録していません）。");
       if (result.installed?.antigravity) lines.push("  Antigravity: 新しい会話から MX Stage のツールが使えます（2.0・IDE・agy CLI 共通。出てこなければ開き直してください）。");
       if (result.installed?.codex) lines.push("  Codex: 新しい会話から MX Stage のツールが使えます（デスクトップ・CLI・IDE 拡張共通。出てこなければ開き直してください）。");
+      if (result.installed?.bob) lines.push("  IBM Bob: 再起動すると MX Stage のツールが使えます。");
       lines.push(`  取り消す: ${undo}`);
       if (result.installed?.startup) lines.push(`  自動起動だけやめる: ${result.installed.startup} を消す`);
     } else {

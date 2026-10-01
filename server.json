@@ -1,0 +1,23 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.mxstage/mxstage",
+  "title": "MX Stage",
+  "description": "Local AI workbench for IBM Maximo data: every change is staged, diffed and approved before commit.",
+  "version": "0.2.0",
+  "websiteUrl": "https://mxstage.tsunagi.app",
+  "repository": {
+    "url": "https://github.com/mxstage/mxstage",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/mxstage/mxstage/releases/download/v0.2.0/mxstage-0.2.0.mcpb",
+      "version": "0.2.0",
+      "fileSha256": "54fec3aef5fe9b7ca4b32b5474d10440326cf32b0e785fdc94f80a6f6a37474e",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}

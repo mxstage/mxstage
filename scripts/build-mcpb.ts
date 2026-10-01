@@ -171,7 +171,7 @@ writeFileSync(`${outFile}.sha256`, `${sha256}  mxstage-${version}.mcpb\n`);
 // 5. MCP Registry に載せる server.json（公開のときに、この .mcpb を GitHub のリリース v<版> に添えてから mcp-publisher で送る）。
 //    名前は GitHub の組織にもとづく io.github.mxstage/mxstage。説明は 100 文字まで
 const serverJson = {
-  $schema: "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
+  $schema: "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   name: "io.github.mxstage/mxstage",
   title: "MX Stage",
   description: "Local AI workbench for IBM Maximo data: every change is staged, diffed and approved before commit.",

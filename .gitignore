@@ -3,3 +3,6 @@ dist/
 !dist/app/.gitkeep
 *.log
 coverage/
+
+# エージェントの作業ツリー（送らない）
+.claude/worktrees/

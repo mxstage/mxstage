@@ -46,6 +46,11 @@ export interface FakeOsSeed {
   records?: FakeRecordSeed[];
   /** 属性（小文字。子は "子.属性"）→ getlist の値の一覧 */
   lists?: Record<string, FakeListItem[]>;
+  /**
+   * 別のオブジェクト構造と同じ行を使う（例 MXAPIWO と MXAPIWODETAIL は同じ WORKORDER の表）。records は書かない。
+   * 属性・子はこの構造の定義にあるものだけを返し、書き込みは両方に見える
+   */
+  recordsFrom?: string;
 }
 
 export interface FakeSeed {
@@ -53,6 +58,8 @@ export interface FakeSeed {
   apiKey?: string;
   /** Maximo が返す href のオリジン（内部ホスト名を返す実機を再現するため baseUrl と別にできる） */
   hrefOrigin?: string;
+  /** false で要求を state.requests に残さない（長く動かす開発用の大きなデータで、記録が溜まり続けないように） */
+  logRequests?: boolean;
   objectStructures: Record<string, FakeOsSeed>;
 }
 
@@ -98,7 +105,7 @@ export interface FakeFailure {
 }
 
 export interface FakeMaximo {
-  fetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+  fetch: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
   state: {
     os: Record<string, FakeOsState>;
     transactionIds: Set<string>;
@@ -153,6 +160,7 @@ export function createFakeMaximo(seed: FakeSeed): FakeMaximo {
   const state: FakeMaximo["state"] = { os: {}, transactionIds: new Set(), requests: [], failures: [] };
 
   for (const [rawName, rawDef] of Object.entries(seed.objectStructures)) {
+    if (rawDef.recordsFrom) continue;
     const name = rawName.toLowerCase();
     const def = normalizeDef(rawDef);
     const records: FakeRecord[] = (rawDef.records ?? []).map((r) => {
@@ -166,6 +174,26 @@ export function createFakeMaximo(seed: FakeSeed): FakeMaximo {
       return { uid: `_R${uidCounter++}`, rowstamp: nextRowstamp(), attrs, children };
     });
     state.os[name] = { name, def, records };
+  }
+  for (const [rawName, rawDef] of Object.entries(seed.objectStructures)) {
+    if (!rawDef.recordsFrom) continue;
+    const from = state.os[rawDef.recordsFrom.toLowerCase()];
+    if (!from) throw new Error(`recordsFrom ${rawDef.recordsFrom} not found`);
+    state.os[rawName.toLowerCase()] = { name: rawName.toLowerCase(), def: normalizeDef(rawDef), records: from.records };
+  }
+  // 大きなデータ（開発用の plants）でも速く応えるため、ID → 行の索引と、絞り込み・並べ替えの結果を覚えておく。
+  // 書き込み（patch / update / addChild）のたびに捨てる
+  let dataVersion = 0;
+  const uidIndex = new WeakMap<FakeRecord[], Map<string, FakeRecord>>();
+  const queryCache = new Map<string, { version: number; length: number; rows: FakeRecord[] }>();
+  const CACHE_MIN_ROWS = 5_000;
+  function recordByUid(os: FakeOsState, uid: string): FakeRecord | undefined {
+    let idx = uidIndex.get(os.records);
+    if (!idx || idx.size !== os.records.length) {
+      idx = new Map(os.records.map((r) => [r.uid, r]));
+      uidIndex.set(os.records, idx);
+    }
+    return idx.get(uid) ?? os.records.find((r) => r.uid === uid);
   }
 
   function newChild(cdef: FakeChildDef, attrs: Record<string, CellValue>): FakeChild {
@@ -184,7 +212,7 @@ export function createFakeMaximo(seed: FakeSeed): FakeMaximo {
 
   const hrefOf = (os: string, uid: string) => `${hrefOrigin}/maximo/api/os/${os.toLowerCase()}/${uid}`;
 
-  async function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  async function fakeFetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
     const method = (init?.method ?? "GET").toUpperCase();
     const rawUrl = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     const headers = new Headers(init?.headers);
@@ -221,7 +249,7 @@ export function createFakeMaximo(seed: FakeSeed): FakeMaximo {
         parsedBody = bodyText;
       }
     }
-    state.requests.push({ method, url: rawUrl, path: `${path}${u.search}`, headers: logHeaders, body: parsedBody });
+    if (seed.logRequests !== false) state.requests.push({ method, url: rawUrl, path: `${path}${u.search}`, headers: logHeaders, body: parsedBody });
 
     for (const k of params.keys()) {
       if (k.toLowerCase() === "apikey") return errorResponse(400, "FAKE_APIKEY_IN_QUERY", "apikey must not be in query");
@@ -287,7 +315,7 @@ export function createFakeMaximo(seed: FakeSeed): FakeMaximo {
     // 値の一覧: /os/<os>/<ID>/getlist~<属性>、子は /os/<os>/<ID>/<子>/<子の ID>/getlist~<属性>
     if (segs[0] === "os" && (segs.length === 4 || segs.length === 6) && method === "GET" && segs[segs.length - 1]!.toLowerCase().startsWith("getlist~")) {
       const os = osOf(segs[1]!);
-      const rec = os.records.find((r) => r.uid === segs[2]);
+      const rec = recordByUid(os, segs[2]!);
       if (!rec) throw new FakeHttpError(404, "BMXAA_FAKE_RECORD_NOT_FOUND", "record not found");
       const attr = segs[segs.length - 1]!.slice("getlist~".length).toLowerCase();
       let key = attr;
@@ -301,7 +329,7 @@ export function createFakeMaximo(seed: FakeSeed): FakeMaximo {
     }
     if (segs[0] === "os" && segs.length === 3) {
       const os = osOf(segs[1]!);
-      const rec = os.records.find((r) => r.uid === segs[2]);
+      const rec = recordByUid(os, segs[2]!);
       if (!rec) throw new FakeHttpError(404, "BMXAA_FAKE_RECORD_NOT_FOUND", "record not found");
       if (method === "GET") {
         requireLean(params);
@@ -355,8 +383,25 @@ export function createFakeMaximo(seed: FakeSeed): FakeMaximo {
     for (const c of clauses) {
       if (!(c.attr in os.def.attrs)) throw new FakeHttpError(400, "BMXAA8744E", `unknown attribute in where: ${c.attr}`);
     }
-    let rows = os.records.filter((r) => clauses.every((c) => evalClause(r.attrs[c.attr] ?? null, c)));
     const orderBy = params.get("oslc.orderBy");
+    const cacheKey = `${os.name}|${whereText ?? ""}|${orderBy ?? ""}`;
+    const cached = os.records.length >= CACHE_MIN_ROWS ? queryCache.get(cacheKey) : undefined;
+    let rows: FakeRecord[];
+    if (cached && cached.version === dataVersion && cached.length === os.records.length) {
+      rows = cached.rows;
+    } else {
+      rows = filterAndSort(os, clauses, orderBy);
+      if (os.records.length >= CACHE_MIN_ROWS) {
+        if (queryCache.size > 50) queryCache.clear();
+        queryCache.set(cacheKey, { version: dataVersion, length: os.records.length, rows });
+      }
+    }
+    const pageSize = Math.max(1, Number(params.get("oslc.pageSize") ?? "1000") || 1000);
+    return collectionPage(os, params, node, rows, pageSize);
+  }
+
+  function filterAndSort(os: FakeOsState, clauses: WhereClause[], orderBy: string | null): FakeRecord[] {
+    let rows = os.records.filter((r) => clauses.every((c) => evalClause(r.attrs[c.attr] ?? null, c)));
     if (orderBy) {
       const keys = orderBy.split(",").map((s) => ({ desc: s.startsWith("-"), attr: s.replace(/^[+-]/, "").toLowerCase() }));
       rows = [...rows].sort((a, b) => {
@@ -367,7 +412,10 @@ export function createFakeMaximo(seed: FakeSeed): FakeMaximo {
         return 0;
       });
     }
-    const pageSize = Math.max(1, Number(params.get("oslc.pageSize") ?? "1000") || 1000);
+    return rows;
+  }
+
+  function collectionPage(os: FakeOsState, params: URLSearchParams, node: SelectNode | null, rows: FakeRecord[], pageSize: number): Response {
     const pageno = Math.max(1, Number(params.get("pageno") ?? "1") || 1);
     const slice = rows.slice((pageno - 1) * pageSize, pageno * pageSize);
     const responseInfo: Record<string, unknown> = { pagenum: pageno, href: `${hrefOrigin}/maximo/api/os/${os.name}` };
@@ -440,6 +488,7 @@ export function createFakeMaximo(seed: FakeSeed): FakeMaximo {
     rec.children = draft.children;
     rec.rowstamp = draft.rowstamp;
     if (txid) state.transactionIds.add(txid);
+    dataVersion++;
     if (headers.get("properties")) return json(200, render(os, rec, { all: true, attrs: new Set(), children: new Map() }, true));
     return new Response(null, { status: 204 });
   }
@@ -589,6 +638,7 @@ export function createFakeMaximo(seed: FakeSeed): FakeMaximo {
       const rec = records(os).find((r) => r.uid === uid);
       if (!rec) throw new Error(`record ${uid} not found`);
       fn(rec);
+      dataVersion++;
       if (opts?.bumpRowstamp !== false) rec.rowstamp = nextRowstamp();
     },
     addChild(os, uid, kind, attrs, opts) {
@@ -598,6 +648,7 @@ export function createFakeMaximo(seed: FakeSeed): FakeMaximo {
       if (!rec || !cdef) throw new Error("record or child not found");
       const child = newChild(cdef, lowerKeys(attrs));
       (rec.children[kind.toLowerCase()] ??= []).push(child);
+      dataVersion++;
       if (opts?.bumpRowstamp !== false) rec.rowstamp = nextRowstamp();
       return child.attrs[cdef.idAttr] ?? null;
     },

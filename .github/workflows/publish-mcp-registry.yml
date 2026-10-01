@@ -1,0 +1,25 @@
+# MCP Registry に server.json を載せる。人の GitHub ログイン（デバイスフロー）では組織の名前で載せられない
+# 不具合があるため（modelcontextprotocol/registry#1537）、このリポジトリの OIDC で本人を確かめる。
+# リリースのたびに server.json の版・URL・fileSha256 を直してから、リリースを出す（または手で実行する）。
+name: Publish to MCP Registry
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install mcp-publisher
+        run: curl -sSL "https://github.com/modelcontextprotocol/registry/releases/download/v1.8.1/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
+      - name: Log in with GitHub OIDC
+        run: ./mcp-publisher login github-oidc
+      - name: Publish server.json
+        run: ./mcp-publisher publish

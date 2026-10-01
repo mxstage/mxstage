@@ -822,7 +822,9 @@ body.resizing-row * {
 /* 件数（数字を上、名前を下に） */
 .counts {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  /* 英語の見出しは長いので折り返す（隣と重ねない） */
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  column-gap: var(--cds-spacing-03);
   margin: 0;
   border-top: 1px solid var(--cds-border-subtle-01);
   border-bottom: 1px solid var(--cds-border-subtle-01);
@@ -847,7 +849,7 @@ body.resizing-row * {
   font-size: var(--cds-label-01-font-size);
   letter-spacing: var(--cds-label-01-letter-spacing);
   color: var(--cds-text-secondary);
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .blockers {

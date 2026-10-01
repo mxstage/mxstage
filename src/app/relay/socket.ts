@@ -73,11 +73,12 @@ const WS_OPEN = 1;
 /** 心拍の間隔の下限（Hub の値が壊れていても送りすぎないように） */
 const MIN_HEARTBEAT_MS = 1_000;
 
+// LLM が読む文なので英語だけにする（src/shared/i18n.ts）
 const DEADLINE_NOT_STARTED_MESSAGE =
-  "締切を過ぎてから作業画面に届いたため、実行していません（変更は反映されていません）。もう一度実行してください。";
-const UNSUPPORTED_TOOL_MESSAGE = "作業画面はこのツールに対応していません。作業画面を再読み込みしてから、もう一度実行してください。";
-const BAD_RESULT_MESSAGE = "作業画面のツールが結果を返しませんでした。";
-const UNSERIALIZABLE_RESULT_MESSAGE = "作業画面のツールの結果を JSON に変換できませんでした。";
+  "The request reached the work screen after its deadline, so it was not run (nothing was changed). Run it again.";
+const UNSUPPORTED_TOOL_MESSAGE = "The work screen does not support this tool. Reload the work screen and run it again.";
+const BAD_RESULT_MESSAGE = "The work screen tool did not return a result.";
+const UNSERIALIZABLE_RESULT_MESSAGE = "The work screen tool's result could not be converted to JSON.";
 
 // ---------------------------------------------------------------------------
 // 型

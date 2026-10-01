@@ -6,13 +6,13 @@
 import { describe, expect, it, vi } from "vitest";
 import { ObjectStructureCatalog } from "../../src/app/catalog/catalog";
 import {
-  ALREADY_RUNNING_MESSAGE,
-  CANCELLED_MESSAGE,
-  CANCELLED_ROW_NOTE,
+  alreadyRunningMessage,
+  cancelledMessage,
+  cancelledRowNote,
   MAX_UNWRITABLE_BLOCKERS,
-  NEEDS_DELETE_CONFIRM_MESSAGE,
-  NEEDS_NULL_CONFIRM_MESSAGE,
-  NOT_CONNECTED_BLOCKER,
+  needsDeleteConfirmMessage,
+  needsNullConfirmMessage,
+  notConnectedBlocker,
   createCommitController,
   describePlanError,
 } from "../../src/app/commit/controller";
@@ -184,8 +184,8 @@ describe("CommitController: 反映の中止", () => {
     const done = await running;
 
     expect(done.results.map((r) => r.status)).toEqual(["verified", "skipped", "skipped"]);
-    expect(done.results.slice(1).map((r) => r.message)).toEqual([CANCELLED_ROW_NOTE, CANCELLED_ROW_NOTE]);
-    expect(done.message).toBe(CANCELLED_MESSAGE);
+    expect(done.results.slice(1).map((r) => r.message)).toEqual([cancelledRowNote(), cancelledRowNote()]);
+    expect(done.message).toBe(cancelledMessage());
     expect(done.awaitingCanary).toBeNull();
     expect(h.controller.isRunning(PERMIT_SHEET)).toBe(false);
     // 送信済みの親（カナリア）は取り消さない。残りの親は送っていない
@@ -215,8 +215,8 @@ describe("CommitController: 反映の中止", () => {
 
     expect(cancelled).toBe(true);
     expect(done.results.map((r) => r.status)).toEqual(["verified", "verified", "skipped"]);
-    expect(done.results[2]!.message).toBe(CANCELLED_ROW_NOTE);
-    expect(done.message).toBe(CANCELLED_MESSAGE);
+    expect(done.results[2]!.message).toBe(cancelledRowNote());
+    expect(done.message).toBe(cancelledMessage());
     expect(h.controller.isRunning(PERMIT_SHEET)).toBe(false);
     expect(posts(h.fake)).toHaveLength(2);
     expect(permitDateOf(h.fake, "WO2004")).toBe("2026-07-01");
@@ -249,12 +249,12 @@ describe("CommitController: 反映の中止", () => {
 
     expect(done.results.map((r) => r.status)).toEqual(["verified", "error", "skipped"]);
     // 中止は onRow の例外で伝えているので、その内部の文言（結果の通知に失敗した）を利用者に見せない
-    expect(done.results[2]!.message).toBe(CANCELLED_ROW_NOTE);
+    expect(done.results[2]!.message).toBe(cancelledRowNote());
     expect(done.results.map((r) => r.message ?? "").join(" ")).not.toContain("onRow");
     // 失敗した行の結果は残り、状態は failed
     expect(done.results[1]!.reasonCode).toBe("BMXAA_FAKE_TEST");
     expect(done.state).toBe("failed");
-    expect(done.message).toBe(CANCELLED_MESSAGE);
+    expect(done.message).toBe(cancelledMessage());
     expect(posts(h.fake)).toHaveLength(2);
   });
 
@@ -282,21 +282,21 @@ describe("CommitController: 実行しなかった理由（message）", () => {
     h.connection.set(false);
     const notConnected = await h.controller.run(PERMIT_SHEET, {});
     expect(notConnected.state).toBe("idle");
-    expect(notConnected.message).toContain(NOT_CONNECTED_BLOCKER);
+    expect(notConnected.message).toContain(notConnectedBlocker());
 
     h.connection.set(true);
     // 空にする変更は確認が要る
     h.workspace.applyEdits(PERMIT_SHEET, [{ rowKey: ck("WO2001", 1001), col: "EXT_WOPERMIT.EXT_MEMO", value: null }], { author: "user" });
     const needsNull = await h.controller.run(PERMIT_SHEET, {});
     expect(needsNull.state).toBe("idle");
-    expect(needsNull.message).toBe(NEEDS_NULL_CONFIRM_MESSAGE);
+    expect(needsNull.message).toBe(needsNullConfirmMessage());
 
     // 実行中に呼ぶと「反映中」だと返す
     const running = h.controller.run(PERMIT_SHEET, { allowNull: true });
     await untilCanary(h);
     const busy = await h.controller.run(PERMIT_SHEET, { allowNull: true });
     expect(busy.state).toBe("running");
-    expect(busy.message).toBe(ALREADY_RUNNING_MESSAGE);
+    expect(busy.message).toBe(alreadyRunningMessage());
     h.controller.continueCanary(PERMIT_SHEET, true);
     const done = await running;
     // 実行したので前の理由は残さない
@@ -321,7 +321,7 @@ describe("CommitController: 実行しなかった理由（message）", () => {
     h.workspace.deleteRows(PERMIT_SHEET, rowKeys, { author: "user" });
     const res = await h.controller.run(PERMIT_SHEET, {});
     expect(res.state).toBe("idle");
-    expect(res.message).toBe(NEEDS_DELETE_CONFIRM_MESSAGE);
+    expect(res.message).toBe(needsDeleteConfirmMessage());
     expect(h.fake.writeCount()).toBe(0);
   });
 });

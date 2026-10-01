@@ -4,7 +4,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { ObjectStructureCatalog } from "../../src/app/catalog/catalog";
-import { createCommitController, NO_CHANGES_BLOCKER, NOT_CONNECTED_BLOCKER, NOT_MAXIMO_SHEET_BLOCKER, PANEL_REFRESH_MS } from "../../src/app/commit/controller";
+import { createCommitController, noChangesBlocker, notConnectedBlocker, notMaximoSheetBlocker, PANEL_REFRESH_MS } from "../../src/app/commit/controller";
 import { MaximoClient } from "../../src/app/maximo/client";
 import { RelayToolError, type ToolContext } from "../../src/app/relay";
 import type { MaximoConnection } from "../../src/app/runtime/contracts";
@@ -184,7 +184,7 @@ describe("CommitController: 例 (a) を最後まで", () => {
 
     // 反映済みの変更は作業画面から消え、base が Maximo の新しい値になる
     expect(h.workspace.getDiff(PERMIT_SHEET).changedCells).toBe(0);
-    expect(h.controller.panel(PERMIT_SHEET).blockers).toContain(NO_CHANGES_BLOCKER);
+    expect(h.controller.panel(PERMIT_SHEET).blockers).toContain(noChangesBlocker());
     const sheet = h.workspace.getSheet(PERMIT_SHEET);
     expect(sheet.rowKeys("final")).toEqual([ck("WO2001", 1001), ck("WO2001", 1002), ck("WO2002", 1003)]);
     expect(sheet.rowValues(ck("WO2001", 1001), "base")!["EXT_WOPERMIT.EXT_PERMITDATE"]).toBe(NEW_DATE);
@@ -365,7 +365,7 @@ describe("CommitController: 人の確認と blockers", () => {
     const h = await prepared();
     h.connection.set(false);
     const panel = h.controller.panel(PERMIT_SHEET);
-    expect(panel.blockers).toContain(NOT_CONNECTED_BLOCKER);
+    expect(panel.blockers).toContain(notConnectedBlocker());
     expect((await h.controller.run(PERMIT_SHEET, {})).state).toBe("idle");
     expect(h.fake.writeCount()).toBe(0);
 
@@ -379,7 +379,7 @@ describe("CommitController: 人の確認と blockers", () => {
     };
     const rows: SheetRow[] = [{ rowKey: makeParentKey(["T1"]), parentKey: makeParentKey(["T1"]), childName: null, values: { TAG: "T1" } }];
     h.workspace.createSheet(meta, rows);
-    expect(h.controller.panel("参照").blockers).toContain(NOT_MAXIMO_SHEET_BLOCKER);
+    expect(h.controller.panel("参照").blockers).toContain(notMaximoSheetBlocker());
     expect((await h.controller.run("参照", {})).state).toBe("idle");
 
     // 変更をすべて元の値に戻すと、反映する変更が無くなる
@@ -392,7 +392,7 @@ describe("CommitController: 人の確認と blockers", () => {
       { author: "user" },
     );
     expect(h.workspace.getDiff(PERMIT_SHEET).changedCells).toBe(0);
-    expect(h.controller.panel(PERMIT_SHEET).blockers).toContain(NO_CHANGES_BLOCKER);
+    expect(h.controller.panel(PERMIT_SHEET).blockers).toContain(noChangesBlocker());
   });
 
   it("作業内容の変更は間引いて通知し、依頼はすぐ通知する", () => {

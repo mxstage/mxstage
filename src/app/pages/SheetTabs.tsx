@@ -5,6 +5,7 @@
 import { Close } from "@carbon/icons-react";
 import { IconButton } from "@carbon/react";
 import type { Workspace } from "../store";
+import { pagesMessages } from "./messages";
 
 export interface SheetTabInfo {
   name: string;
@@ -22,15 +23,16 @@ export interface SheetTabsProps {
 }
 
 export function SheetTabs({ tabs, current, onSelect, onClose }: SheetTabsProps) {
+  const t = pagesMessages().sheetTabs;
   return (
-    <div className="sheet-tabs" role="tablist" aria-label="シート">
-      {tabs.map((t) => (
-        <span key={t.name} className="sheet-tab-wrap" role="presentation">
-          <button type="button" role="tab" aria-selected={t.name === current} className="sheet-tab" title={t.origin} onClick={() => onSelect(t.name)}>
-            {t.name}
-            {t.changes > 0 && (
-              <span className="count" title="変更の件数">
-                {t.changes}
+    <div className="sheet-tabs" role="tablist" aria-label={t.label}>
+      {tabs.map((tab) => (
+        <span key={tab.name} className="sheet-tab-wrap" role="presentation">
+          <button type="button" role="tab" aria-selected={tab.name === current} className="sheet-tab" title={tab.origin} onClick={() => onSelect(tab.name)}>
+            {tab.name}
+            {tab.changes > 0 && (
+              <span className="count" title={t.changes}>
+                {tab.changes}
               </span>
             )}
           </button>
@@ -40,9 +42,9 @@ export function SheetTabs({ tabs, current, onSelect, onClose }: SheetTabsProps) 
             align="bottom"
             className="sheet-tab-close"
             wrapperClasses="sheet-tab-close-wrap"
-            label="シートを閉じる"
-            aria-label={`シート ${t.name} を閉じる`}
-            onClick={() => onClose(t.name)}
+            label={t.close}
+            aria-label={t.closeNamed(tab.name)}
+            onClick={() => onClose(tab.name)}
           >
             <Close />
           </IconButton>
@@ -67,12 +69,12 @@ export function closeSheet(name: string, deps: CloseSheetDeps): boolean {
   const { workspace } = deps;
   if (!workspace.hasSheet(name)) return false;
   if (deps.isRunning(name)) {
-    deps.notify(`シート ${name} は Maximo へ反映中のため閉じられません。反映が終わってから閉じてください。`, "error");
+    deps.notify(pagesMessages().sheetTabs.running(name), "error");
     return false;
   }
   const s = workspace.summary(name);
   const changes = s.changedCells + s.addedRows + s.deletedRows;
-  if (changes > 0 && !deps.confirm(`シート ${name} には Maximo に未反映の変更が ${changes} 件あります。閉じると変更は捨てられます（Maximo には反映されません）。閉じますか？`)) {
+  if (changes > 0 && !deps.confirm(pagesMessages().sheetTabs.confirmDiscard(name, changes))) {
     return false;
   }
   return workspace.removeSheet(name);

@@ -4,6 +4,7 @@
 
 import { Button, Form, Layer, RadioButton, RadioButtonGroup, Select, SelectItem, TextInput } from "@carbon/react";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
+import { LOCALES, getLocale, isLocale, subscribeLocale } from "../../shared/i18n";
 import type { ConnectInput, VaultView } from "../keyvault/client";
 import type { Environment, LicenseClient } from "../license/client";
 import { licenseMessages } from "../license/messages";
@@ -11,9 +12,11 @@ import type { MaximoVia } from "../maximo/client";
 import { hostOf } from "../pages/status";
 import type { MaximoConnectionInfo } from "../runtime/contracts";
 import { spaClick } from "../ui/Link";
+import { chooseLocale } from "../ui/locale";
 import { Notice } from "../ui/Notice";
 import { APP_PATH } from "../ui/routes";
 import { LicenseSection } from "./LicenseSection";
+import { LANGUAGE_NAMES, settingsMessages as m } from "./messages";
 import {
   connectErrorMessage,
   fetchSkillList,
@@ -103,7 +106,7 @@ function browserClipboard(): ClipboardLike | null {
 }
 
 function errorText(e: unknown): string {
-  return e instanceof Error && e.message ? e.message : "処理に失敗しました。";
+  return e instanceof Error && e.message ? e.message : m().page.failed;
 }
 
 export function SettingsPage(props: SettingsPageProps) {
@@ -119,12 +122,13 @@ export function SettingsPage(props: SettingsPageProps) {
   // 描画のたびに作り直すと、一覧の読み込みが繰り返されるので固定する
   const loadSkills = useMemo(() => props.loadSkills ?? (() => fetchSkillList()), [props.loadSkills]);
 
+  const t = m().page;
   return (
     <main className="page settings">
       <header className="page-head">
-        <h1>設定</h1>
+        <h1>{t.title}</h1>
         <Button kind="tertiary" size="md" href={APP_PATH} onClick={spaClick(APP_PATH)}>
-          作業画面に戻る
+          {t.backToApp}
         </Button>
       </header>
       <MaximoSection
@@ -138,6 +142,7 @@ export function SettingsPage(props: SettingsPageProps) {
       {props.license && <LicenseSection license={props.license} />}
       <LlmSection clipboard={clipboard} />
       <SkillsSection load={loadSkills} />
+      <LanguageSection storage={storage} />
     </main>
   );
 }
@@ -167,35 +172,40 @@ function SkillsSection({ load }: { load: () => Promise<SkillList> }) {
   const defaults = state.kind === "ok" ? state.list.skills.filter((s) => s.origin === "default") : [];
   const users = state.kind === "ok" ? state.list.skills.filter((s) => s.origin === "user") : [];
   const problems = state.kind === "ok" ? state.list.problems : [];
+  const t = m().skills;
   return (
     <section className="card skills">
-      <h2>Skill（作業手順書）</h2>
-      <p className="muted">LLM に MX Stage の作業手順と禁止事項を教えるファイルです。Claude Code は新しいセッションから読みます。</p>
-      {state.kind === "loading" && <p className="muted">一覧を読んでいます…</p>}
+      <h2>{t.title}</h2>
+      <p className="muted">{t.intro}</p>
+      {state.kind === "loading" && <p className="muted">{t.loading}</p>}
       {state.kind === "error" && <Notice kind="warning">{state.message}</Notice>}
       {state.kind === "ok" && (
         <>
-          <h3>アプリ既定</h3>
-          <p className="muted small">MX Stage と一緒に入り、MX Stage を更新すると置き換わります。書き換えないでください。</p>
-          <SkillItems items={defaults} empty="ありません。" />
-          <h3>利用者の Skill</h3>
+          <h3>{t.defaultsTitle}</h3>
+          <p className="muted small">{t.defaultsHelp}</p>
+          <SkillItems items={defaults} empty={t.defaultsEmpty} />
+          <h3>{t.userTitle}</h3>
           <p className="muted small">
-            業務や客先ごとの手順です。
+            {t.userIntro}
             {state.list.userSkillsDir !== null ? (
               <>
                 {" "}
-                <code className="mono">{state.list.userSkillsDir}</code> の下に <code className="mono">&lt;名前&gt;/SKILL.md</code> で置きます。
+                {t.userPlaceBefore}
+                <code className="mono">{state.list.userSkillsDir}</code>
+                {t.userPlaceMiddle}
+                <code className="mono">&lt;{t.userPlaceName}&gt;/SKILL.md</code>
+                {t.userPlaceAfter}
               </>
             ) : null}
-            MX Stage を更新しても消えず、公開もされません。置いたあと導入をやり直すと Claude Code に入ります。
+            {t.userKeep}
           </p>
-          <SkillItems items={users} empty="まだありません。" />
+          <SkillItems items={users} empty={t.userEmpty} />
           {problems.length > 0 && (
             <ul className="plain skill-problems">
               {problems.map((p, i) => (
                 <li key={i}>
                   <Notice kind={p.level === "error" ? "error" : "warning"}>
-                    {p.name !== "" && <code className="mono">{p.name}</code>} {p.level === "error" ? "読み込めません: " : "注意: "}
+                    {p.name !== "" && <code className="mono">{p.name}</code>} {p.level === "error" ? t.problemError : t.problemWarn}
                     {p.message}
                   </Notice>
                 </li>
@@ -215,7 +225,7 @@ function SkillItems({ items, empty }: { items: SkillList["skills"]; empty: strin
       {items.map((s) => (
         <li key={s.name}>
           <code className="mono">{s.name}</code>
-          {s.version && <span className="muted small"> 版 {s.version}</span>}
+          {s.version && <span className="muted small">{m().skills.version(s.version)}</span>}
           <p className="muted small">{s.description}</p>
         </li>
       ))}
@@ -301,10 +311,11 @@ function MaximoSection({ vault, view, storage, passwordCredential, replaceUrl, l
     }
   };
 
+  const t = m().maximo;
   if (!showForm && view.kind === "connected") {
     return (
       <section className="card">
-        <h2>Maximo への接続</h2>
+        <h2>{t.title}</h2>
         <ConnectedInfo info={view.info} license={license} onReconnect={() => setShowForm(true)} onDisconnect={() => vault.disconnect()} />
       </section>
     );
@@ -312,15 +323,9 @@ function MaximoSection({ vault, view, storage, passwordCredential, replaceUrl, l
 
   return (
     <section className="card">
-      <h2>Maximo への接続</h2>
-      {view.kind === "locked" && (
-        <Notice kind="warning">
-          {view.reason === "idle" ? "無操作が 30 分続いたため、API キーをメモリから消しました（ロック中）。もう一度接続してください。" : "接続を切りました。"}
-        </Notice>
-      )}
-      <p className="muted">
-        API キーはこのタブのメモリ（専用の Web Worker）にだけ置き、サーバやブラウザのストレージには保存しません。記憶はブラウザのパスワードマネージャーに任せてください。
-      </p>
+      <h2>{t.title}</h2>
+      {view.kind === "locked" && <Notice kind="warning">{view.reason === "idle" ? t.lockedIdle : t.lockedManual}</Notice>}
+      <p className="muted">{t.keyNote}</p>
       {/* カードは layer-01 の面。入力欄は一段上の面の色で描く */}
       <Layer>
         <Form className="connect-form" onSubmit={onSubmit} noValidate>
@@ -328,7 +333,7 @@ function MaximoSection({ vault, view, storage, passwordCredential, replaceUrl, l
             id="mx-url"
             type="url"
             name="maximo-url"
-            labelText="Maximo URL"
+            labelText={t.urlLabel}
             autoComplete="url"
             inputMode="url"
             placeholder="https://maximo.example.com"
@@ -345,7 +350,7 @@ function MaximoSection({ vault, view, storage, passwordCredential, replaceUrl, l
           <Select
             id="mx-via"
             name="via"
-            labelText="接続方式"
+            labelText={t.viaLabel}
             value={via}
             onChange={(e) => {
               if (isVia(e.target.value)) setVia(e.target.value);
@@ -360,7 +365,7 @@ function MaximoSection({ vault, view, storage, passwordCredential, replaceUrl, l
             id="mx-name"
             type="text"
             name="username"
-            labelText="接続名"
+            labelText={t.nameLabel}
             autoComplete="username"
             placeholder="MAXADMIN@mas-dev"
             value={connectionName}
@@ -374,7 +379,7 @@ function MaximoSection({ vault, view, storage, passwordCredential, replaceUrl, l
             id="mx-key"
             type="password"
             name="password"
-            labelText="API キー"
+            labelText={t.keyLabel}
             autoComplete="current-password"
             ref={keyRef}
             invalid={Boolean(errors.apiKey)}
@@ -391,9 +396,9 @@ function MaximoSection({ vault, view, storage, passwordCredential, replaceUrl, l
           )}
           <div className="actions">
             <Button type="submit" kind="primary" disabled={busy}>
-              接続
+              {t.connect}
             </Button>
-            {busy && <span className="muted">確認しています…</span>}
+            {busy && <span className="muted">{t.checking}</span>}
           </div>
         </Form>
       </Layer>
@@ -436,20 +441,19 @@ function EnvironmentField(p: { environment: Environment | null; onChange: (e: En
 
 function ConnectedInfo({ info, license, onReconnect, onDisconnect }: { info: MaximoConnectionInfo; license: LicenseClient | null; onReconnect: () => void; onDisconnect: () => void }) {
   const t = licenseMessages().environment;
+  const c = m().maximo;
   const licensedEntry = license?.licenseFor(info.baseUrl) ?? null;
   const environment = license?.environmentOf(info.baseUrl) ?? null;
   return (
     <div className="connected">
-      <Notice kind="success">接続しました。</Notice>
+      <Notice kind="success">{c.connected}</Notice>
       <dl className="kv">
-        <dt>接続名</dt>
+        <dt>{c.nameLabel}</dt>
         <dd>{info.connectionName}</dd>
-        <dt>Maximo</dt>
-        <dd>
-          {hostOf(info.baseUrl)}（{info.via === "proxy" ? "proxy" : "直結"}）
-        </dd>
-        <dt>Maximo の利用者</dt>
-        <dd>{info.userName ?? "（不明）"}</dd>
+        <dt>{c.maximo}</dt>
+        <dd>{c.hostVia(hostOf(info.baseUrl), info.via !== "proxy")}</dd>
+        <dt>{c.user}</dt>
+        <dd>{info.userName ?? c.unknownUser}</dd>
         {license !== null && (
           <>
             <dt>{t.label}</dt>
@@ -459,13 +463,13 @@ function ConnectedInfo({ info, license, onReconnect, onDisconnect }: { info: Max
       </dl>
       <div className="actions">
         <Button kind="primary" href={APP_PATH} onClick={spaClick(APP_PATH)}>
-          作業画面に戻る
+          {c.backToApp}
         </Button>
         <Button kind="secondary" onClick={onReconnect}>
-          別の接続にする
+          {c.reconnect}
         </Button>
         <Button kind="secondary" onClick={onDisconnect}>
-          接続を切る
+          {c.disconnect}
         </Button>
       </div>
     </div>
@@ -486,7 +490,7 @@ function CopyButton({ text, clipboard }: { text: string; clipboard: ClipboardLik
         );
       }}
     >
-      {copied ? "コピーしました" : "コピー"}
+      {copied ? m().llm.copied : m().llm.copy}
     </Button>
   );
 }
@@ -494,9 +498,10 @@ function CopyButton({ text, clipboard }: { text: string; clipboard: ClipboardLik
 /** LLM クライアントの接続。橋渡しは stdio の MCP なので URL もトークンも無く、現状を示すだけにする */
 function LlmSection({ clipboard }: { clipboard: ClipboardLike | null }) {
   const status = localClientStatus();
+  const t = m().llm;
   return (
     <section className="card">
-      <h2>LLM クライアントの接続</h2>
+      <h2>{t.title}</h2>
       <Notice kind="info">{status.summary}</Notice>
       {status.notes.map((n, i) => (
         <p key={i} className="muted">
@@ -504,11 +509,38 @@ function LlmSection({ clipboard }: { clipboard: ClipboardLike | null }) {
         </p>
       ))}
       <div className="field">
-        <span className="cds--label">登録を確かめる</span>
+        <span className="cds--label">{t.check}</span>
         <div className="copy-row">
           <code className="mono">{status.checkCommand}</code>
           <CopyButton text={status.checkCommand} clipboard={clipboard} />
         </div>
+      </div>
+    </section>
+  );
+}
+
+/** 作業画面の言語。選んだ言語はこのブラウザに覚え、画面を作り直して切り替える（src/app/ui/locale.ts） */
+function LanguageSection({ storage }: { storage: StorageLike | null }) {
+  const locale = useSyncExternalStore(subscribeLocale, getLocale);
+  const t = m().language;
+  return (
+    <section className="card">
+      <h2>{t.title}</h2>
+      <div className="field">
+        <RadioButtonGroup
+          legendText={t.label}
+          name="ui-language"
+          orientation="vertical"
+          valueSelected={locale}
+          onChange={(value) => {
+            if (isLocale(value)) chooseLocale(value, storage);
+          }}
+        >
+          {LOCALES.map((l) => (
+            <RadioButton key={l} id={`ui-language-${l}`} labelText={LANGUAGE_NAMES[l]} value={l} lang={l} />
+          ))}
+        </RadioButtonGroup>
+        <p className="muted small">{t.help}</p>
       </div>
     </section>
   );

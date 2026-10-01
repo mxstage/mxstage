@@ -6,6 +6,7 @@ import type { MaximoClient } from "../maximo/client";
 import { parentKeyOf, parseMember, recordsToRows } from "../maximo/load";
 import { buildSelect, upperKeys } from "../maximo/query";
 import type { ParentReplacement, Sheet } from "../store";
+import { commitMessages as m } from "./messages";
 
 export interface ReloadOutcome {
   replacements: ParentReplacement[];
@@ -30,7 +31,7 @@ export async function reloadParents(client: MaximoClient, sheet: Sheet, parentKe
   for (const pk of parentKeys) {
     const old = byKey.get(pk);
     if (old === undefined) {
-      failures.set(pk, "読み込み時の親レコードが見つからない");
+      failures.set(pk, m().reload.parentNotFound);
       continue;
     }
     let rec: MaximoRecord;
@@ -40,18 +41,18 @@ export async function reloadParents(client: MaximoClient, sheet: Sheet, parentKe
       // 以後の書き込み先は読み込み時の href に固定する（I7）
       rec = { ...parseMember(json, idAttrs, { requireHref: false }), href: old.href };
     } catch (e) {
-      failures.set(pk, `読み直しに失敗した（${e instanceof Error ? e.message : "不明なエラー"}）`);
+      failures.set(pk, m().reload.readFailed(e instanceof Error ? e.message : m().unknownError));
       continue;
     }
     if (parentKeyOf(rec, meta.keyColumns) !== pk) {
-      failures.set(pk, "読み直した親のキー列の値が一致しない");
+      failures.set(pk, m().reload.keyMismatch);
       continue;
     }
     let rows: SheetRow[];
     try {
       rows = recordsToRows([rec], meta);
     } catch (e) {
-      failures.set(pk, `読み直した行をシートにできない（${e instanceof Error ? e.message : "不明なエラー"}）`);
+      failures.set(pk, m().reload.rowsInvalid(e instanceof Error ? e.message : m().unknownError));
       continue;
     }
     replacements.push({ parentKey: pk, record: rec, rows: visibleRows(sheet, pk, old, rows) });

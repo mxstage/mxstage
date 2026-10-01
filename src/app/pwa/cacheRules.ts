@@ -212,3 +212,14 @@ export function findModuleSyntax(code: string): string | null {
 export function hasModuleSyntax(code: string): boolean {
   return findModuleSyntax(code) !== null;
 }
+
+/**
+ * オフラインで画面の枠も無いときに返す文。Service Worker からは画面で選んだ言語（localStorage）が読めないので、
+ * 要求の Accept-Language の先頭が日本語なら日本語、それ以外は英語にする（src/shared/i18n.ts の detectLocale と同じ決め方）。
+ */
+export function offlineText(acceptLanguage: string | null): string {
+  const first = (acceptLanguage ?? "").split(",")[0]?.trim().toLowerCase() ?? "";
+  return first.startsWith("ja")
+    ? "オフラインです。ネットワークにつながってからもう一度開いてください。"
+    : "You are offline. Connect to the network and open the page again.";
+}

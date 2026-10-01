@@ -410,7 +410,7 @@ describe("変更できなかったセルの要約", () => {
       { rowKey: "c", col: "Y", reason: "invalid_value" },
     ]);
     expect(msg).toBe("3 件のセルは変更できませんでした（読み取り専用の列 2 件、値が列の型に合わない 1 件）。");
-    expect(conflictSummary([{ rowKey: "a", col: "X", reason: "user_editing" }], "取り消し")).toContain("取り消しできませんでした");
+    expect(conflictSummary([{ rowKey: "a", col: "X", reason: "user_editing" }], "undo")).toContain("取り消しできませんでした");
   });
 });
 

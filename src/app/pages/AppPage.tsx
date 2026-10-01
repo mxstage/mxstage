@@ -16,6 +16,7 @@ import { SETTINGS_PATH } from "../ui/routes";
 import { Toasts, type ToastStore } from "../ui/toast";
 import { CommitPanel } from "./CommitPanel";
 import { HistoryPanel } from "./HistoryPanel";
+import { pagesMessages } from "./messages";
 import { useFrameVersion, useWindowWidth } from "./hooks";
 import { HIDE_SIDE_WIDTH, showOnePane } from "../grid/layout";
 import { PaneBar } from "./PaneBar";
@@ -79,16 +80,20 @@ export interface AppPageProps {
   reload?: () => void;
 }
 
-const VIEWS: Array<{ kind: ViewKind; label: string }> = [
-  { kind: "final", label: "最終" },
-  { kind: "diff", label: "差分" },
-  { kind: "base", label: "元の値" },
-];
+const VIEW_KINDS: readonly ViewKind[] = ["final", "diff", "base"];
+
+/** 表示の切替（最終・差分・元の値）。文言は今の言語 */
+function viewOptions(): Array<{ kind: ViewKind; label: string }> {
+  const labels = pagesMessages().app.views;
+  return VIEW_KINDS.map((kind) => ({ kind, label: labels[kind] }));
+}
 
 export function AppPage({ runtime, vault, toasts, catalog, license, onEndWork, confirm, reload }: AppPageProps) {
   const { workspace, commits } = runtime;
   const confirmFn = confirm ?? ((m: string) => window.confirm(m));
   const reloadFn = reload ?? (() => window.location.reload());
+  const t = pagesMessages().app;
+  const views = viewOptions();
 
   const wsSubscribe = useCallback((l: () => void) => workspace.subscribe(() => l()), [workspace]);
   const version = useFrameVersion(wsSubscribe);
@@ -196,8 +201,8 @@ export function AppPage({ runtime, vault, toasts, catalog, license, onEndWork, c
     // どのオブジェクト構造（と接続先）から読み込んだか。反映もこの構造に対して行う
     const src = s?.meta.source;
     const info: SheetTabInfo = { name, changes: counts ? counts.changedCells + counts.addedRows + counts.deletedRows : 0 };
-    if (src?.kind === "maximo") info.origin = `${src.os}${src.baseUrl ? `（${hostOf(src.baseUrl)}）` : ""} から読み込み`;
-    else if (src?.kind === "excel") info.origin = `${src.fileName} の ${src.sheetName} から取り込み`;
+    if (src?.kind === "maximo") info.origin = t.originMaximo(src.os, src.baseUrl ? hostOf(src.baseUrl) : null);
+    else if (src?.kind === "excel") info.origin = t.originExcel(src.fileName, src.sheetName);
     return info;
   });
   const sheetTabs = (
@@ -228,28 +233,30 @@ export function AppPage({ runtime, vault, toasts, catalog, license, onEndWork, c
         tabs={sheetTabs}
         sidePanel={sidePanel}
         onToggleSide={() => setSidePanel((s) => !s)}
-        viewHint={view === "final" ? null : (VIEWS.find((v) => v.kind === view)?.label ?? null)}
+        viewHint={view === "final" ? null : (views.find((v) => v.kind === view)?.label ?? null)}
         onReload={() => {
-          if (confirmFn("再読み込みすると、このタブの作業データと API キーは消えます。再読み込みしますか？")) reloadFn();
+          if (confirmFn(t.confirmReload)) reloadFn();
         }}
         onEndWork={() => {
-          if (confirmFn("作業を終了しますか？ すべてのシートと変更履歴を破棄します（Maximo には反映されません）。")) onEndWork();
+          if (confirmFn(t.confirmEndWork)) onEndWork();
         }}
       />
       <div className={`workarea${sidePanel ? "" : " no-side"}`}>
         <div className="grid-area">
           {current === null ? (
             <div className="empty">
-              <p>シートはまだありません。</p>
+              <p>{t.emptyTitle}</p>
               <p className="muted">
-                LLM クライアントから読み込むと、ここにシートが増えます。LLM クライアントの接続方法は <Link to={SETTINGS_PATH}>設定</Link> にあります。
+                {t.emptyBefore}
+                <Link to={SETTINGS_PATH}>{t.emptyLink}</Link>
+                {t.emptyAfter}
               </p>
             </div>
           ) : (
             <>
               {busy && (
                 <Notice kind="warning" className="busy-banner">
-                  Maximo に反映中のため、このシートは編集できません。
+                  {t.busy}
                 </Notice>
               )}
               {(arranged.all.length > 1 || addable.length > 0) && (
@@ -265,12 +272,12 @@ export function AppPage({ runtime, vault, toasts, catalog, license, onEndWork, c
                 style={{ gridTemplateColumns: gridTemplate.columns, gridTemplateRows: gridTemplate.rows }}
               >
                 <PaneSplitters count={shownPanes.length} split={split} onChange={(next) => setSplits((all) => ({ ...all, [groupKey]: next }))} />
-                {shownPanes.length === 0 && <div className="empty">表をすべて隠しています。上の「表示する表」から出してください。</div>}
+                {shownPanes.length === 0 && <div className="empty">{t.allHidden}</div>}
                 {shownPanes.map((pane) => (
                   <section
                     key={pane.key}
                     className={`pane${dropKey === pane.key ? " drop-over" : ""}`}
-                    aria-label={`${pane.title}（${pane.subtitle}）`}
+                    aria-label={t.paneLabel(pane.title, pane.subtitle)}
                     aria-current={pane.sheet === focusSheet}
                     onDragOver={(e) => {
                       if (!Array.from(e.dataTransfer.types).includes(PANE_DRAG_TYPE)) return;
@@ -341,14 +348,14 @@ export function AppPage({ runtime, vault, toasts, catalog, license, onEndWork, c
             <ContentSwitcher
               className="view-switch"
               size="sm"
-              aria-label="表示"
-              selectedIndex={Math.max(0, VIEWS.findIndex((v) => v.kind === view))}
+              aria-label={t.viewSwitch}
+              selectedIndex={Math.max(0, views.findIndex((v) => v.kind === view))}
               onChange={({ index }) => {
-                const next = VIEWS[index ?? 0];
+                const next = views[index ?? 0];
                 if (next) setView(next.kind);
               }}
             >
-              {VIEWS.map((v) => (
+              {views.map((v) => (
                 <Switch key={v.kind} name={v.kind} text={v.label} />
               ))}
             </ContentSwitcher>

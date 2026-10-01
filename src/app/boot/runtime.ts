@@ -14,6 +14,7 @@ import type {
   TabToolRegistry,
 } from "../runtime/contracts";
 import { Workspace, type JobRegistry } from "../store";
+import { uiMessages } from "../ui/messages";
 
 export interface RuntimeFactories {
   createToolRegistry: CreateToolRegistry;
@@ -64,7 +65,7 @@ export interface Runtime {
 
 export function defaultWorkspaceName(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `作業 ${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return uiMessages().workspaceName(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`);
 }
 
 /** LLM のツールに渡す反映の口。run などを持たない別のオブジェクトにして、ツールからは書き込めないようにする */

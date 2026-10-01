@@ -1,9 +1,14 @@
 // Service Worker の登録と「新しい版があります」の知らせ（画面側）。
 // 勝手に入れ替えない（skipWaiting しない）ので、入れ替わるのは次にこの画面を開き直したとき。
 
+import { uiMessages } from "../ui/messages";
+
 export const SW_URL = "/sw.js";
 
-export const UPDATE_READY_MESSAGE = "新しい版を用意しました。このタブを閉じて開き直すと入れ替わります。";
+/** 新しい版を用意したときの知らせ（今の言語の文言） */
+export function updateReadyMessage(): string {
+  return uiMessages().updateReady;
+}
 
 /** 使う部分だけの型（試験で偽物を渡せるように） */
 export interface ServiceWorkerLike {
@@ -58,7 +63,7 @@ export async function registerServiceWorker(opts: RegisterOptions): Promise<Regi
   } catch {
     return null;
   }
-  const notify = once(() => opts.onUpdate?.(UPDATE_READY_MESSAGE));
+  const notify = once(() => opts.onUpdate?.(updateReadyMessage()));
   const watch = (worker: ServiceWorkerLike | null) => {
     if (!worker) return;
     const check = () => {

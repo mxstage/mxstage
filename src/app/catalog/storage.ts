@@ -4,6 +4,7 @@
 // - IndexedDB が使えない環境（プライベートウィンドウ、試験など）ではメモリに置く（タブを閉じると消える）。
 
 import type { DefinedObjectStructure, ObjectStructureInfo, ObjectStructureListItem } from "../maximo/meta";
+import { catalogMessages as m } from "../settings/messages";
 
 /** 保存したオブジェクト構造 1 つ */
 export interface StoredObjectStructure {
@@ -94,15 +95,15 @@ interface StructureRecord extends StoredObjectStructure {
 function promised<T>(req: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
     req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error ?? new Error("IndexedDB の要求に失敗しました"));
+    req.onerror = () => reject(req.error ?? new Error(m().idbRequest));
   });
 }
 
 function done(tx: IDBTransaction): Promise<void> {
   return new Promise((resolve, reject) => {
     tx.oncomplete = () => resolve();
-    tx.onabort = () => reject(tx.error ?? new Error("IndexedDB の書き込みが中断されました"));
-    tx.onerror = () => reject(tx.error ?? new Error("IndexedDB の書き込みに失敗しました"));
+    tx.onabort = () => reject(tx.error ?? new Error(m().idbAborted));
+    tx.onerror = () => reject(tx.error ?? new Error(m().idbWrite));
   });
 }
 
@@ -130,8 +131,8 @@ export function createIndexedDbCatalogStorage(factory: IDBFactory): CatalogStora
           if (!d.objectStoreNames.contains(API_LISTS_STORE)) d.createObjectStore(API_LISTS_STORE, { keyPath: "baseUrl" });
         };
         req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error ?? new Error("IndexedDB を開けませんでした"));
-        req.onblocked = () => reject(new Error("IndexedDB が別のタブの古い版に使われているため開けませんでした"));
+        req.onerror = () => reject(req.error ?? new Error(m().idbOpen));
+        req.onblocked = () => reject(new Error(m().idbBlocked));
       });
       // 失敗したら次の操作で開き直す
       opening.catch(() => {

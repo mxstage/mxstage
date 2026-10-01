@@ -136,7 +136,7 @@ export interface ObjectStructureInfo {
 
 /** jsonschemas/{os}?oslc.select=* を取得して解析する */
 export async function getObjectStructureInfo(client: MaximoClient, os: string): Promise<ObjectStructureInfo> {
-  if (!OS_NAME_RE.test(os)) throw new Error(`オブジェクト構造名 ${JSON.stringify(os)} が不正`);
+  if (!OS_NAME_RE.test(os)) throw new Error(`Invalid object structure name ${JSON.stringify(os)}`);
   const json = await client.get(`${client.apiRoot}/jsonschemas/${os.toLowerCase()}?oslc.select=*`);
   return parseJsonSchema(os, json);
 }
@@ -150,7 +150,7 @@ export async function describeObjectStructure(client: MaximoClient, os: string, 
 export function filterChildColumns(info: ObjectStructureInfo, child?: string): ColumnSchema[] {
   if (child === undefined) return info.columns;
   const c = child.toUpperCase();
-  if (!(c in info.childIdAttrs)) throw new Error(`子オブジェクト ${c} は ${info.os} に無い`);
+  if (!(c in info.childIdAttrs)) throw new Error(`Child object ${c} does not exist in ${info.os}`);
   return info.columns.filter((col) => col.child === c);
 }
 
@@ -172,7 +172,7 @@ const KNOWN_CHILD_ID_ATTRS: Record<string, string> = {
  * - readOnly は readOnly / readonly / x-readonly / x-readOnly のいずれかが真なら採用する。
  */
 export function parseJsonSchema(os: string, schema: unknown): ObjectStructureInfo {
-  if (!isRecord(schema)) throw new Error("jsonschemas の応答が不正");
+  if (!isRecord(schema)) throw new Error("Invalid jsonschemas response");
   const props = isRecord(schema.properties) ? schema.properties : {};
   const required = requiredSet(schema);
   const parentCols: ColumnSchema[] = [];

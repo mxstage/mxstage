@@ -5,19 +5,17 @@
 // 変更の状態（誰が変えたセルか・追加行・削除行）でも絞れる。区分はセルの色分けと同じ。
 
 import { foldText } from "../catalog/catalog";
+import { gridMessages } from "./messages";
 
 /** セルの変更の状態。削除行 > 追加行 > 変更したセル（作者別）> 変更なし の順で 1 つに決める（セルの色分けと同じ） */
 export type ChangeKind = "llm" | "user" | "added" | "deleted" | "none";
 
 export const CHANGE_KINDS: readonly ChangeKind[] = ["llm", "user", "added", "deleted", "none"];
 
-export const CHANGE_LABEL: Record<ChangeKind, string> = {
-  llm: "LLM の変更",
-  user: "利用者の変更",
-  added: "追加行",
-  deleted: "削除行",
-  none: "変更なし",
-};
+/** 変更の状態の名前（今の言語の文言。セルの色の凡例と同じ） */
+export function changeLabel(kind: ChangeKind): string {
+  return gridMessages().tone[kind];
+}
 
 export type GridFilter =
   | { col: string; kind: "contains"; text: string }
@@ -87,22 +85,23 @@ export function distinctValues<T>(rows: readonly T[], col: string, valueOf: (row
 
 /** 絞り込みの札（チップ）の文言。title は列の画面表示名（無ければ列名） */
 export function filterLabel(filter: GridFilter, title: string = filter.col): string {
+  const t = gridMessages().filter;
   switch (filter.kind) {
     case "contains":
-      return `${title}: 「${filter.text}」を含む`;
+      return t.contains(title, filter.text);
     case "values":
-      return filter.values.length === 1 ? `${title}: ${blankLabel(filter.values[0] as string)}` : `${title}: ${filter.values.length} 個の値`;
+      return filter.values.length === 1 ? t.value(title, blankLabel(filter.values[0] as string)) : t.values(title, filter.values.length);
     case "empty":
-      return `${title}: 空`;
+      return t.empty(title);
     case "notEmpty":
-      return `${title}: 空でない`;
+      return t.notEmpty(title);
     case "change":
-      return `${title}: ${filter.changes.map((k) => CHANGE_LABEL[k]).join("・")}`;
+      return t.change(title, filter.changes.map(changeLabel));
   }
 }
 
 function blankLabel(value: string): string {
-  return isBlank(value) ? "（空）" : value;
+  return isBlank(value) ? gridMessages().hover.empty : value;
 }
 
 /**
@@ -110,7 +109,7 @@ function blankLabel(value: string): string {
  * どちらも無ければ「全体 行」。total は連動する前の行数（連動で減ったことも見えるように）
  */
 export function rowCountLabel(c: { shown: number; total: number; narrowed: boolean }): string {
-  return c.narrowed ? `${c.shown} / ${c.total}` : `${c.total} 行`;
+  return c.narrowed ? `${c.shown} / ${c.total}` : gridMessages().filter.rows(c.total);
 }
 
 /** 同じ列の絞り込みは 1 つにする（列メニューで選び直したら置き換える） */

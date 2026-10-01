@@ -3,6 +3,7 @@
 
 import { Close, Draggable, Maximize, OpenPanelBottom, ViewOff } from "@carbon/icons-react";
 import { Button, IconButton } from "@carbon/react";
+import { pagesMessages } from "./messages";
 
 /** ペインをドラッグして入れ替えるときの dataTransfer の種類（ファイルのドロップと区別する） */
 export const PANE_DRAG_TYPE = "application/x-mxstage-pane";
@@ -30,13 +31,14 @@ export interface PaneHeaderProps {
 }
 
 export function PaneHeader(p: PaneHeaderProps) {
+  const t = pagesMessages().paneHeader;
   return (
     <header className="pane-head" onClick={p.onSelect}>
       {p.dragKey !== undefined && (
         <span
           className="pane-grip"
           draggable
-          title="つかんで別の表へ落とすと入れ替えます"
+          title={t.grip}
           onDragStart={(e) => {
             e.dataTransfer.setData(PANE_DRAG_TYPE, p.dragKey as string);
             e.dataTransfer.effectAllowed = "move";
@@ -55,15 +57,15 @@ export function PaneHeader(p: PaneHeaderProps) {
           size="sm"
           className="linked"
           renderIcon={Close}
-          iconDescription="連動を外す"
-          aria-label="連動を外す"
-          title="連動を外す"
+          iconDescription={t.unlink}
+          aria-label={t.unlink}
+          title={t.unlink}
           onClick={(e) => {
             e.stopPropagation();
             p.onUnlink?.();
           }}
         >
-          連動中
+          {t.linked}
         </Button>
       )}
       <span className="row-count" title={p.rowCountTitle}>
@@ -75,8 +77,8 @@ export function PaneHeader(p: PaneHeaderProps) {
         align="bottom"
         isSelected={p.detailOpen}
         aria-pressed={p.detailOpen}
-        aria-label="行の詳細"
-        label="選んだ行の全列を縦に並べて読む"
+        aria-label={t.detail}
+        label={t.detailTitle}
         onClick={(e) => {
           e.stopPropagation();
           p.onToggleDetail();
@@ -91,8 +93,8 @@ export function PaneHeader(p: PaneHeaderProps) {
           align="bottom"
           isSelected={p.maximize.pressed}
           aria-pressed={p.maximize.pressed}
-          aria-label={p.maximize.pressed ? "並べて表示" : "広げる"}
-          label={p.maximize.pressed ? "他の表も出す" : "この表だけを広げる"}
+          aria-label={p.maximize.pressed ? t.tile : t.maximize}
+          label={p.maximize.pressed ? t.tileTitle : t.maximizeTitle}
           onClick={(e) => {
             e.stopPropagation();
             p.maximize?.onToggle();
@@ -106,8 +108,8 @@ export function PaneHeader(p: PaneHeaderProps) {
           kind="ghost"
           size="sm"
           align="bottom-end"
-          aria-label="隠す"
-          label="この表を隠す（上の帯から戻せます）"
+          aria-label={t.hide}
+          label={t.hideTitle}
           onClick={(e) => {
             e.stopPropagation();
             p.onHide?.();

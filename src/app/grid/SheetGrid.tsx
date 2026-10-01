@@ -28,6 +28,7 @@ import { TONE_STYLE, cellTone, formatCellValue, hoverLines, isCellEditable, pars
 import { ColumnFilterBar, ColumnFilterMenu, useColumnOptions } from "./ColumnFilterBar";
 import { headerLines } from "../../shared/columnLabel";
 import { conflictSummary, storeErrorMessage } from "./edits";
+import { gridMessages } from "./messages";
 import { applyGridFilters, changeCounts, matchRange, rowCountLabel, setFilter, type ChangeKind, type GridFilter } from "./filters";
 import { defaultColumnWidth, freezeCountForWidth, frozenColumnsFor, headerHeightFor, orderForFreeze, togglePinned } from "./layout";
 import { scopeColumns, scopeRows, type PaneScope } from "../pages/panes";
@@ -461,7 +462,7 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
     (items: readonly EditListItem[]): boolean => {
       if (!sheet) return true;
       if (isBusy()) {
-        onMessage("Maximo に反映中のシートは編集できません。", "error");
+        onMessage(gridMessages().sheetGrid.busy, "error");
         return true;
       }
       const editing = editingRef.current;
@@ -595,7 +596,7 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
     <div className="grid-wrap" ref={wrapRef} onMouseLeave={() => setHover(null)}>
       {renderHeader?.({
         rowCount: rowCountLabel({ shown: rows.length, total: scopedRows.length, narrowed: filters.length > 0 || Boolean(linkFilter) }),
-        rowCountTitle: "列の見出しの ▾ から絞り込めます",
+        rowCountTitle: gridMessages().sheetGrid.rowCountTitle,
         detailOpen: showDetail,
         toggleDetail: () => setShowDetail((s) => !s),
       })}
@@ -661,7 +662,7 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
       </div>
       {showDetail &&
         (selectedRow === null ? (
-          <div className="row-detail hint muted small">行を選ぶと、その行の全列をここに出します。</div>
+          <div className="row-detail hint muted small">{gridMessages().sheetGrid.detailHint}</div>
         ) : (
           <RowDetail title={detailTitle} items={detailItems} />
         ))}

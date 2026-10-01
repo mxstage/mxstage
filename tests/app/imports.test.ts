@@ -252,7 +252,7 @@ describe("見出しの見当とシートへの変換", () => {
       ["定格", "E", "string", 3],
       ["備考", "F", "string", 2],
       ["備考_G", "G", "string", 1],
-      ["列H", "H", "string", 1],
+      ["Column H", "H", "string", 1],
       ["点検済", "I", "boolean", 2],
     ]);
   });
@@ -266,7 +266,7 @@ describe("見出しの見当とシートへの変換", () => {
       source: { kind: "excel", importId: "i1", fileName: "機器一覧.xlsx", sheetName: "機器一覧", headerRow: 3 },
     });
     expect(built.meta.keyColumns).toEqual([SOURCE_ROW_COLUMN]);
-    expect(built.meta.columns[0]).toMatchObject({ name: SOURCE_ROW_COLUMN, title: "元の行", readOnly: true });
+    expect(built.meta.columns[0]).toMatchObject({ name: SOURCE_ROW_COLUMN, title: "Source row", readOnly: true });
     expect(built.meta.columns.find((c) => c.name === "ASSETNUM")).toEqual({ name: "ASSETNUM", type: "string", title: "機器 番号" });
     expect(built.rows.map((r) => r.rowKey)).toEqual(["4", "5", "7", "8"]);
     const r5 = built.rows[1]!.values;
@@ -393,7 +393,7 @@ describe("describe_import / apply_mapping", () => {
     expect(list.columns[1]).toEqual({ name: "機器 番号", letter: "B", type: "string", filled: 3 });
     expect(list.sampleRows[0]).toEqual({
       row: 4,
-      values: { サイト: "BEDFORD", "機器 番号": "A5001", タグ: "P-101", 設置日: "2024-01-01", 定格: 0.3, 備考: "吸込側 & 吐出側", 備考_G: "行1\r\n行2", 列H: "X", 点検済: true },
+      values: { サイト: "BEDFORD", "機器 番号": "A5001", タグ: "P-101", 設置日: "2024-01-01", 定格: 0.3, 備考: "吸込側 & 吐出側", 備考_G: "行1\r\n行2", "Column H": "X", 点検済: true },
     });
     expect(list.headerCandidates[0]).toMatchObject({ row: 3 });
     expect(mx).toMatchObject({ name: "MX", headerRow: 2, mxloader: { objectStructure: "MXASSET", action: "AddChange", headerRow: 2 } });
@@ -437,7 +437,7 @@ describe("describe_import / apply_mapping", () => {
       rowCount: 4,
       keyColumns: [SOURCE_ROW_COLUMN],
       renamed: { "機器 番号": "ASSETNUM", サイト: "SITEID" },
-      columnTitles: { SOURCE_ROW: "元の行", SITEID: "サイト", ASSETNUM: "機器 番号" },
+      columnTitles: { SOURCE_ROW: "Source row", SITEID: "サイト", ASSETNUM: "機器 番号" },
     });
     expect(r.columns.slice(0, 4)).toEqual([SOURCE_ROW_COLUMN, "SITEID", "ASSETNUM", "タグ"]);
     expect(r.note).toContain("cannot be committed to Maximo");

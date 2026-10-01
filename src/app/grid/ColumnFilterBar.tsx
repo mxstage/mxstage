@@ -5,7 +5,9 @@ import { Pin, PinFilled } from "@carbon/icons-react";
 import { Button, Checkbox, DismissibleTag, FormGroup, Layer, TextInput } from "@carbon/react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { TONE_STYLE } from "./cellStyle";
-import { CHANGE_LABEL, distinctValues, filterLabel, type ChangeKind, type GridFilter } from "./filters";
+import { getLocale } from "../../shared/i18n";
+import { changeLabel, distinctValues, filterLabel, type ChangeKind, type GridFilter } from "./filters";
+import { gridMessages } from "./messages";
 
 export interface ColumnFilterBarProps {
   filters: readonly GridFilter[];
@@ -25,10 +27,11 @@ export interface ColumnFilterBarProps {
  */
 export function ColumnFilterBar({ filters, shown, total, titleOf, onRemove, onClearAll }: ColumnFilterBarProps) {
   if (filters.length === 0) return null;
-  const fmt = (n: number) => n.toLocaleString("ja-JP");
+  const t = gridMessages().filterBar;
+  const fmt = (n: number) => n.toLocaleString(getLocale() === "ja" ? "ja-JP" : "en-US");
   return (
     <div className="filter-bar" role="status">
-      <strong className="filter-count">{shown !== undefined && total !== undefined ? `絞り込み中 ${fmt(shown)} / ${fmt(total)} 行` : "絞り込み中"}</strong>
+      <strong className="filter-count">{shown !== undefined && total !== undefined ? t.filteringCount(fmt(shown), fmt(total)) : t.filtering}</strong>
       {filters.map((f) => (
         <DismissibleTag
           key={f.col}
@@ -36,15 +39,15 @@ export function ColumnFilterBar({ filters, shown, total, titleOf, onRemove, onCl
           type="blue"
           size="md"
           text={filterLabel(f, titleOf?.(f.col))}
-          tagTitle="全角半角・大文字小文字は区別しません"
+          tagTitle={t.chipTitle}
           // 外すボタンの読み上げとツールチップ（文字が切れているときも同じ文言にする）
-          title={`${f.col} の絞り込みを外す`}
-          dismissTooltipLabel={`${f.col} の絞り込みを外す`}
+          title={t.remove(f.col)}
+          dismissTooltipLabel={t.remove(f.col)}
           onClose={() => onRemove(f.col)}
         />
       ))}
       <Button kind="ghost" size="sm" onClick={onClearAll}>
-        すべて外す
+        {t.clearAll}
       </Button>
     </div>
   );
@@ -80,6 +83,7 @@ export function ColumnFilterMenu({ col, options, changes = [], current, position
   const changeOptions = changes.some((c) => c.kind !== "none" && c.count > 0) ? changes.filter((c) => c.count > 0 || pickedChanges.includes(c.kind)) : [];
   const ref = useRef<HTMLDivElement>(null);
   const id = useId();
+  const t = gridMessages();
 
   // メニューの外を押したら閉じる
   useEffect(() => {
@@ -101,7 +105,7 @@ export function ColumnFilterMenu({ col, options, changes = [], current, position
   };
 
   return (
-    <div className="column-filter" ref={ref} style={{ left: position.x, top: position.y }} role="dialog" aria-label={`${col} の絞り込み`}>
+    <div className="column-filter" ref={ref} style={{ left: position.x, top: position.y }} role="dialog" aria-label={t.filterMenu.label(col)}>
       {/* メニューは layer-01 の面。中の入力欄は一段上の面の色で描く */}
       <Layer className="column-filter-body">
         <div className="head">
@@ -112,17 +116,17 @@ export function ColumnFilterMenu({ col, options, changes = [], current, position
               size="sm"
               className="pin"
               renderIcon={pinned ? PinFilled : Pin}
-              iconDescription={pinned ? "固定を外す" : "左に固定"}
+              iconDescription={pinned ? t.filterMenu.unpin : t.filterMenu.pin}
               aria-pressed={pinned}
-              title={pinned ? "この列の固定を外す" : "この列を左端に固定する（横に動かしても見える）"}
+              title={pinned ? t.filterMenu.unpinTitle : t.filterMenu.pinTitle}
               onClick={onTogglePin}
             >
-              {pinned ? "固定を外す" : "左に固定"}
+              {pinned ? t.filterMenu.unpin : t.filterMenu.pin}
             </Button>
           )}
         </div>
         {changeOptions.length > 0 && (
-          <FormGroup className="changes" legendText="変更の状態">
+          <FormGroup className="changes" legendText={t.filterMenu.changes}>
             <ul className="plain values">
               {changeOptions.map((c) => {
                 const swatch = changeSwatch(c.kind);
@@ -135,7 +139,7 @@ export function ColumnFilterMenu({ col, options, changes = [], current, position
                       labelText={
                         <>
                           {swatch !== null && <span className="swatch" style={{ background: swatch }} aria-hidden="true" />}
-                          <span className="value">{CHANGE_LABEL[c.kind]}</span>
+                          <span className="value">{changeLabel(c.kind)}</span>
                           <span className="count">{c.count}</span>
                         </>
                       }
@@ -149,10 +153,10 @@ export function ColumnFilterMenu({ col, options, changes = [], current, position
         <TextInput
           id={`${id}-contains`}
           size="sm"
-          labelText="文字を含む"
+          labelText={t.filterMenu.contains}
           hideLabel
-          aria-label="文字を含む"
-          placeholder="文字を含む"
+          aria-label={t.filterMenu.contains}
+          placeholder={t.filterMenu.contains}
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
@@ -171,27 +175,27 @@ export function ColumnFilterMenu({ col, options, changes = [], current, position
                 onChange={() => toggle(o.value)}
                 labelText={
                   <>
-                    <span className="value">{o.value === "" ? "（空）" : o.value}</span>
+                    <span className="value">{o.value === "" ? t.hover.empty : o.value}</span>
                     <span className="count">{o.count}</span>
                   </>
                 }
               />
             </li>
           ))}
-          {options.length === 0 && <li className="muted small">値がありません</li>}
+          {options.length === 0 && <li className="muted small">{t.filterMenu.noValues}</li>}
         </ul>
         <div className="actions">
           <Button kind="ghost" size="sm" onClick={() => onApply({ col, kind: "notEmpty" })}>
-            空でない
+            {t.filterMenu.notEmpty}
           </Button>
           <Button kind="ghost" size="sm" onClick={() => onApply({ col, kind: "empty" })}>
-            空
+            {t.filterMenu.empty}
           </Button>
           <Button kind="ghost" size="sm" onClick={() => onApply(null)}>
-            外す
+            {t.filterMenu.clear}
           </Button>
           <Button kind="primary" size="sm" onClick={apply}>
-            絞り込む
+            {t.filterMenu.apply}
           </Button>
         </div>
       </Layer>

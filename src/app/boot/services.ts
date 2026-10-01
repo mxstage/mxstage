@@ -7,6 +7,8 @@ import { ImportStore, installImportDrop } from "../imports";
 import { KeyVault, createWorkerTransport } from "../keyvault/client";
 import { LicenseClient } from "../license/client";
 import { relayUrl, type ImportErrorReason } from "../relay";
+import { importErrorMessages } from "../settings/messages";
+import { uiMessages } from "../ui/messages";
 import { ToastStore } from "../ui/toast";
 import { factories } from "./factories";
 import { LOCALE_STORAGE_KEY, detectLocale, setLocale } from "../../shared/i18n";
@@ -15,15 +17,11 @@ import { createRuntime } from "./runtime";
 import type { AppServices } from "./types";
 import { APP_VERSION } from "./version";
 
-const IMPORT_ERROR_LABEL: Record<ImportErrorReason, string> = {
-  sequence: "断片の順番が合いません",
-  size_mismatch: "大きさが合いません",
-  too_large: "大きすぎます（20MB まで）",
-  too_many: "同時に受け取れるファイル数を超えました",
-  timeout: "続きが届きませんでした",
-  invalid_data: "内容を読み取れませんでした",
-  digest_failed: "チェックサムを計算できませんでした",
-};
+/** ファイルを受け取れなかった理由（今の言語の文言。src/app/settings/messages.ts） */
+function importErrorLabel(reason: ImportErrorReason): string {
+  const labels: Record<ImportErrorReason, string> = importErrorMessages();
+  return labels[reason] ?? reason;
+}
 
 /** 利用者が設定で選んだ言語（無い・読めなければ null） */
 function readStoredLocale(): string | null {
@@ -70,8 +68,8 @@ export function createServices(): AppServices {
         origin: window.location.origin,
         relayUrl: relayUrl(window.location),
         imports,
-        onImport: (file) => toasts.show(`ファイル ${file.fileName} を受け取りました。Claude が中身を確かめてシートにします。`),
-        onImportError: (_importId, reason) => toasts.show(`ファイルを受け取れませんでした（${IMPORT_ERROR_LABEL[reason] ?? reason}）`, "error"),
+        onImport: (file) => toasts.show(uiMessages().drop.imported(file.fileName)),
+        onImportError: (_importId, reason) => toasts.show(uiMessages().drop.importFailed(importErrorLabel(reason)), "error"),
       });
       // 開発サーバ（vite dev）で ?demo=1 のときだけ、サンプルのシートを入れて画面を確かめられるようにする。
       // 本番のビルドでは import.meta.env.DEV が false の定数になり、この中ごと落ちる

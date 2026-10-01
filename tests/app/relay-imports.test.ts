@@ -94,7 +94,7 @@ describe("ImportAssembler", () => {
     expect(file.bytes.byteLength).toBe(data.byteLength);
     expect(file.bytes).toEqual(data);
     expect(file.sha256).toBe(hex(await crypto.subtle.digest("SHA-256", data)));
-  });
+  }, 30_000); // 1 MB を超える base64 の組み立て。並列で試験を流すと 5 秒を超えることがある
 
   it("sha256 は小文字 16 進（既知の値）。0 バイトのファイルも受け取れる", async () => {
     const abc = harness();

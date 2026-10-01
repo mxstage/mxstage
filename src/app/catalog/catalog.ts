@@ -17,6 +17,7 @@ import {
   type StoredApiList,
   type StoredObjectStructure,
 } from "./storage";
+import { catalogMessages as m } from "../settings/messages";
 
 export type { StoredApiList, StoredObjectStructure } from "./storage";
 export { normalizeScope } from "./storage";
@@ -26,7 +27,7 @@ const OS_NAME_RE = /^[A-Z0-9_]+$/;
 /** 読めなかった理由（Maximo の本文は長さを区切る） */
 function errorText(e: unknown): string {
   const status = typeof (e as { status?: unknown })?.status === "number" ? `${(e as { status: number }).status} ` : "";
-  const message = e instanceof Error && e.message ? e.message : "不明なエラー";
+  const message = e instanceof Error && e.message ? e.message : m().unknownError;
   return `${status}${message}`.slice(0, 200);
 }
 
@@ -183,7 +184,7 @@ export class ObjectStructureCatalog {
         const list = await this.apiList(client, key, { refresh: true });
         names = list.items.map((i) => i.name);
       } catch (e) {
-        update({ state: "failed", error: `オブジェクト構造の一覧を読めませんでした（${errorText(e)}）`, finishedAt: this.now() });
+        update({ state: "failed", error: m().listFailed(errorText(e)), finishedAt: this.now() });
         return s.sync;
       }
       if (refresh) {
@@ -260,7 +261,7 @@ export class ObjectStructureCatalog {
   async ensure(client: MaximoClient, baseUrl: string, rawOs: string, opts: EnsureOptions = {}): Promise<EnsureResult> {
     const key = normalizeScope(baseUrl);
     const os = rawOs.trim().toUpperCase();
-    if (!OS_NAME_RE.test(os)) throw new Error(`オブジェクト構造名 ${JSON.stringify(rawOs)} は英数字と _ だけにしてください`);
+    if (!OS_NAME_RE.test(os)) throw new Error(m().badName(JSON.stringify(rawOs)));
     await this.ready(key);
     const s = this.scope(key);
     const saved = s.entries.get(os);
@@ -353,8 +354,7 @@ export class ObjectStructureCatalog {
   private fallbackToMemory(e: unknown): void {
     if (!this.storage.persistent) return;
     this.storage = createMemoryCatalogStorage();
-    const detail = e instanceof Error && e.message ? `（${e.message}）` : "";
-    this.storageError = `このブラウザに保存できなかったため、読み込んだオブジェクト構造はこのタブを閉じると消えます${detail}。`;
+    this.storageError = m().storageFallback(e instanceof Error && e.message ? e.message : null);
     for (const s of this.scopes.values()) this.changed(s, false);
     this.emit();
   }

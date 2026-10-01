@@ -4,6 +4,7 @@ import type { ColumnSchema } from "../../shared/model";
 import { foldText, type StoredObjectStructure } from "../catalog/catalog";
 import { MaximoError, MaximoNetworkError } from "../maximo/client";
 import type { DefinedObjectStructure } from "../maximo/meta";
+import { structuresMessages } from "./messages";
 
 export { sheetsByStructure } from "../catalog/usage";
 
@@ -73,12 +74,12 @@ export function normalizeOsName(raw: string): string | null {
 
 /** 画面から読み込めなかったときの文言（Maximo の本文は長さを区切って添える） */
 export function loadErrorMessage(os: string, e: unknown): string {
+  const t = structuresMessages().loadError;
   if (e instanceof MaximoError) {
-    if (e.status === 404) return `オブジェクト構造 ${os} は Maximo にありません。名前を確かめてください。`;
-    if (e.status === 401 || e.status === 403) return `Maximo が ${os} の読み取りを拒否しました（${e.status}）。API キーの権限を確かめてください。`;
-    return `${os} を読み込めませんでした（Maximo の応答 ${e.status}${e.message ? `: ${e.message.slice(0, 200)}` : ""}）。`;
+    if (e.status === 404) return t.notFound(os);
+    if (e.status === 401 || e.status === 403) return t.denied(os, e.status);
+    return t.status(os, e.status, e.message ? e.message.slice(0, 200) : "");
   }
-  if (e instanceof MaximoNetworkError) return `Maximo に届かなかったため ${os} を読み込めませんでした${e.timedOut ? "（時間切れ）" : ""}。接続を確かめてください。`;
-  const detail = e instanceof Error && e.message ? `: ${e.message.slice(0, 200)}` : "";
-  return `${os} を読み込めませんでした${detail}。`;
+  if (e instanceof MaximoNetworkError) return t.network(os, e.timedOut);
+  return t.other(os, e instanceof Error && e.message ? e.message.slice(0, 200) : "");
 }

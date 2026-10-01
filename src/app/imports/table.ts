@@ -43,7 +43,7 @@ const HEADER_SCAN_ROWS = 30;
 
 /** 元のファイルの行番号を入れる列（rowKey も同じ番号） */
 export const SOURCE_ROW_COLUMN = "SOURCE_ROW";
-const SOURCE_ROW_TITLE = "元の行";
+const SOURCE_ROW_TITLE = "Source row";
 
 export class ImportError extends Error {}
 
@@ -214,9 +214,9 @@ export function importColumns(t: RawTable, headerRow: number): ImportColumn[] {
     }
     if (h === "" && values.length === 0) continue;
     const letter = columnLetter(i);
-    let name = h === "" ? `列${letter}` : h;
+    let name = h === "" ? `Column ${letter}` : h;
     if (name === "__proto__" || used.has(name)) name = `${name}_${letter}`;
-    for (let n = 2; used.has(name); n++) name = `${h === "" ? `列${letter}` : h}_${letter}_${n}`;
+    for (let n = 2; used.has(name); n++) name = `${h === "" ? `Column ${letter}` : h}_${letter}_${n}`;
     used.add(name);
     out.push({ index: i, letter, header: h, name, type: inferType(values), filled: values.length });
   }

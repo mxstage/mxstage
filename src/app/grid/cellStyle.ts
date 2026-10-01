@@ -2,6 +2,7 @@
 
 import type { BatchAuthor, CellValue } from "../../shared/model";
 import type { RowStatus, ViewKind } from "../store";
+import { gridMessages } from "./messages";
 
 export type CellTone = "normal" | "readonly" | "llm" | "user" | "added" | "deleted";
 
@@ -49,13 +50,10 @@ export const TONE_STYLE: Record<CellTone, { bg: string; fg: string }> = {
 /** 凡例に出す色（読み取り専用は色ではなく文字の薄さで分かるので出さない） */
 export const LEGEND_TONES: readonly Exclude<CellTone, "normal" | "readonly">[] = ["llm", "user", "added", "deleted"];
 
-export const TONE_LABEL: Record<Exclude<CellTone, "normal">, string> = {
-  llm: "LLM の変更",
-  user: "利用者の変更",
-  added: "追加行",
-  deleted: "削除行",
-  readonly: "読み取り専用",
-};
+/** 凡例に出す色の名前（今の言語の文言） */
+export function toneLabel(tone: Exclude<CellTone, "normal">): string {
+  return gridMessages().tone[tone];
+}
 
 export interface EditableInput {
   view: ViewKind;
@@ -79,7 +77,10 @@ export function parseEditedText(text: string): CellValue {
   return text === "" ? null : text;
 }
 
-export const AUTHOR_LABEL: Record<BatchAuthor, string> = { llm: "LLM", user: "利用者" };
+/** 作者の名前（今の言語の文言） */
+export function authorLabel(author: BatchAuthor): string {
+  return gridMessages().author[author];
+}
 
 export interface HoverInput {
   tone: CellTone;
@@ -91,19 +92,20 @@ export interface HoverInput {
 
 /** ホバーで出す行。何も出さないセルは null */
 export function hoverLines(h: HoverInput): string[] | null {
-  const fmt = (v: CellValue) => (v === null || v === "" ? "（空）" : String(v));
-  const who = h.author ? [`作者: ${AUTHOR_LABEL[h.author]}`] : [];
-  const why = h.reason ? [`根拠: ${h.reason}`] : [];
+  const t = gridMessages();
+  const fmt = (v: CellValue) => (v === null || v === "" ? t.hover.empty : String(v));
+  const who = h.author ? [t.hover.author(authorLabel(h.author))] : [];
+  const why = h.reason ? [t.hover.reason(h.reason)] : [];
   switch (h.tone) {
     case "llm":
     case "user":
       return [...who, ...why, `${fmt(h.before)} → ${fmt(h.after)}`];
     case "added":
-      return ["追加行", ...who, ...why];
+      return [t.tone.added, ...who, ...why];
     case "deleted":
-      return ["削除行", ...who, ...why];
+      return [t.tone.deleted, ...who, ...why];
     case "readonly":
-      return ["読み取り専用の列（キー列など）"];
+      return [t.hover.readonlyColumn];
     case "normal":
       return null;
   }

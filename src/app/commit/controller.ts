@@ -20,11 +20,14 @@ import {
   type CommitPlan,
   type CommitRowOutcome,
   type InvariantCode,
+  type InvariantHint,
   type WriteLogEntry,
 } from "../maximo/commit";
 import type { CommitController, CommitCounts, CommitPanelState, CreateCommitController, MaximoConnection } from "../runtime/contracts";
 import { authorizeFailure, licenseBlocker } from "../license/gate";
+import { getLocale } from "../../shared/i18n";
 import { writeLogCsv } from "./csv";
+import { commitMessages as m } from "./messages";
 import { reloadParents } from "./reload";
 
 /** 作業内容の変更を反映パネルに伝えるまでの間引き時間（CommitControllerDeps.refreshMs の既定） */
@@ -39,41 +42,45 @@ export const MAX_BLOCKER_COLUMNS = 10;
 /** 名前を上限まで並べ、残りは件数だけにする（blockers が際限なく長くならないように） */
 function joinNames(names: readonly string[], max: number): string {
   if (names.length <= max) return names.join(", ");
-  return `${names.slice(0, max).join(", ")} ほか ${names.length - max} 列`;
+  return m().moreColumns(names.slice(0, max).join(", "), names.length - max);
 }
 
-export const NOT_CONNECTED_BLOCKER = "Maximo に接続していません。作業画面の設定で接続してください";
-export const NO_CHANGES_BLOCKER = "反映する変更がありません";
-export const NOT_MAXIMO_SHEET_BLOCKER = "Maximo から読み込んだシートではないため反映できません";
+// 文言は今の言語で返す（言語は途中で変わるので、モジュールの定数に取っておかない）
+export const notConnectedBlocker = (): string => m().blocker.notConnected;
+export const noChangesBlocker = (): string => m().blocker.noChanges;
+export const notMaximoSheetBlocker = (): string => m().blocker.notMaximoSheet;
 
 /** シートを読み込んだ接続先と、今の接続先が違う */
 export function otherConnectionBlocker(sheetBaseUrl: string, currentBaseUrl: string): string {
-  return `このシートは ${sheetBaseUrl} から読み込んだため、今の接続先（${currentBaseUrl}）には反映できません。読み込んだ接続先に接続し直すか、今の接続先でシートを読み込み直してください`;
+  return m().blocker.otherConnection(sheetBaseUrl, currentBaseUrl);
 }
 
 /** シートを読み込んだ後に、オブジェクト構造の定義が取り直され、反映に使う列が変わった */
 export function structureChangedBlocker(os: string, problems: readonly string[]): string {
-  const listed = problems.length <= 3 ? problems.join("、") : `${problems.slice(0, 3).join("、")} ほか ${problems.length - 3} 件`;
-  return `シートを読み込んだ後にオブジェクト構造 ${os} の定義が取り直され、反映に使う列が変わりました（${listed}）。シートを読み込み直してから反映してください`;
+  const listed = m().blocker.problemList(problems.slice(0, 3), Math.max(0, problems.length - 3));
+  return m().blocker.structureChanged(os, listed);
 }
 
 // 反映しなかった理由・中止の文言（CommitPanelState.message に入れて UI に出す）
-export const ALREADY_RUNNING_MESSAGE = "このシートは反映中です。終わってからもう一度実行してください";
-export const BLOCKED_MESSAGE_PREFIX = "反映できない問題があるため実行しませんでした: ";
-export const NEEDS_NULL_CONFIRM_MESSAGE = "空（null）にする変更があります。空にしてよいことを確認してから実行してください";
-export const NEEDS_DELETE_CONFIRM_MESSAGE = "削除の件数が上限を超えています。削除してよいことを確認してから実行してください";
-export const PLAN_FAILED_MESSAGE_PREFIX = "反映の計画を作れなかったため実行しませんでした: ";
-export const CANCELLED_MESSAGE = "利用者が中止しました。送信済みの分は取り消していません";
+export const alreadyRunningMessage = (): string => m().run.alreadyRunning;
+export const blockedMessagePrefix = (): string => m().run.blockedPrefix;
+export const needsNullConfirmMessage = (): string => m().run.needsNullConfirm;
+export const needsDeleteConfirmMessage = (): string => m().run.needsDeleteConfirm;
+export const planFailedMessagePrefix = (): string => m().run.planFailedPrefix;
+export const cancelledMessage = (): string => m().run.cancelled;
 /** 中止で送らなかった行の結果に入れる文言 */
-export const CANCELLED_ROW_NOTE = "利用者が中止したため送らなかった";
+export const cancelledRowNote = (): string => m().run.cancelledRow;
 
 const ZERO_COUNTS: CommitCounts = { parents: 0, changedCells: 0, addedRows: 0, deletedRows: 0 };
 
-const SKIP_NOTES: Record<"sheet_replaced" | "changed_since" | "invalid_rows", string> = {
-  sheet_replaced: "反映は確認したが、シートが読み込み直されたため作業画面の値は置き換えていない",
-  changed_since: "反映は確認したが、反映中に作業画面で変更されたため作業画面の値は置き換えていない（読み込み直しが必要）",
-  invalid_rows: "反映は確認したが、読み直した行の形が合わないため作業画面の値は置き換えていない",
-};
+function skipNote(reason: "sheet_replaced" | "changed_since" | "invalid_rows"): string {
+  const note = m().note;
+  return reason === "sheet_replaced" ? note.sheetReplaced : reason === "changed_since" ? note.changedSince : note.invalidRows;
+}
+
+function errorText(e: unknown): string {
+  return e instanceof Error ? e.message : m().unknownError;
+}
 
 interface Evaluation {
   counts: CommitCounts;
@@ -93,43 +100,37 @@ export interface PlanAttempt {
 }
 
 /** 不変条件ごとに、利用者が次にできることを書く */
-function adviceFor(code: InvariantCode, detail: string): string {
-  if (code === "INPUT") {
-    if (detail.includes("親行の追加")) return "親（Maximo のレコード）の追加は反映できません。追加した親の行を取り消してください";
-    if (detail.includes("親行の削除")) return "親（Maximo のレコード）の削除は反映できません。削除を取り消してください";
-    if (detail.includes("読み込んだレコードに無い")) return "読み込んだときに無かった親の行が変更されています。シートを読み込み直してください";
-    if (detail.includes("行によって異なる値")) return "同じ親の行で親の列に別々の値が入っています。どちらかに揃えてください";
-    if (detail.includes("親の値と違う")) return "追加した行の親の列が親の値と違います。親の列は親の行で変更してください";
-    return "変更の組み合わせが反映できない形です。作業画面で変更を見直してください";
-  }
+function adviceFor(code: InvariantCode, hint: InvariantHint | undefined): string {
+  const a = m().advice;
+  if (code === "INPUT") return hint !== undefined ? a[hint] : a.input;
   switch (code) {
     case "I2":
-      return "読み込んだときの子レコードと合いません（ID の分からない子は変更・削除できません）。シートを読み込み直してください";
+      return a.I2;
     case "I3":
-      return `削除の件数が上限（親あたり ${COMMIT_LIMITS.maxDeletesPerParent} 件、全体 ${COMMIT_LIMITS.maxDeletesTotal} 件）を超えています。削除を減らすか、確認してから実行してください`;
+      return a.I3(COMMIT_LIMITS.maxDeletesPerParent, COMMIT_LIMITS.maxDeletesTotal);
     case "I4":
-      return "追加する行に子の ID の列は入れられません。その値を消してください";
+      return a.I4;
     case "I5":
-      return "変更できない列（読み取り専用・キー列・子の ID 列）が変更されています。その変更を取り消してください";
+      return a.I5;
     case "I6":
-      return "送る値が無い行があります。値を入れるか、その行の追加を取り消してください";
+      return a.I6;
     case "I7":
-      return "Maximo から読み込んだ URL（href）が使えません。シートを読み込み直してください";
+      return a.I7;
     case "I8":
-      return `1 回に反映できる親は ${COMMIT_LIMITS.maxParentsPerPlan} 件までです。読み込む条件を絞って分けて反映してください`;
+      return a.I8(COMMIT_LIMITS.maxParentsPerPlan);
     case "I10":
-      return "空（null）にする変更があります。空にしてよいことを確認してから実行してください";
+      return a.I10;
     default:
-      return "反映の計画を作れませんでした。作業画面で変更を見直してください";
+      return a.other;
   }
 }
 
-/** 書き込みエンジンの内部コードだけの文言を、利用者が次にできることの分かる日本語にする */
+/** 書き込みエンジンの内部コードだけの文言を、利用者が次にできることの分かる文にする */
 export function describePlanError(e: unknown): string {
-  if (!(e instanceof CommitInvariantError)) return `計画を作れませんでした（${e instanceof Error && e.message !== "" ? e.message : "不明なエラー"}）`;
+  if (!(e instanceof CommitInvariantError)) return m().advice.planFailed(e instanceof Error && e.message !== "" ? e.message : m().unknownError);
   const prefix = `[${e.code}] `;
   const detail = e.message.startsWith(prefix) ? e.message.slice(prefix.length) : e.message;
-  return `${adviceFor(e.code, detail)}（${e.code}: ${detail}）`;
+  return m().advice.withDetail(adviceFor(e.code, e.hint), e.code, detail);
 }
 
 /**
@@ -163,7 +164,7 @@ export function attemptPlan(
       return { plans: [], needsDeleteConfirm, needsNullConfirm, error: describePlanError(e) };
     }
   }
-  return { plans: [], needsDeleteConfirm, needsNullConfirm, error: "反映の計画を作れませんでした。作業画面で変更を見直してください" };
+  return { plans: [], needsDeleteConfirm, needsNullConfirm, error: m().advice.other };
 }
 
 function distinctParents(changes: CommitChanges): number {
@@ -231,13 +232,14 @@ export const createCommitController: CreateCommitController = (deps) => {
     const conn = connection.current();
     const connected = conn !== null;
     if (!workspace.hasSheet(sheet)) {
-      return { counts: { ...ZERO_COUNTS }, blockers: [`シート ${sheet} はありません`], needsDeleteConfirm: false, needsNullConfirm: false };
+      return { counts: { ...ZERO_COUNTS }, blockers: [m().blocker.sheetMissing(sheet)], needsDeleteConfirm: false, needsNullConfirm: false };
     }
     const s = workspace.getSheet(sheet);
     const source = s.meta.source;
     // シートを読み込んだ構造の、作業画面に保存している今の定義（取り直すと loadedAt が変わる）
     const structure = source.kind === "maximo" && source.baseUrl !== undefined && deps.catalog ? deps.catalog.get(source.baseUrl, source.os) : null;
-    const key = `${s.id}:${workspace.revision}:${conn === null ? "-" : normalizeScope(conn.info.baseUrl)}:${structure?.loadedAt ?? "-"}:${deps.license?.snapshot().version ?? "-"}`;
+    // blockers は今の言語の文なので、言語が変わったら計算し直す
+    const key = `${getLocale()}:${s.id}:${workspace.revision}:${conn === null ? "-" : normalizeScope(conn.info.baseUrl)}:${structure?.loadedAt ?? "-"}:${deps.license?.snapshot().version ?? "-"}`;
     const hit = evalCache.get(sheet);
     if (hit !== undefined && hit.key === key) return hit.ev;
     const summary = s.summary();
@@ -246,7 +248,7 @@ export const createCommitController: CreateCommitController = (deps) => {
     let needsDeleteConfirm = false;
     let needsNullConfirm = false;
     if (source.kind !== "maximo") {
-      blockers.push(NOT_MAXIMO_SHEET_BLOCKER);
+      blockers.push(notMaximoSheetBlocker());
     } else {
       const changes = workspace.changes(sheet);
       counts.parents = distinctParents(changes);
@@ -254,22 +256,16 @@ export const createCommitController: CreateCommitController = (deps) => {
       needsDeleteConfirm = attempt.needsDeleteConfirm;
       needsNullConfirm = attempt.needsNullConfirm;
       if (attempt.error !== null) blockers.push(attempt.error);
-      else if (attempt.plans.length === 0 && changes.unwritableParentEdits.length === 0) blockers.push(NO_CHANGES_BLOCKER);
+      else if (attempt.plans.length === 0 && changes.unwritableParentEdits.length === 0) blockers.push(noChangesBlocker());
       else counts.parents = attempt.plans.length;
       // 行がすべて削除された親に残った親の列の変更は、どの行にも付け替えられないので書き込めない（黙って捨てない）。
       // 親の数だけ並べると blockers が際限なく膨らみ、request_commit / get_status の結果が上限を超えるので件数を区切る
       const unwritable = changes.unwritableParentEdits;
       for (const u of unwritable.slice(0, MAX_UNWRITABLE_BLOCKERS)) {
-        blockers.push(
-          `親 ${u.parentKey} の行をすべて削除したため、親の列（${joinNames(u.columns, MAX_BLOCKER_COLUMNS)}）の変更を反映できません。` +
-            `削除を取り消すか、親の列の変更を取り消してください（親行の削除は未対応）`,
-        );
+        blockers.push(m().blocker.parentRowsDeleted(u.parentKey, joinNames(u.columns, MAX_BLOCKER_COLUMNS)));
       }
       if (unwritable.length > MAX_UNWRITABLE_BLOCKERS) {
-        blockers.push(
-          `ほかに ${unwritable.length - MAX_UNWRITABLE_BLOCKERS} 件の親でも、行をすべて削除したため親の列の変更を反映できません` +
-            `（親行の削除は未対応）。削除を取り消すか、親の列の変更を取り消してください`,
-        );
+        blockers.push(m().blocker.moreParentRowsDeleted(unwritable.length - MAX_UNWRITABLE_BLOCKERS));
       }
       // 反映は、シートを読み込んだ接続先の、読み込んだオブジェクト構造に対してだけ行う
       if (conn !== null && source.baseUrl !== undefined && normalizeScope(conn.info.baseUrl) !== normalizeScope(source.baseUrl)) {
@@ -280,7 +276,7 @@ export const createCommitController: CreateCommitController = (deps) => {
         if (problems.length > 0) blockers.push(structureChangedBlocker(source.os, problems));
       }
     }
-    if (!connected) blockers.push(NOT_CONNECTED_BLOCKER);
+    if (!connected) blockers.push(notConnectedBlocker());
     // 本番の接続先への反映にだけライセンスを求める（テスト環境・本番での読み込みと編集は無償）
     if (conn !== null && deps.license !== undefined && source.kind === "maximo") {
       const why = licenseBlocker(deps.license, conn.info.baseUrl);
@@ -368,25 +364,25 @@ export const createCommitController: CreateCommitController = (deps) => {
   async function applyVerified(sheet: string, sheetId: number, since: number, conn: MaximoConnection, parentKeys: string[]): Promise<Map<string, string>> {
     const notes = new Map<string, string>();
     if (!workspace.hasSheet(sheet) || workspace.getSheet(sheet).id !== sheetId) {
-      for (const pk of parentKeys) notes.set(pk, SKIP_NOTES.sheet_replaced);
+      for (const pk of parentKeys) notes.set(pk, skipNote("sheet_replaced"));
       return notes;
     }
     let outcome;
     try {
       outcome = await reloadParents(conn.client, workspace.getSheet(sheet), parentKeys);
     } catch (e) {
-      const why = e instanceof Error ? e.message : "不明なエラー";
-      for (const pk of parentKeys) notes.set(pk, `反映は確認したが、読み直しに失敗したため作業画面の変更を残した（${why}）`);
+      const why = errorText(e);
+      for (const pk of parentKeys) notes.set(pk, m().note.reloadFailed(why));
       return notes;
     }
-    for (const [pk, why] of outcome.failures) notes.set(pk, `反映は確認したが、${why}ため作業画面の変更を残した`);
+    for (const [pk, why] of outcome.failures) notes.set(pk, m().note.kept(why));
     if (outcome.replacements.length > 0) {
       try {
         const res = workspace.replaceParents(sheet, outcome.replacements, { sheetId, unchangedSince: since });
-        for (const s of res.skipped) notes.set(s.parentKey, SKIP_NOTES[s.reason]);
+        for (const s of res.skipped) notes.set(s.parentKey, skipNote(s.reason));
       } catch (e) {
-        const why = e instanceof Error ? e.message : "不明なエラー";
-        for (const r of outcome.replacements) notes.set(r.parentKey, `反映は確認したが、作業画面の値の更新に失敗した（${why}）`);
+        const why = errorText(e);
+        for (const r of outcome.replacements) notes.set(r.parentKey, m().note.updateFailed(why));
       }
     }
     return notes;
@@ -420,27 +416,27 @@ export const createCommitController: CreateCommitController = (deps) => {
     async run(sheet, opts) {
       const entry = ensure(sheet);
       // 反映中の呼び出しには理由を返すが、実行中のパネルの message（中止など）は書き換えない
-      if (entry.panel.state === "running" || entry.starting) return { ...panel(sheet), message: ALREADY_RUNNING_MESSAGE };
+      if (entry.panel.state === "running" || entry.starting) return { ...panel(sheet), message: alreadyRunningMessage() };
       const conn = connection.current();
       const ev = evaluate(sheet);
       if (conn === null || ev.blockers.length > 0) {
-        const why = ev.blockers.length > 0 ? ev.blockers : [NOT_CONNECTED_BLOCKER];
-        return notRun(sheet, `${BLOCKED_MESSAGE_PREFIX}${why.join(" / ")}`);
+        const why = ev.blockers.length > 0 ? ev.blockers : [notConnectedBlocker()];
+        return notRun(sheet, `${blockedMessagePrefix()}${why.join(" / ")}`);
       }
       const allowNull = opts.allowNull === true;
       const deletesConfirmed = opts.deletesConfirmed === true;
       // 人の確認が要る変更は、確認済みで呼ばれたときだけ実行する
       if ((ev.needsNullConfirm && !allowNull) || (ev.needsDeleteConfirm && !deletesConfirmed)) {
         const why: string[] = [];
-        if (ev.needsNullConfirm && !allowNull) why.push(NEEDS_NULL_CONFIRM_MESSAGE);
-        if (ev.needsDeleteConfirm && !deletesConfirmed) why.push(NEEDS_DELETE_CONFIRM_MESSAGE);
+        if (ev.needsNullConfirm && !allowNull) why.push(needsNullConfirmMessage());
+        if (ev.needsDeleteConfirm && !deletesConfirmed) why.push(needsDeleteConfirmMessage());
         return notRun(sheet, why.join(" "));
       }
       const s = workspace.getSheet(sheet);
       const meta = s.meta;
       const attempt = attemptPlan(meta, s.records, workspace.changes(sheet), { allowNull, deletesConfirmed });
-      if (attempt.error !== null) return notRun(sheet, `${PLAN_FAILED_MESSAGE_PREFIX}${attempt.error}`);
-      if (attempt.plans.length === 0) return notRun(sheet, `${BLOCKED_MESSAGE_PREFIX}${NO_CHANGES_BLOCKER}`);
+      if (attempt.error !== null) return notRun(sheet, `${planFailedMessagePrefix()}${attempt.error}`);
+      if (attempt.plans.length === 0) return notRun(sheet, `${blockedMessagePrefix()}${noChangesBlocker()}`);
       // 本番の接続先なら、送る直前に橋渡しでライセンスをもう一度確かめる（手元の一覧が古いこともある）。
       // 確かめている間は反映中と同じ扱いにして、二重の実行と編集を止める
       const license = deps.license;
@@ -453,11 +449,11 @@ export const createCommitController: CreateCommitController = (deps) => {
         } finally {
           entry.starting = false;
         }
-        if (!outcome.ok) return notRun(sheet, `${BLOCKED_MESSAGE_PREFIX}${authorizeFailure(outcome, conn.info.baseUrl)}`);
+        if (!outcome.ok) return notRun(sheet, `${blockedMessagePrefix()}${authorizeFailure(outcome, conn.info.baseUrl)}`);
         // 確かめている間に接続先が変わっていたら送らない
         const still = connection.current();
         if (still === null || normalizeScope(still.info.baseUrl) !== normalizeScope(conn.info.baseUrl)) {
-          return notRun(sheet, `${BLOCKED_MESSAGE_PREFIX}${still === null ? NOT_CONNECTED_BLOCKER : otherConnectionBlocker(conn.info.baseUrl, still.info.baseUrl)}`);
+          return notRun(sheet, `${blockedMessagePrefix()}${still === null ? notConnectedBlocker() : otherConnectionBlocker(conn.info.baseUrl, still.info.baseUrl)}`);
         }
       }
       const plans = attempt.plans;
@@ -508,7 +504,7 @@ export const createCommitController: CreateCommitController = (deps) => {
       } catch (e) {
         // 送信前の検査で止めた（1 件も送っていない）。書き込めていないので done（成功）にはしない
         aborted = true;
-        const reason = `送信前の検査で止めたため送らなかった: ${e instanceof Error ? e.message : "不明なエラー"}`;
+        const reason = m().run.precheckStopped(errorText(e));
         const done = new Set(p.results.map((r) => r.rowKey));
         for (const plan of plans) if (!done.has(plan.parentKey)) p.results.push({ rowKey: plan.parentKey, status: "skipped", message: reason });
       } finally {
@@ -521,16 +517,16 @@ export const createCommitController: CreateCommitController = (deps) => {
         const notes = await applyVerified(sheet, sheetId, startRevision, conn, verified);
         for (const r of p.results) {
           const note = notes.get(r.rowKey);
-          if (note !== undefined && r.status === "verified") r.message = r.message === undefined ? note : `${r.message}。${note}`;
+          if (note !== undefined && r.status === "verified") r.message = r.message === undefined ? note : m().note.append(r.message, note);
         }
       }
       if (entry.cancelled) {
         // 中止した後に skipped になった行は、書き込みエンジンの内部の理由（中止は onRow の例外で伝えている）ではなく中止と書く。
         // 中止より前に止まっていた行（前の行の失敗・カナリアの中断）は cancelledAt より前なので、その理由のまま残る
         p.results.forEach((r, i) => {
-          if (i >= entry.cancelledAt && r.status === "skipped") r.message = CANCELLED_ROW_NOTE;
+          if (i >= entry.cancelledAt && r.status === "skipped") r.message = cancelledRowNote();
         });
-        p.message = CANCELLED_MESSAGE;
+        p.message = cancelledMessage();
       }
       const failedRows = p.results.some((r) => r.status === "error" || r.status === "unknown" || r.status === "conflict");
       p.state = failedRows || aborted ? "failed" : "done";
@@ -558,7 +554,7 @@ export const createCommitController: CreateCommitController = (deps) => {
         e.cancelled = true;
         e.cancelledAt = e.panel.results.length;
       }
-      e.panel.message = CANCELLED_MESSAGE;
+      e.panel.message = cancelledMessage();
       const resolve = e.canaryResolve;
       if (resolve !== null && resolve !== undefined) {
         // カナリアの確認待ちなら「続行しない」として残りを送らせない

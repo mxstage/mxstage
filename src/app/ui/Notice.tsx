@@ -3,11 +3,10 @@
 
 import { InlineNotification } from "@carbon/react";
 import type { ReactNode } from "react";
+import { uiMessages } from "./messages";
 
 export type NoticeKind = "error" | "warning" | "success" | "info";
 
-/** アイコンの読み上げ（Carbon の既定は英語の "error icon" など） */
-const ICON_LABEL: Record<NoticeKind, string> = { error: "エラー", warning: "注意", success: "完了", info: "お知らせ" };
 
 export interface NoticeProps {
   kind: NoticeKind;
@@ -27,7 +26,8 @@ export function Notice({ kind, title, children, role = "status", className }: No
       hideCloseButton
       role={role}
       title={title}
-      statusIconDescription={ICON_LABEL[kind]}
+      // アイコンの読み上げ（Carbon の既定は英語の "error icon" など。日本語のときも読み上げをそろえる）
+      statusIconDescription={uiMessages().status[kind]}
       className={className ? `notice ${className}` : "notice"}
     >
       {children}

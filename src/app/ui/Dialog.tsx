@@ -3,6 +3,7 @@
 
 import { ComposedModal, FeatureFlags, ModalBody, ModalFooter, ModalHeader } from "@carbon/react";
 import type { ReactNode } from "react";
+import { uiMessages } from "./messages";
 
 export interface DialogProps {
   title: string;
@@ -32,7 +33,7 @@ export function Dialog({ title, children, actions, onClose }: DialogProps) {
           return false;
         }}
       >
-        <ModalHeader title={title} iconDescription="閉じる" />
+        <ModalHeader title={title} iconDescription={uiMessages().close} />
         <ModalBody>{children}</ModalBody>
         <ModalFooter>{actions}</ModalFooter>
       </ComposedModal>

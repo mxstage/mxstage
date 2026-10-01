@@ -21,15 +21,21 @@ import { NEW_CHILD_PREFIX, parseRowKey, type ChildCommitOp, type MaximoChild, ty
 import { MaximoError, MaximoNetworkError, type MaximoClient } from "./client";
 import { columnChild, parentKeyOf, parseMember } from "./load";
 import { upperKeys } from "./query";
+import { commitEngineMessages as msg } from "../commit/messages";
 
 export type InvariantCode = "I1" | "I2" | "I3" | "I4" | "I5" | "I6" | "I7" | "I8" | "I10" | "INPUT";
 
+/** INPUT の違反のうち、利用者に次にできることを個別に案内するもの（文言の言語に依らず見分けるため） */
+export type InvariantHint = "parentAdd" | "parentDelete" | "unknownParent" | "conflictingParentValues" | "addedParentMismatch";
+
 export class CommitInvariantError extends Error {
   readonly code: InvariantCode;
-  constructor(code: InvariantCode, message: string) {
+  readonly hint?: InvariantHint;
+  constructor(code: InvariantCode, message: string, hint?: InvariantHint) {
     super(`[${code}] ${message}`);
     this.name = "CommitInvariantError";
     this.code = code;
+    if (hint !== undefined) this.hint = hint;
   }
 }
 
@@ -95,7 +101,7 @@ export function planCommit(meta: SheetMeta, records: MaximoRecord[], changes: Co
   const order: string[] = [];
   for (const r of records) {
     const k = parentKeyOf(r, meta.keyColumns);
-    if (byKey.has(k)) throw new CommitInvariantError("INPUT", `親キー ${k} が重複している`);
+    if (byKey.has(k)) throw new CommitInvariantError("INPUT", msg().invariant.duplicateParentKey(k));
     byKey.set(k, r);
     order.push(k);
   }
@@ -104,7 +110,7 @@ export function planCommit(meta: SheetMeta, records: MaximoRecord[], changes: Co
     let acc = accs.get(parentKey);
     if (acc) return acc;
     const record = byKey.get(parentKey);
-    if (!record) throw new CommitInvariantError("INPUT", `親 ${parentKey} は読み込んだレコードに無い`);
+    if (!record) throw new CommitInvariantError("INPUT", msg().invariant.parentNotLoaded(parentKey), "unknownParent");
     assertHref(record.href);
     acc = { record, parentSets: new Map(), kinds: [], changes: new Map(), deletes: new Map(), adds: new Map() };
     accs.set(parentKey, acc);
@@ -116,30 +122,30 @@ export function planCommit(meta: SheetMeta, records: MaximoRecord[], changes: Co
   const resolve = (col: string) => {
     const name = col.toUpperCase();
     const schema = cols.get(name);
-    if (!schema) throw new CommitInvariantError("I5", `列 ${name} はシートの列に無い`);
+    if (!schema) throw new CommitInvariantError("I5", msg().invariant.columnNotInSheet(name));
     const child = columnChild(schema);
     const attr = child ? name.slice(name.indexOf(".") + 1) : name;
-    if (!ATTR_RE.test(attr)) throw new CommitInvariantError("I5", `列 ${name} の属性名が不正`);
+    if (!ATTR_RE.test(attr)) throw new CommitInvariantError("I5", msg().invariant.invalidColumnAttr(name));
     return { name, schema, child, attr };
   };
   const setParent = (acc: ParentAcc, attr: string, value: CellValue) => {
     const prev = acc.parentSets.get(attr);
-    if (prev !== undefined && !sameCell(prev, value)) throw new CommitInvariantError("INPUT", `同じ親の列 ${attr} に行によって異なる値が入っている`);
+    if (prev !== undefined && !sameCell(prev, value)) throw new CommitInvariantError("INPUT", msg().invariant.conflictingParentValues(attr), "conflictingParentValues");
     acc.parentSets.set(attr, value);
   };
 
   // 追加行の行キーは「親キー#子オブジェクト名:new~N」に限る。既存の子の行キーと取り違えると、
   // その行の削除が「追加の取り消し」として黙って捨てられるため、先に止める
   for (const row of changes.addedRows) {
-    if (!row.childName) throw new CommitInvariantError("INPUT", "親行の追加は未対応");
+    if (!row.childName) throw new CommitInvariantError("INPUT", msg().invariant.parentAddUnsupported, "parentAdd");
     const ap = parseRowKey(row.rowKey);
-    if (ap.parentKey !== row.parentKey) throw new CommitInvariantError("INPUT", `追加行 ${row.rowKey} の親キーが一致しない`);
+    if (ap.parentKey !== row.parentKey) throw new CommitInvariantError("INPUT", msg().invariant.addedRowParentMismatch(row.rowKey));
     if (!ap.isNewChild || ap.childName?.toUpperCase() !== row.childName.toUpperCase()) {
-      throw new CommitInvariantError("INPUT", `追加行 ${row.rowKey} の行キーが新規の子（${NEW_CHILD_PREFIX}N）の形でない`);
+      throw new CommitInvariantError("INPUT", msg().invariant.addedRowKeyShape(row.rowKey, NEW_CHILD_PREFIX));
     }
   }
   const addedByKey = new Map(changes.addedRows.map((r) => [r.rowKey, r]));
-  if (addedByKey.size !== changes.addedRows.length) throw new CommitInvariantError("INPUT", "追加行の行キーが重複している");
+  if (addedByKey.size !== changes.addedRows.length) throw new CommitInvariantError("INPUT", msg().invariant.duplicateAddedRowKey);
   const cancelledAdds = new Set<string>();
   const deletedExisting = new Set<string>();
 
@@ -150,7 +156,7 @@ export function planCommit(meta: SheetMeta, records: MaximoRecord[], changes: Co
       continue;
     }
     const p = parseRowKey(rowKey);
-    if (!p.childName) throw new CommitInvariantError("INPUT", "親行の削除は未対応");
+    if (!p.childName) throw new CommitInvariantError("INPUT", msg().invariant.parentDeleteUnsupported, "parentDelete");
     if (p.isNewChild) continue;
     const acc = accOf(p.parentKey);
     const kind = p.childName.toUpperCase();
@@ -187,18 +193,18 @@ export function planCommit(meta: SheetMeta, records: MaximoRecord[], changes: Co
       continue;
     }
     if (!p.childName || p.childName.toUpperCase() !== r.child) {
-      throw new CommitInvariantError("INPUT", `子の列 ${r.name} を ${r.child} 以外の行で変更している`);
+      throw new CommitInvariantError("INPUT", msg().invariant.childColumnOnOtherRow(r.name, r.child));
     }
-    if (p.isNewChild) throw new CommitInvariantError("INPUT", `新規の子行 ${cell.rowKey} が addedRows に無い`);
+    if (p.isNewChild) throw new CommitInvariantError("INPUT", msg().invariant.newChildNotAdded(cell.rowKey));
     const child = findLoadedChild(acc.record, r.child, p.childId);
-    if (r.schema.readOnly) throw new CommitInvariantError("I5", `列 ${r.name} は読み取り専用`);
-    if (child.idAttr && r.attr === child.idAttr.toUpperCase()) throw new CommitInvariantError("I5", `子の ID 属性 ${r.name} は変更できない`);
+    if (r.schema.readOnly) throw new CommitInvariantError("I5", msg().invariant.readOnlyColumn(r.name));
+    if (child.idAttr && r.attr === child.idAttr.toUpperCase()) throw new CommitInvariantError("I5", msg().invariant.childIdAttrChanged(r.name));
     let km = acc.changes.get(r.child);
     if (!km) acc.changes.set(r.child, (km = new Map()));
     let ch = km.get(String(child.id));
     if (!ch) km.set(String(child.id), (ch = { child, attrs: new Map() }));
     const prev = ch.attrs.get(r.attr);
-    if (prev !== undefined && !sameCell(prev, cell.value)) throw new CommitInvariantError("INPUT", `同じセル ${r.name} に異なる値が複数ある`);
+    if (prev !== undefined && !sameCell(prev, cell.value)) throw new CommitInvariantError("INPUT", msg().invariant.conflictingCellValues(r.name));
     ch.attrs.set(r.attr, cell.value);
     touchKind(acc, r.child);
   }
@@ -206,10 +212,10 @@ export function planCommit(meta: SheetMeta, records: MaximoRecord[], changes: Co
   // 3) 追加
   for (const row of changes.addedRows) {
     if (cancelledAdds.has(row.rowKey)) continue;
-    if (!row.childName) throw new CommitInvariantError("INPUT", "親行の追加は未対応");
+    if (!row.childName) throw new CommitInvariantError("INPUT", msg().invariant.parentAddUnsupported, "parentAdd");
     const kind = row.childName.toUpperCase();
-    if (!selectedKinds.has(kind)) throw new CommitInvariantError("INPUT", `子 ${kind} はシートで読み込んでいない`);
-    if (parseRowKey(row.rowKey).parentKey !== row.parentKey) throw new CommitInvariantError("INPUT", `追加行 ${row.rowKey} の親キーが一致しない`);
+    if (!selectedKinds.has(kind)) throw new CommitInvariantError("INPUT", msg().invariant.childNotInSheet(kind));
+    if (parseRowKey(row.rowKey).parentKey !== row.parentKey) throw new CommitInvariantError("INPUT", msg().invariant.addedRowParentMismatch(row.rowKey));
     const acc = accOf(row.parentKey);
     const idAttr = childIdAttrs[kind]?.toUpperCase() ?? null;
     const values = { ...row.values, ...(addOverrides.get(row.rowKey) ?? {}) };
@@ -219,23 +225,23 @@ export function planCommit(meta: SheetMeta, records: MaximoRecord[], changes: Co
       if (!name.includes(".") && !cols.get(name)?.child) {
         // 親の列の値（行に繰り返し入っている）。変更は cells で渡す約束なので、違っていれば止める
         const effective = acc.parentSets.has(name) ? acc.parentSets.get(name)! : (acc.record.attrs[name] ?? null);
-        if (!sameCell(v, effective)) throw new CommitInvariantError("INPUT", `追加行 ${row.rowKey} の親の列 ${name} が親の値と違う（親の変更は cells で渡す）`);
+        if (!sameCell(v, effective)) throw new CommitInvariantError("INPUT", msg().invariant.addedRowParentValue(row.rowKey, name), "addedParentMismatch");
         continue;
       }
       const r = resolve(name);
       if (r.child !== kind) {
         if (isNullish(v)) continue;
-        throw new CommitInvariantError("INPUT", `追加行 ${row.rowKey} に別の種類の子の列 ${name} がある`);
+        throw new CommitInvariantError("INPUT", msg().invariant.addedRowOtherChildColumn(row.rowKey, name));
       }
       if (idAttr && r.attr === idAttr) {
         if (isNullish(v)) continue;
-        throw new CommitInvariantError("I4", `追加する子に ID 属性 ${name} を付けない`);
+        throw new CommitInvariantError("I4", msg().invariant.addedChildWithId(name));
       }
       if (isNullish(v)) continue; // 追加では空の属性を送らない
-      if (r.schema.readOnly) throw new CommitInvariantError("I5", `列 ${name} は読み取り専用`);
+      if (r.schema.readOnly) throw new CommitInvariantError("I5", msg().invariant.readOnlyColumn(name));
       attrs[r.attr] = v;
     }
-    if (Object.keys(attrs).length === 0) throw new CommitInvariantError("I6", `追加行 ${row.rowKey} に送る属性が無い`);
+    if (Object.keys(attrs).length === 0) throw new CommitInvariantError("I6", msg().invariant.addedRowNoAttrs(row.rowKey));
     let list = acc.adds.get(kind);
     if (!list) acc.adds.set(kind, (list = []));
     list.push(attrs);
@@ -253,7 +259,7 @@ export function planCommit(meta: SheetMeta, records: MaximoRecord[], changes: Co
     for (const [a, v] of acc.parentSets) {
       const base = rec.attrs[a] ?? null;
       if (sameCell(v, base)) continue;
-      if (isNullish(v) && !opts.allowNull) throw new CommitInvariantError("I10", `親の列 ${a} を空にする変更には allowNull が必要`);
+      if (isNullish(v) && !opts.allowNull) throw new CommitInvariantError("I10", msg().invariant.parentNullNeedsAllow(a));
       attrs[a] = v;
     }
     const children: Record<string, ChildCommitOp[]> = {};
@@ -267,7 +273,7 @@ export function planCommit(meta: SheetMeta, records: MaximoRecord[], changes: Co
         for (const [a, v] of ch.attrs) {
           const base = ch.child.attrs[a] ?? null;
           if (sameCell(v, base)) continue;
-          if (isNullish(v) && !opts.allowNull) throw new CommitInvariantError("I10", `子の列 ${kind}.${a} を空にする変更には allowNull が必要`);
+          if (isNullish(v) && !opts.allowNull) throw new CommitInvariantError("I10", msg().invariant.childNullNeedsAllow(kind, a));
           changed[a] = v;
         }
         if (Object.keys(changed).length > 0) ops.push({ action: "Change", idAttr: ch.child.idAttr!, id: ch.child.id, attrs: changed });
@@ -280,7 +286,7 @@ export function planCommit(meta: SheetMeta, records: MaximoRecord[], changes: Co
       if (ops.length > 0) children[kind] = ops;
     }
     if (parentDeletes > COMMIT_LIMITS.maxDeletesPerParent && !opts.deletesConfirmed) {
-      throw new CommitInvariantError("I3", `親 ${key} の削除が ${parentDeletes} 件で上限 ${COMMIT_LIMITS.maxDeletesPerParent} を超える（確認が必要）`);
+      throw new CommitInvariantError("I3", msg().invariant.parentDeletesOverLimit(key, parentDeletes, COMMIT_LIMITS.maxDeletesPerParent));
     }
     totalDeletes += parentDeletes;
     if (Object.keys(attrs).length === 0 && Object.keys(children).length === 0) continue;
@@ -299,7 +305,7 @@ export function planCommit(meta: SheetMeta, records: MaximoRecord[], changes: Co
     plans.push({ parentKey: key, href: rec.href, expectedRowstamp: rec.rowstamp, expectedChildIds, expectedChildRowstamps, attrs, children });
   }
   if (totalDeletes > COMMIT_LIMITS.maxDeletesTotal && !opts.deletesConfirmed) {
-    throw new CommitInvariantError("I3", `削除が合計 ${totalDeletes} 件で上限 ${COMMIT_LIMITS.maxDeletesTotal} を超える（確認が必要）`);
+    throw new CommitInvariantError("I3", msg().invariant.totalDeletesOverLimit(totalDeletes, COMMIT_LIMITS.maxDeletesTotal));
   }
   validatePlans(plans, { allowNull: opts.allowNull ?? false, deletesConfirmed: opts.deletesConfirmed ?? false, childIdAttrs });
   return plans;
@@ -307,30 +313,30 @@ export function planCommit(meta: SheetMeta, records: MaximoRecord[], changes: Co
 
 function findLoadedChild(record: MaximoRecord, kind: string, childId: string | null): MaximoChild {
   const list = record.children[kind];
-  if (!list) throw new CommitInvariantError("I2", `子 ${kind} は読み込み時に存在しない`);
-  if (childId === null) throw new CommitInvariantError("I2", `子 ${kind} の行キーに ID が無い`);
+  if (!list) throw new CommitInvariantError("I2", msg().invariant.childNotLoaded(kind));
+  if (childId === null) throw new CommitInvariantError("I2", msg().invariant.childRowKeyNoId(kind));
   const found = list.filter((c) => c.idAttr && c.id !== null && String(c.id) === childId);
-  if (found.length !== 1) throw new CommitInvariantError("I2", `子 ${kind} の ID が読み込み時の子に無い（ID 不明の子は変更・削除できない）`);
+  if (found.length !== 1) throw new CommitInvariantError("I2", msg().invariant.childIdNotLoaded(kind));
   return found[0]!;
 }
 
 function assertWritableParent(r: { name: string; schema: { readOnly?: boolean }; attr: string }, keyCols: Set<string>): void {
-  if (keyCols.has(r.attr)) throw new CommitInvariantError("I5", `キー列 ${r.name} は変更できない`);
-  if (r.schema.readOnly) throw new CommitInvariantError("I5", `列 ${r.name} は読み取り専用`);
+  if (keyCols.has(r.attr)) throw new CommitInvariantError("I5", msg().invariant.keyColumnChanged(r.name));
+  if (r.schema.readOnly) throw new CommitInvariantError("I5", msg().invariant.readOnlyColumn(r.name));
 }
 
 function assertHref(href: string): void {
-  if (typeof href !== "string" || href === "") throw new CommitInvariantError("I7", "読み込み時の href が無い");
-  if (href.includes("?") || href.includes("#")) throw new CommitInvariantError("I7", "href にクエリやフラグメントが含まれている");
-  if (!/^https?:\/\//i.test(href) && !href.startsWith("/")) throw new CommitInvariantError("I7", "href が URL ではない");
+  if (typeof href !== "string" || href === "") throw new CommitInvariantError("I7", msg().invariant.hrefMissing);
+  if (href.includes("?") || href.includes("#")) throw new CommitInvariantError("I7", msg().invariant.hrefQuery);
+  if (!/^https?:\/\//i.test(href) && !href.startsWith("/")) throw new CommitInvariantError("I7", msg().invariant.hrefNotUrl);
 }
 
 /** 列定義に照らして送ってよい列か（I5）。keySet を渡すと親のキー列も拒否する */
 function assertWritableColumn(colMap: Map<string, ColumnSchema>, keySet: Set<string> | null, name: string): void {
   const col = colMap.get(name);
-  if (!col) throw new CommitInvariantError("I5", `列 ${name} はシートの列に無い`);
-  if (col.readOnly) throw new CommitInvariantError("I5", `列 ${name} は読み取り専用`);
-  if (keySet?.has(name)) throw new CommitInvariantError("I5", `キー列 ${name} は変更できない`);
+  if (!col) throw new CommitInvariantError("I5", msg().invariant.columnNotInSheet(name));
+  if (col.readOnly) throw new CommitInvariantError("I5", msg().invariant.readOnlyColumn(name));
+  if (keySet?.has(name)) throw new CommitInvariantError("I5", msg().invariant.keyColumnChanged(name));
 }
 
 export function isNullish(v: CellValue | undefined): boolean {
@@ -355,7 +361,7 @@ export interface ValidatePlanOptions {
 /** 計画そのものの不変条件を検査する（送信前にもう一度呼ぶ） */
 export function validatePlans(plans: ParentCommitPlan[], opts: ValidatePlanOptions): void {
   if (plans.length > COMMIT_LIMITS.maxParentsPerPlan) {
-    throw new CommitInvariantError("I8", `1 回の反映は ${COMMIT_LIMITS.maxParentsPerPlan} 親までにする（${plans.length} 件）`);
+    throw new CommitInvariantError("I8", msg().invariant.tooManyParents(COMMIT_LIMITS.maxParentsPerPlan, plans.length));
   }
   const idAttrs = upperKeys(opts.childIdAttrs ?? {});
   const colMap = opts.columns ? new Map(opts.columns.map((c) => [c.name.toUpperCase(), c])) : null;
@@ -364,47 +370,47 @@ export function validatePlans(plans: ParentCommitPlan[], opts: ValidatePlanOptio
   const seenHref = new Set<string>();
   let totalDeletes = 0;
   for (const plan of plans) {
-    if (seen.has(plan.parentKey)) throw new CommitInvariantError("INPUT", `親 ${plan.parentKey} の計画が重複している`);
+    if (seen.has(plan.parentKey)) throw new CommitInvariantError("INPUT", msg().invariant.duplicatePlan(plan.parentKey));
     seen.add(plan.parentKey);
     assertHref(plan.href);
     // 送信先はオリジンを捨てたパスで決まるので、パスで重複を見る（キー列の選び方の誤りで同じレコードに 2 回送らない）
     const hrefPath = plan.href.replace(/^[A-Za-z][A-Za-z0-9+.-]*:\/\/[^/]*/, "");
-    if (seenHref.has(hrefPath)) throw new CommitInvariantError("INPUT", `親 ${plan.parentKey} の href が別の計画と同じ`);
+    if (seenHref.has(hrefPath)) throw new CommitInvariantError("INPUT", msg().invariant.duplicateHref(plan.parentKey));
     seenHref.add(hrefPath);
     for (const [a, v] of Object.entries(plan.attrs)) {
-      if (!ATTR_RE.test(a) || a.startsWith("_")) throw new CommitInvariantError("I5", `属性名 ${a} が不正`);
-      if (isNullish(v) && !opts.allowNull) throw new CommitInvariantError("I10", `親の列 ${a} を空にする変更には allowNull が必要`);
+      if (!ATTR_RE.test(a) || a.startsWith("_")) throw new CommitInvariantError("I5", msg().invariant.invalidAttrName(a));
+      if (isNullish(v) && !opts.allowNull) throw new CommitInvariantError("I10", msg().invariant.parentNullNeedsAllow(a));
       if (colMap) assertWritableColumn(colMap, keySet, a.toUpperCase());
     }
     let deletes = 0;
     for (const [kind, ops] of Object.entries(plan.children)) {
-      if (!ATTR_RE.test(kind)) throw new CommitInvariantError("I5", `子オブジェクト名 ${kind} が不正`);
-      if (!Array.isArray(ops) || ops.length === 0) throw new CommitInvariantError("I6", `子 ${kind} の配列が空`);
+      if (!ATTR_RE.test(kind)) throw new CommitInvariantError("I5", msg().invariant.invalidChildName(kind));
+      if (!Array.isArray(ops) || ops.length === 0) throw new CommitInvariantError("I6", msg().invariant.emptyChildArray(kind));
       const expected = new Set((plan.expectedChildIds[kind] ?? []).map((x) => String(x)));
       // シートの定義で ID 属性が不明（null）とされた子は、計画に ID があっても変更・削除しない
       const configured = Object.prototype.hasOwnProperty.call(idAttrs, kind.toUpperCase()) ? idAttrs[kind.toUpperCase()] : undefined;
       if (configured === null && ops.some((o) => o.action !== "Add")) {
-        throw new CommitInvariantError("I2", `子 ${kind} は ID 属性が分からないので変更・削除できない`);
+        throw new CommitInvariantError("I2", msg().invariant.childIdUnknown(kind));
       }
       const kindIdAttr = configured ?? ops.find((o) => o.action !== "Add")?.idAttr ?? null;
       for (const op of ops) {
         if (op.action === "Change" || op.action === "Delete") {
           if (!op.idAttr || !ATTR_RE.test(op.idAttr) || op.id === null || !expected.has(String(op.id))) {
-            throw new CommitInvariantError("I2", `子 ${kind} の ${op.action} の ID が読み込み時の子に無い`);
+            throw new CommitInvariantError("I2", msg().invariant.opIdNotLoaded(kind, op.action));
           }
-          if (kindIdAttr && op.idAttr.toUpperCase() !== kindIdAttr.toUpperCase()) throw new CommitInvariantError("I2", `子 ${kind} の ID 属性が一致しない`);
+          if (kindIdAttr && op.idAttr.toUpperCase() !== kindIdAttr.toUpperCase()) throw new CommitInvariantError("I2", msg().invariant.childIdAttrMismatch(kind));
           if (op.action === "Delete") deletes++;
         }
         if (op.action === "Change" || op.action === "Add") {
           const keys = Object.keys(op.attrs);
-          if (keys.length === 0) throw new CommitInvariantError("I6", `子 ${kind} の ${op.action} に属性が無い`);
+          if (keys.length === 0) throw new CommitInvariantError("I6", msg().invariant.opNoAttrs(kind, op.action));
           for (const a of keys) {
-            if (!ATTR_RE.test(a) || a.startsWith("_")) throw new CommitInvariantError("I5", `属性名 ${kind}.${a} が不正`);
+            if (!ATTR_RE.test(a) || a.startsWith("_")) throw new CommitInvariantError("I5", msg().invariant.invalidAttrName(`${kind}.${a}`));
             if (kindIdAttr && a.toUpperCase() === kindIdAttr.toUpperCase()) {
-              throw new CommitInvariantError(op.action === "Add" ? "I4" : "I5", `子 ${kind} の ${op.action} に ID 属性を属性として入れない`);
+              throw new CommitInvariantError(op.action === "Add" ? "I4" : "I5", msg().invariant.opIdAsAttr(kind, op.action));
             }
             if (isNullish(op.attrs[a]) && !(op.action === "Change" && opts.allowNull)) {
-              throw new CommitInvariantError("I10", `子の列 ${kind}.${a} を空にする変更には allowNull が必要`);
+              throw new CommitInvariantError("I10", msg().invariant.childNullNeedsAllow(kind, a));
             }
             if (colMap) assertWritableColumn(colMap, null, `${kind.toUpperCase()}.${a.toUpperCase()}`);
           }
@@ -412,12 +418,12 @@ export function validatePlans(plans: ParentCommitPlan[], opts: ValidatePlanOptio
       }
     }
     if (deletes > COMMIT_LIMITS.maxDeletesPerParent && !opts.deletesConfirmed) {
-      throw new CommitInvariantError("I3", `親 ${plan.parentKey} の削除が上限 ${COMMIT_LIMITS.maxDeletesPerParent} を超える（確認が必要）`);
+      throw new CommitInvariantError("I3", msg().invariant.planParentDeletesOverLimit(plan.parentKey, COMMIT_LIMITS.maxDeletesPerParent));
     }
     totalDeletes += deletes;
   }
   if (totalDeletes > COMMIT_LIMITS.maxDeletesTotal && !opts.deletesConfirmed) {
-    throw new CommitInvariantError("I3", `削除の合計が上限 ${COMMIT_LIMITS.maxDeletesTotal} を超える（確認が必要）`);
+    throw new CommitInvariantError("I3", msg().invariant.planTotalDeletesOverLimit(COMMIT_LIMITS.maxDeletesTotal));
   }
 }
 
@@ -441,14 +447,14 @@ export interface PatchRequest {
 
 /** 親 1 件分の PATCH（POST + x-method-override）を組み立てる。lean 形式なので属性名は小文字 */
 export function buildPatchRequest(plan: ParentCommitPlan, transactionId: string): PatchRequest {
-  if (typeof transactionId !== "string" || !/^[A-Za-z0-9_.:~-]{1,128}$/.test(transactionId)) throw new CommitInvariantError("INPUT", "transactionid が不正");
+  if (typeof transactionId !== "string" || !/^[A-Za-z0-9_.:~-]{1,128}$/.test(transactionId)) throw new CommitInvariantError("INPUT", msg().invariant.invalidTransactionId);
   assertHref(plan.href);
   const body: Record<string, unknown> = {};
   for (const [a, v] of Object.entries(plan.attrs)) body[a.toLowerCase()] = v;
   for (const [kind, ops] of Object.entries(plan.children)) {
-    if (ops.length === 0) throw new CommitInvariantError("I6", `子 ${kind} の配列が空`);
+    if (ops.length === 0) throw new CommitInvariantError("I6", msg().invariant.emptyChildArray(kind));
     const key = kind.toLowerCase();
-    if (key in body) throw new CommitInvariantError("INPUT", `子オブジェクト名 ${kind} が親の属性名と衝突する`);
+    if (key in body) throw new CommitInvariantError("INPUT", msg().invariant.childNameCollides(kind));
     body[key] = ops.map((op) => {
       switch (op.action) {
         case "Change":
@@ -480,11 +486,11 @@ export function buildPatchRequest(plan: ParentCommitPlan, transactionId: string)
 /** 送信直前の検査（I1 MERGE、I6 空配列、I7 href） */
 export function assertSafePatchRequest(req: PatchRequest, plan: ParentCommitPlan): void {
   const h = req.headers as Record<string, unknown>;
-  if (req.method !== "POST" || h["x-method-override"] !== "PATCH") throw new CommitInvariantError("I1", "PATCH（x-method-override）でない");
-  if (h.patchtype !== "MERGE") throw new CommitInvariantError("I1", "patchtype: MERGE が付いていない");
-  if (req.url !== `${plan.href}?lean=1`) throw new CommitInvariantError("I7", "送信先が読み込み時の href と一致しない");
+  if (req.method !== "POST" || h["x-method-override"] !== "PATCH") throw new CommitInvariantError("I1", msg().invariant.notPatch);
+  if (h.patchtype !== "MERGE") throw new CommitInvariantError("I1", msg().invariant.noMerge);
+  if (req.url !== `${plan.href}?lean=1`) throw new CommitInvariantError("I7", msg().invariant.targetMismatch);
   for (const [k, v] of Object.entries(req.body)) {
-    if (Array.isArray(v) && v.length === 0) throw new CommitInvariantError("I6", `子 ${k} の配列が空`);
+    if (Array.isArray(v) && v.length === 0) throw new CommitInvariantError("I6", msg().invariant.emptyChildArray(k));
   }
 }
 
@@ -565,11 +571,11 @@ export async function executeCommit(client: MaximoClient, plans: CommitPlan[], o
       opts.onRow?.(result, plan);
     } catch {
       // 結果を画面に出せないまま書き込みを続けない。例外にすると結果の配列も失われるので、残りを skipped にして返す
-      if (stopReason === null) stopReason = "結果の通知（onRow）に失敗したため送らなかった";
+      if (stopReason === null) stopReason = msg().row.onRowFailed;
     }
     if (stopReason !== null) continue;
     if (stopOnFailure && (result.status === "error" || result.status === "unknown")) {
-      stopReason = "前の行が失敗したため送らなかった";
+      stopReason = msg().row.previousFailed;
       continue;
     }
     if (result.sent && !canaryDone) {
@@ -581,7 +587,7 @@ export async function executeCommit(client: MaximoClient, plans: CommitPlan[], o
         } catch {
           ok = false;
         }
-        if (!ok) stopReason = "カナリアの確認で続行しなかった";
+        if (!ok) stopReason = msg().row.canaryStopped;
       }
     }
   }
@@ -623,7 +629,7 @@ interface PreparedPlan {
  * 違反は CommitInvariantError（何も送っていない）。
  */
 function preparePlans(client: MaximoClient, plans: ParentCommitPlan[], makeTx: (plan: ParentCommitPlan, index: number) => string, os?: string): PreparedPlan[] {
-  if (os !== undefined && !/^[A-Za-z0-9_]+$/.test(os)) throw new CommitInvariantError("I7", `オブジェクト構造名 ${JSON.stringify(os)} が不正`);
+  if (os !== undefined && !/^[A-Za-z0-9_]+$/.test(os)) throw new CommitInvariantError("I7", msg().invariant.invalidOs(JSON.stringify(os)));
   // 構造が分かっていれば、その構造のレコードだけを送信先にする（/maximo/api/os/mxapiwo/...）
   const osPrefix = `${client.apiRoot}/os/${os === undefined ? "" : `${os}/`}`.toLowerCase();
   const usedTx = new Set<string>();
@@ -632,20 +638,20 @@ function preparePlans(client: MaximoClient, plans: ParentCommitPlan[], makeTx: (
     try {
       path = client.hrefToPath(plan.href);
     } catch (e) {
-      throw new CommitInvariantError("I7", `親 ${plan.parentKey} の href を送信先にできない: ${errMessage(e)}`);
+      throw new CommitInvariantError("I7", msg().invariant.hrefNotTarget(plan.parentKey, errMessage(e)));
     }
     // 書き込みはオブジェクト構造のレコード（/maximo/api/os/...）にだけ送る
     if (!path.toLowerCase().startsWith(osPrefix) || path.includes("?")) {
       throw new CommitInvariantError(
         "I7",
         os === undefined
-          ? `親 ${plan.parentKey} の href がオブジェクト構造のレコードを指していない`
-          : `親 ${plan.parentKey} の href がシートを読み込んだオブジェクト構造 ${os.toUpperCase()} のレコードを指していない`,
+          ? msg().invariant.hrefNotOsRecord(plan.parentKey)
+          : msg().invariant.hrefNotSheetOsRecord(plan.parentKey, os.toUpperCase()),
       );
     }
     const transactionId = makeTx(plan, index);
     // 同じ transactionid を別の親に使うと 409 になり、どちらが反映されたか確かめられなくなる
-    if (usedTx.has(transactionId)) throw new CommitInvariantError("INPUT", "transactionid が同じ実行の中で重複している");
+    if (usedTx.has(transactionId)) throw new CommitInvariantError("INPUT", msg().invariant.duplicateTransactionId);
     usedTx.add(transactionId);
     const req = buildPatchRequest(plan, transactionId);
     return { path, postPath: client.hrefToPath(req.url), transactionId, req };
@@ -668,7 +674,7 @@ async function commitOne(client: MaximoClient, plan: CommitPlan, prep: PreparedP
     before = await readSnapshot(client, path, select, idAttrs);
   } catch (e) {
     const status = e instanceof MaximoError && e.status === 404 ? "conflict" : "error";
-    return { ...base, status, ...errFields(e), message: `送信前の読み直しに失敗したため送らなかった: ${errMessage(e)}`, transactionId: null, sent: false };
+    return { ...base, status, ...errFields(e), message: msg().row.precheckFailed(errMessage(e)), transactionId: null, sent: false };
   }
   const conflict = compareExpected(plan, before, idAttrs);
   if (conflict) return { ...base, status: "conflict", message: conflict, transactionId: null, sent: false };
@@ -682,22 +688,22 @@ async function commitOne(client: MaximoClient, plan: CommitPlan, prep: PreparedP
   } catch (e) {
     if (e instanceof MaximoError) {
       // 409 は transactionid の重複＝同じ要求を Maximo が処理済み。読み直して反映済みなら verified
-      if (e.status === 409) return reconcile(client, plan, path, select, idAttrs, before, transactionId, "409（transactionid の重複）", e, "verified");
+      if (e.status === 409) return reconcile(client, plan, path, select, idAttrs, before, transactionId, msg().row.duplicateTransaction, e, "verified");
       if (e.reasonCode) return { ...base, status: "error", httpStatus: e.status, reasonCode: e.reasonCode, message: e.message, transactionId, sent: true };
       // reasonCode の無い 5xx、JSON でない 2xx（中継のログイン画面など）、リダイレクト（0・3xx）は、
       // Maximo が処理したかを応答から判断できないので結果不明にする
       if (e.status >= 500 || e.status < 400) {
-        const cause = e.status >= 500 ? `HTTP ${e.status}` : `HTTP ${e.status}（応答を解釈できない）`;
+        const cause = e.status >= 500 ? `HTTP ${e.status}` : msg().row.unreadableResponse(e.status);
         return reconcile(client, plan, path, select, idAttrs, before, transactionId, cause, e, "unknown");
       }
       return { ...base, status: "error", httpStatus: e.status, message: e.message, transactionId, sent: true };
     }
     if (e instanceof MaximoNetworkError) {
       // 応答を受け取れていないので結果は unknown。読み直しの結果は人の判断材料として message に書く
-      return reconcile(client, plan, path, select, idAttrs, before, transactionId, e.timedOut ? "タイムアウト" : "通信エラー", null, "unknown");
+      return reconcile(client, plan, path, select, idAttrs, before, transactionId, e.timedOut ? msg().row.timeout : msg().row.networkError, null, "unknown");
     }
     // それ以外はクライアントが送る前に止めたもの（API キーが消えた等）。リクエストは送っていない
-    return { ...base, status: "error", message: `送信前に止めたため送らなかった: ${errMessage(e)}`, transactionId: null, sent: false };
+    return { ...base, status: "error", message: msg().row.stoppedBeforeSend(errMessage(e)), transactionId: null, sent: false };
   }
 
   // 3) verify
@@ -705,11 +711,11 @@ async function commitOne(client: MaximoClient, plan: CommitPlan, prep: PreparedP
   try {
     after = await readSnapshot(client, path, select, idAttrs);
   } catch (e) {
-    return { ...base, status: "unknown", httpStatus, message: `送信後の読み直しに失敗した: ${errMessage(e)}`, transactionId, sent: true };
+    return { ...base, status: "unknown", httpStatus, message: msg().row.verifyFailed(errMessage(e)), transactionId, sent: true };
   }
   const mismatches = verifyAgainstPlan(plan, before, after, idAttrs);
   if (mismatches.length === 0) return { ...base, status: "verified", httpStatus, transactionId, sent: true };
-  return { ...base, status: "unknown", httpStatus, message: `送信は成功したが読み直した値が一致しない: ${mismatches.join(", ")}`, transactionId, sent: true };
+  return { ...base, status: "unknown", httpStatus, message: msg().row.verifyMismatch(mismatches.join(", ")), transactionId, sent: true };
 }
 
 async function reconcile(
@@ -734,7 +740,7 @@ async function reconcile(
   try {
     after = await readSnapshot(client, path, select, idAttrs);
   } catch (e) {
-    return { rowKey: plan.parentKey, ...fields, status: "unknown", message: `${cause}。読み直しにも失敗したため結果不明: ${errMessage(e)}`, transactionId, sent: true };
+    return { rowKey: plan.parentKey, ...fields, status: "unknown", message: msg().row.reconcileReadFailed(cause, errMessage(e)), transactionId, sent: true };
   }
   const mismatches = verifyAgainstPlan(plan, before, after, idAttrs);
   if (mismatches.length === 0) {
@@ -743,18 +749,18 @@ async function reconcile(
         rowKey: plan.parentKey,
         ...fields,
         status: "unknown",
-        message: `${cause}。読み直しでは反映済みに見えるが、応答を受け取れていないため結果不明として扱う（自動では再送しない）`,
+        message: msg().row.reconcileLooksApplied(cause),
         transactionId,
         sent: true,
       };
     }
-    return { rowKey: plan.parentKey, ...fields, status: "verified", message: `${cause}。読み直しで反映を確認した`, transactionId, sent: true };
+    return { rowKey: plan.parentKey, ...fields, status: "verified", message: msg().row.reconcileVerified(cause), transactionId, sent: true };
   }
   return {
     rowKey: plan.parentKey,
     ...fields,
     status: "unknown",
-    message: `${cause}。読み直しでは未反映（${mismatches.join(", ")}）。自動では再送しない`,
+    message: msg().row.reconcileNotApplied(cause, mismatches.join(", ")),
     transactionId,
     sent: true,
   };
@@ -784,16 +790,16 @@ async function readSnapshot(client: MaximoClient, path: string, select: string, 
 
 function compareExpected(plan: CommitPlan, snap: Snapshot, idAttrs: Record<string, string | null>): string | null {
   // 読み込み時の _rowstamp が無いと他の人の更新を検知できないので送らない
-  if (plan.expectedRowstamp === null) return "読み込み時の _rowstamp が無く、他の更新と照合できないため送らなかった";
+  if (plan.expectedRowstamp === null) return msg().row.noRowstamp;
   if (snap.rowstamp !== plan.expectedRowstamp) {
-    return "読み込み後に Maximo 側で親レコードが更新された（_rowstamp が違う）ため送らなかった";
+    return msg().row.parentUpdated;
   }
   for (const kind of Object.keys(plan.children)) {
     if (!idAttrs[kind]) continue; // ID の分からない子（追加だけ）は集合を照合できない
     const expected = new Set((plan.expectedChildIds[kind] ?? []).map((x) => String(x)));
     const actual = new Set((snap.children[kind.toUpperCase()] ?? []).filter((c) => c.id !== null).map((c) => String(c.id)));
     if (expected.size !== actual.size || [...expected].some((x) => !actual.has(x))) {
-      return `読み込み後に子 ${kind} の集合が変わったため送らなかった`;
+      return msg().row.childSetChanged(kind);
     }
   }
   // 変更・削除する子の _rowstamp（子だけの更新では親の _rowstamp が変わらないことがあるため）。
@@ -803,7 +809,7 @@ function compareExpected(plan: CommitPlan, snap: Snapshot, idAttrs: Record<strin
       const touched = plan.expectedChildRowstamps[kind] ?? {};
       for (const op of ops) {
         if (op.action !== "Add" && !Object.prototype.hasOwnProperty.call(touched, String(op.id))) {
-          return `子 ${kind} の読み込み時の _rowstamp が計画に無く、照合できないため送らなかった`;
+          return msg().row.childRowstampMissing(kind);
         }
       }
     }
@@ -812,8 +818,8 @@ function compareExpected(plan: CommitPlan, snap: Snapshot, idAttrs: Record<strin
     const list = snap.children[kind.toUpperCase()] ?? [];
     for (const [id, rowstamp] of Object.entries(touched)) {
       const c = list.find((x) => x.id !== null && String(x.id) === id);
-      if (!c) return `読み込み後に子 ${kind} が見つからなくなったため送らなかった`;
-      if (rowstamp === null || c.rowstamp !== rowstamp) return `読み込み後に子 ${kind} が更新された（_rowstamp が違う）ため送らなかった`;
+      if (!c) return msg().row.childGone(kind);
+      if (rowstamp === null || c.rowstamp !== rowstamp) return msg().row.childUpdated(kind);
     }
   }
   return null;
@@ -838,27 +844,27 @@ function verifyAgainstPlan(plan: ParentCommitPlan, before: Snapshot, after: Snap
         if (op.action === "Change") {
           const c = afterById.get(String(op.id));
           if (!c) {
-            mism.push(`${K}（変更した子が見つからない）`);
+            mism.push(msg().mismatch.changedChildMissing(K));
             continue;
           }
           for (const [a, v] of Object.entries(op.attrs)) if (!sameValue(v, c.attrs[a.toUpperCase()])) mism.push(`${K}.${a.toUpperCase()}`);
         } else if (op.action === "Delete") {
-          if (afterById.has(String(op.id))) mism.push(`${K}（削除が未反映）`);
+          if (afterById.has(String(op.id))) mism.push(msg().mismatch.deleteNotApplied(K));
         }
       }
       const beforeIds = new Set(beforeList.filter((c) => c.id !== null).map((c) => String(c.id)));
       for (const id of beforeIds) {
         if (!deleted.has(id) && !afterById.has(id)) {
-          mism.push(`${K}（変更していない子が消えた）`);
+          mism.push(msg().mismatch.unchangedChildGone(K));
           break;
         }
       }
       const newChildren = afterList.filter((c) => c.id === null || !beforeIds.has(String(c.id)));
-      if (!matchAdds(adds, newChildren)) mism.push(`${K}（追加が未反映）`);
-      else if (newChildren.length > adds.length) mism.push(`${K}（想定外の子が増えた）`);
+      if (!matchAdds(adds, newChildren)) mism.push(msg().mismatch.addNotApplied(K));
+      else if (newChildren.length > adds.length) mism.push(msg().mismatch.unexpectedChild(K));
     } else {
-      if (afterList.length !== beforeList.length + adds.length) mism.push(`${K}（子の件数が合わない）`);
-      else if (!matchAddsByCount(adds, beforeList, afterList)) mism.push(`${K}（追加が未反映）`);
+      if (afterList.length !== beforeList.length + adds.length) mism.push(msg().mismatch.childCountMismatch(K));
+      else if (!matchAddsByCount(adds, beforeList, afterList)) mism.push(msg().mismatch.addNotApplied(K));
     }
   }
   return mism;
@@ -960,7 +966,7 @@ export function writeLogEntry(plan: ParentCommitPlan, result: CommitRowOutcome, 
 function errMessage(e: unknown): string {
   if (e instanceof MaximoError) return e.reasonCode ? `${e.reasonCode} ${e.message}` : e.message;
   if (e instanceof Error) return e.message;
-  return "不明なエラー";
+  return msg().unknownError;
 }
 
 function errFields(e: unknown): { httpStatus?: number; reasonCode?: string } {

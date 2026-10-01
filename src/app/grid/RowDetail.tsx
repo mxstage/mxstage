@@ -5,6 +5,7 @@
 import { TONE_STYLE } from "./cellStyle";
 import type { DetailItem } from "./detailItems";
 import { sortDetailItems } from "./detailItems";
+import { gridMessages } from "./messages";
 
 export interface RowDetailProps {
   /** 見出し（例 BEDFORD / WO101001） */
@@ -17,13 +18,12 @@ export interface RowDetailProps {
 export function RowDetail({ title, items, emptyLast = true }: RowDetailProps) {
   const shown = emptyLast ? sortDetailItems(items) : [...items];
   const filled = items.filter((i) => !i.empty).length;
+  const t = gridMessages();
   return (
-    <section className="row-detail" aria-label={`行の詳細 ${title}`}>
+    <section className="row-detail" aria-label={t.rowDetail.label(title)}>
       <header>
         <span className="title">{title}</span>
-        <span className="filled">
-          {filled} / {items.length} 列に値
-        </span>
+        <span className="filled">{t.rowDetail.filled(filled, items.length)}</span>
       </header>
       <dl>
         {shown.map((item) => (
@@ -31,7 +31,7 @@ export function RowDetail({ title, items, emptyLast = true }: RowDetailProps) {
             <dt title={item.attr ?? undefined}>
               <span className="label">{item.label}</span>
             </dt>
-            <dd style={item.changed && item.author ? { color: TONE_STYLE[item.author].fg } : undefined}>{item.empty ? "（空）" : item.value}</dd>
+            <dd style={item.changed && item.author ? { color: TONE_STYLE[item.author].fg } : undefined}>{item.empty ? t.hover.empty : item.value}</dd>
           </div>
         ))}
       </dl>

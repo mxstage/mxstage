@@ -33,6 +33,7 @@ import { Link, spaClick } from "../ui/Link";
 import { Notice } from "../ui/Notice";
 import { APP_PATH, SETTINGS_PATH } from "../ui/routes";
 import type { ToastStore } from "../ui/toast";
+import { structuresMessages } from "./messages";
 import { childSummaries, filterColumns, formatDateTime, groupByUseWith, loadErrorMessage, parentColumnCount, parseScopeKey, scopeKey, sheetsByStructure, type ColumnScope } from "./logic";
 
 export interface StructuresVault {
@@ -60,15 +61,11 @@ function browserStorage(): StorageLike | null {
   }
 }
 
-const TYPE_LABEL: Record<string, string> = {
-  string: "文字",
-  integer: "整数",
-  number: "数値",
-  boolean: "真偽",
-  date: "日付",
-  datetime: "日時",
-  unknown: "不明",
-};
+/** 列の型の名前（今の言語。知らない型はそのまま） */
+function typeLabel(type: string): string {
+  const labels: Readonly<Record<string, string>> = structuresMessages().type;
+  return labels[type] ?? type;
+}
 
 /** 作業のシートが増減・置き換わったら描き直す */
 function useWorkspaceVersion(workspace: Workspace | null | undefined): number {
@@ -84,6 +81,7 @@ export function StructuresPage(props: StructuresPageProps) {
   const { catalog, vault, toasts, workspace } = props;
   const confirmFn = props.confirm ?? ((m: string) => window.confirm(m));
   const storage = props.storage === undefined ? browserStorage() : props.storage;
+  const t = structuresMessages();
 
   const view = useSyncExternalStore(
     useCallback((l: () => void) => vault.subscribe(l), [vault]),
@@ -115,12 +113,13 @@ export function StructuresPage(props: StructuresPageProps) {
   const refreshAll = useCallback(async () => {
     const conn = vault.current();
     if (conn === null) {
-      toasts.show("Maximo に接続していないため取り直せません。設定で接続してください。", "error");
+      toasts.show(structuresMessages().notConnectedRefreshAll, "error");
       return;
     }
     const inUse = Array.from(usage.values()).flat();
-    const warn = inUse.length > 0 ? `\n読み込み済みのシート（${inUse.join("、")}）は、読み込んだときの定義で反映します。取り直した定義で反映に使う列が変わっていたら、そのシートは読み込み直すまで反映できません。` : "";
-    if (!confirmFn(`Maximo から、すべてのオブジェクト構造の定義を取り直しますか？${warn}`)) return;
+    const msg = structuresMessages();
+    const warn = inUse.length > 0 ? msg.refreshAllWarn(inUse.join(msg.listSeparator)) : "";
+    if (!confirmFn(msg.confirmRefreshAll(warn))) return;
     const scope = normalizeScope(conn.info.baseUrl);
     const result = await catalog.syncAll(conn.client, conn.info.baseUrl, {
       refresh: true,
@@ -129,24 +128,25 @@ export function StructuresPage(props: StructuresPageProps) {
         return c !== null && normalizeScope(c.info.baseUrl) === scope;
       },
     });
-    if (result.state === "done") toasts.show(`オブジェクト構造 ${result.total} 件を取り直しました${result.failed.length > 0 ? `（読めなかったもの ${result.failed.length} 件）` : ""}。`);
-    else if (result.state === "failed") toasts.show(result.error ?? "取り直せませんでした。", "error");
+    if (result.state === "done") toasts.show(msg.refreshedAll(result.total, result.failed.length));
+    else if (result.state === "failed") toasts.show(result.error ?? msg.refreshFailed, "error");
   }, [catalog, vault, toasts, usage, confirmFn]);
 
   const refreshOne = useCallback(
     async (entry: StoredObjectStructure) => {
       const conn = vault.current();
+      const msg = structuresMessages();
       if (conn === null) {
-        toasts.show("Maximo に接続していないため再読み込みできません。設定で接続してください。", "error");
+        toasts.show(msg.notConnectedRefreshOne, "error");
         return;
       }
       const sheets = usage.get(entry.os) ?? [];
-      if (sheets.length > 0 && !confirmFn(`${entry.os} を使って読み込んだシート（${sheets.join("、")}）があります。取り直した定義で反映に使う列が変わっていたら、そのシートは読み込み直すまで反映できません。再読み込みしますか？`)) {
+      if (sheets.length > 0 && !confirmFn(msg.confirmRefreshOne(entry.os, sheets.join(msg.listSeparator)))) {
         return;
       }
       try {
         const r = await catalog.ensure(conn.client, conn.info.baseUrl, entry.os, { refresh: true });
-        toasts.show(`${r.entry.os} を読み直しました（${r.entry.info.columns.length} 列）。`);
+        toasts.show(msg.refreshedOne(r.entry.os, r.entry.info.columns.length));
       } catch (e) {
         toasts.show(loadErrorMessage(entry.os, e), "error");
       }
@@ -164,13 +164,13 @@ export function StructuresPage(props: StructuresPageProps) {
   return (
     <main className="page wide structures">
       <header className="page-head">
-        <h1>オブジェクト構造</h1>
+        <h1>{t.title}</h1>
         <div className="actions">
           <Button kind="tertiary" size="md" href={SETTINGS_PATH} onClick={spaClick(SETTINGS_PATH)}>
-            設定
+            {t.settings}
           </Button>
           <Button kind="tertiary" size="md" href={APP_PATH} onClick={spaClick(APP_PATH)}>
-            作業画面に戻る
+            {t.back}
           </Button>
         </div>
       </header>
@@ -178,23 +178,25 @@ export function StructuresPage(props: StructuresPageProps) {
       {!baseUrl || snapshot === null ? (
         <section className="card">
           {/* 知らせの中にはリンクを置けない（Carbon が拒む）ので、設定へのリンクは知らせの下に置く */}
-          <Notice kind="warning">Maximo の接続先がまだありません。</Notice>
+          <Notice kind="warning">{t.noConnection}</Notice>
           <p>
-            <Link to={SETTINGS_PATH}>設定</Link>で接続すると、すべてのオブジェクト構造を自動で読み込みます。
+            {t.connectBefore}
+            <Link to={SETTINGS_PATH}>{t.connectLink}</Link>
+            {t.connectAfter}
           </p>
         </section>
       ) : (
         <>
           <SyncSection baseUrl={baseUrl} connected={connected} locked={view.kind === "locked"} snapshot={snapshot} onRefreshAll={() => void refreshAll()} />
           <div className="structures-body">
-            <section className="card os-list" aria-label="保存したオブジェクト構造">
+            <section className="card os-list" aria-label={t.listLabel}>
               <Layer>
                 <TextInput
                   id="os-search"
-                  labelText="オブジェクト構造を探す"
+                  labelText={t.search}
                   hideLabel
-                  aria-label="オブジェクト構造を探す"
-                  placeholder="業務の言葉や名前で探す（例 許可申請、タグ番号、MXAPIWO）"
+                  aria-label={t.search}
+                  placeholder={t.searchPlaceholder}
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   spellCheck={false}
@@ -202,9 +204,9 @@ export function StructuresPage(props: StructuresPageProps) {
                 />
               </Layer>
               <p className="muted small count" role="status">
-                {found === null ? `保存済み ${entries.length} 件` : `当たった構造 ${found.totalHits} 件${found.partial ? "（一部の言葉だけに当たる）" : ""}`}
+                {found === null ? t.savedCount(entries.length) : t.hitCount(found.totalHits, found.partial)}
               </p>
-              {snapshot.ready && entries.length === 0 && <p className="muted">まだありません。</p>}
+              {snapshot.ready && entries.length === 0 && <p className="muted">{t.noneYet}</p>}
               <ul className="plain">
                 {listed.map((e) => {
                   const hit = hitFor(e.os);
@@ -216,18 +218,18 @@ export function StructuresPage(props: StructuresPageProps) {
                         className="os-item"
                         aria-current={current?.os === e.os}
                         onClick={() => setSelected(e.os)}
-                        title={sheets.length > 0 ? `使っているシート: ${sheets.join("、")}` : undefined}
+                        title={sheets.length > 0 ? t.usedBy(sheets.join(t.listSeparator)) : undefined}
                       >
                         <span className="os-item-head">
                           <span className="mono">{e.os}</span>
                           {sheets.length > 0 && (
                             <Tag as="span" type="blue" size="sm" className="badge">
-                              シート {sheets.length}
+                              {t.sheetBadge(sheets.length)}
                             </Tag>
                           )}
                         </span>
                         <span className="muted small">
-                          {hit && hit.columns.length > 0 ? hit.columns.map((c) => c.title ?? c.name).join("・") : `${parentColumnCount(e)} 列${Object.keys(e.info.childIdAttrs).length > 0 ? `・子 ${Object.keys(e.info.childIdAttrs).length}` : ""}`}
+                          {hit && hit.columns.length > 0 ? hit.columns.map((c) => c.title ?? c.name).join(t.itemColumnsJoin) : t.itemSummary(parentColumnCount(e), Object.keys(e.info.childIdAttrs).length)}
                         </span>
                       </button>
                     </li>
@@ -237,7 +239,7 @@ export function StructuresPage(props: StructuresPageProps) {
             </section>
             {current === null ? (
               <section className="card">
-                <p className="muted">読み込むと、ここにキー列・子オブジェクト・属性が出ます。</p>
+                <p className="muted">{t.emptyDetail}</p>
               </section>
             ) : (
               <StructureDetail
@@ -268,53 +270,50 @@ interface SyncSectionProps {
 
 function SyncSection({ baseUrl, connected, locked, snapshot, onRefreshAll }: SyncSectionProps) {
   const sync = snapshot.sync;
+  const t = structuresMessages().sync;
   let status: ReactNode;
   if (sync.state === "running") {
-    const label = `Maximo から${sync.refresh ? "取り直しています" : "読み込んでいます"}（${sync.done} / ${sync.total}）`;
+    const label = t.loading(sync.refresh, sync.done, sync.total);
     status = <ProgressBar className="sync-progress" label={label} max={Math.max(1, sync.total)} value={sync.done} />;
   } else if (sync.state === "failed") {
-    status = <Notice kind="error">{sync.error ?? "オブジェクト構造の一覧を読めませんでした。"}</Notice>;
+    status = <Notice kind="error">{sync.error ?? t.failed}</Notice>;
   } else if (sync.state === "stopped") {
     status = (
-      <Notice kind="warning">
-        接続が切れたため、読み込みを途中で止めました（{sync.done} / {sync.total}）。接続すると続きを読み込みます。
-      </Notice>
+      <Notice kind="warning">{t.stopped(sync.done, sync.total)}</Notice>
     );
   } else if (sync.state === "done") {
     status = (
       <p className="muted" role="status">
-        保存済み {snapshot.entries.length} 件{sync.finishedAt !== undefined ? `（${formatDateTime(sync.finishedAt)} に Maximo と照合）` : ""}
+        {t.done(snapshot.entries.length, sync.finishedAt !== undefined ? formatDateTime(sync.finishedAt) : null)}
       </p>
     );
   } else {
-    status = <p className="muted">{connected ? "読み込みを始めます…" : `保存済み ${snapshot.entries.length} 件。Maximo に接続すると、足りない定義を自動で読み込みます。`}</p>;
+    status = <p className="muted">{connected ? t.starting : t.idle(snapshot.entries.length)}</p>;
   }
   return (
     <section className="card">
       <div className="detail-head">
-        <h2>Maximo から読み込んだ定義</h2>
+        <h2>{t.heading}</h2>
         <Button kind="tertiary" size="sm" onClick={onRefreshAll} disabled={!connected || sync.state === "running"}>
-          すべて取り直す
+          {t.refreshAll}
         </Button>
       </div>
       <p className="muted">
-        接続先: <span className="mono">{baseUrl}</span>
+        {t.target} <span className="mono">{baseUrl}</span>
       </p>
       {status}
       {snapshot.apiList !== null && <ListSummary list={snapshot.apiList} />}
       {!connected && (
         <>
-          <Notice kind="warning">
-            {locked ? "API キーがロックされているため" : "Maximo に接続していないため"}、読み込みと取り直しはできません。保存済みの定義は見られます。
-          </Notice>
+          <Notice kind="warning">{locked ? t.locked : t.disconnected}</Notice>
           <p className="small">
-            <Link to={SETTINGS_PATH}>設定</Link>
+            <Link to={SETTINGS_PATH}>{t.settings}</Link>
           </p>
         </>
       )}
       {sync.failed.length > 0 && (
         <Accordion size="sm" align="start">
-          <AccordionItem className="sync-failed" title={`読み込めなかった構造（${sync.failed.length} 件）`}>
+          <AccordionItem className="sync-failed" title={t.failedList(sync.failed.length)}>
             <ul className="plain small">
               {sync.failed.map((f) => (
                 <li key={f.os}>
@@ -328,10 +327,7 @@ function SyncSection({ baseUrl, connected, locked, snapshot, onRefreshAll }: Syn
       {snapshot.storageError ? (
         <Notice kind="warning">{snapshot.storageError}</Notice>
       ) : (
-        <p className="muted small">
-          定義はこのブラウザに保存され、作業を終了しても残ります（API キーと行データは保存しません）。LLM は利用者の業務の言葉からここの構造を見繕ってシートを読み込み、Maximo
-          への反映もその構造に対して行います。
-        </p>
+        <p className="muted small">{t.storedNote}</p>
       )}
     </section>
   );
@@ -342,17 +338,20 @@ function ListSummary({ list }: { list: StoredApiList }) {
   const notApi = list.notApi ?? [];
   const groups = groupByUseWith(notApi);
   const added = list.addedFromDefinitions ?? 0;
+  const msg = structuresMessages();
+  const t = msg.list;
   return (
     <>
       <p className="muted small list-summary">
-        {typeof list.definedCount === "number" ? `Maximo に定義されたオブジェクト構造 ${list.definedCount} 件のうち、API で使える ${list.items.length} 件を読み込みます` : `API で使えるオブジェクト構造 ${list.items.length} 件を読み込みます`}
-        {added > 0 ? `（apimeta に載らない ${added} 件を含む）` : ""}。
+        {typeof list.definedCount === "number" ? t.defined(list.definedCount, list.items.length) : t.usable(list.items.length)}
+        {added > 0 ? t.added(added) : ""}
+        {t.end}
       </p>
       {notApi.length > 0 && (
         <Accordion size="sm" align="start">
           <AccordionItem
             className="not-api"
-            title={`API で使えないため読み込まない構造（${notApi.length} 件: ${groups.map((g) => `${g.usewith} ${g.names.length} 件`).join("、")}）`}
+            title={t.notApi(notApi.length, groups.map((g) => t.group(g.usewith, g.names.length)).join(msg.listSeparator))}
           >
             <ul className="plain small">
               {groups.map((g) => (
@@ -365,9 +364,7 @@ function ListSummary({ list }: { list: StoredApiList }) {
         </Accordion>
       )}
       {list.definedError !== undefined && (
-        <Notice kind="warning">
-          Maximo の定義の一覧（MXAPIINTOBJECT）を読めなかったため、apimeta に載る構造だけを読み込みました。apimeta には顧客が作った構造が載らないことがあります（{list.definedError}）。
-        </Notice>
+        <Notice kind="warning">{t.definedError(list.definedError)}</Notice>
       )}
     </>
   );
@@ -394,44 +391,44 @@ function StructureDetail({ entry, initialQuery, sheets, connected, refreshing, o
     if (scope.kind === "child" && !children.some((c) => c.name === scope.name)) setScope({ kind: "all" });
   }, [children, scope]);
 
-  const sourceLabel = keys.source === "schema" ? "スキーマの主キー" : keys.source === "inferred" ? "推定" : "キー列なし（href で識別）";
+  const msg = structuresMessages();
+  const t = msg.detail;
+  const sourceLabel = keys.source === "schema" ? t.keySource.schema : keys.source === "inferred" ? t.keySource.inferred : t.keySource.none;
   return (
-    <section className="card structure-detail" aria-label={`${entry.os} の定義`}>
+    <section className="card structure-detail" aria-label={t.label(entry.os)}>
       <div className="detail-head">
         <h2 className="mono">{entry.os}</h2>
         <div className="actions">
-          <span className="muted small">{formatDateTime(entry.loadedAt)} に読み込み</span>
+          <span className="muted small">{t.loadedAt(formatDateTime(entry.loadedAt))}</span>
           <Button kind="ghost" size="sm" onClick={onRefresh} disabled={!connected || refreshing}>
-            {refreshing ? "読み込み中…" : "再読み込み"}
+            {refreshing ? t.refreshing : t.refresh}
           </Button>
         </div>
       </div>
       <dl className="kv">
-        <dt>キー列</dt>
+        <dt>{t.keyColumns}</dt>
         <dd>
-          <span className="mono">{keys.keyColumns.join(", ") || "なし"}</span> <span className="muted small">（{sourceLabel}）</span>
+          <span className="mono">{keys.keyColumns.join(", ") || t.none}</span> <span className="muted small">{t.paren(sourceLabel)}</span>
         </dd>
-        <dt>属性</dt>
-        <dd>
-          親 {parentColumnCount(entry)} 列・合計 {entry.info.columns.length} 列
-        </dd>
-        <dt>使っているシート</dt>
-        <dd className="used-sheets">{sheets.length > 0 ? sheets.join("、") : <span className="muted">なし</span>}</dd>
+        <dt>{t.attributes}</dt>
+        <dd>{t.attributeCounts(parentColumnCount(entry), entry.info.columns.length)}</dd>
+        <dt>{t.usedBy}</dt>
+        <dd className="used-sheets">{sheets.length > 0 ? sheets.join(msg.listSeparator) : <span className="muted">{t.none}</span>}</dd>
       </dl>
       {keys.note !== undefined && <p className="muted small">{keys.note}</p>}
 
-      <h3>子オブジェクト</h3>
+      <h3>{t.children}</h3>
       {children.length === 0 ? (
-        <p className="muted">子オブジェクトはありません。</p>
+        <p className="muted">{t.noChildren}</p>
       ) : (
         <>
           <div className="table-wrap">
             <Table size="sm" className="child-table">
               <TableHead>
                 <TableRow>
-                  <TableHeader>子オブジェクト</TableHeader>
-                  <TableHeader>子を特定する属性</TableHeader>
-                  <TableHeader>列数</TableHeader>
+                  <TableHeader>{t.childHeader}</TableHeader>
+                  <TableHeader>{t.childIdHeader}</TableHeader>
+                  <TableHeader>{t.columnCountHeader}</TableHeader>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -442,7 +439,7 @@ function StructureDetail({ entry, initialQuery, sheets, connected, refreshing, o
                         {c.name}
                       </button>
                     </TableCell>
-                    <TableCell className="mono">{c.idAttr ?? <span className="muted">不明（追加だけできる）</span>}</TableCell>
+                    <TableCell className="mono">{c.idAttr ?? <span className="muted">{t.childIdUnknown}</span>}</TableCell>
                     <TableCell>{c.columnCount}</TableCell>
                   </TableRow>
                 ))}
@@ -453,15 +450,15 @@ function StructureDetail({ entry, initialQuery, sheets, connected, refreshing, o
         </>
       )}
 
-      <h3>属性</h3>
+      <h3>{t.attributes}</h3>
       <Layer className="filter-row">
         <TextInput
           id={`attr-filter-${entry.os}`}
           size="sm"
-          labelText="属性の絞り込み"
+          labelText={t.filter}
           hideLabel
-          aria-label="属性の絞り込み"
-          placeholder="名前や日本語ラベルの一部（例 申請、TAGNO）"
+          aria-label={t.filter}
+          placeholder={t.filterPlaceholder}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           autoComplete="off"
@@ -469,32 +466,32 @@ function StructureDetail({ entry, initialQuery, sheets, connected, refreshing, o
         <Select
           id={`attr-scope-${entry.os}`}
           size="sm"
-          labelText="範囲"
+          labelText={t.scope}
           hideLabel
-          aria-label="範囲"
+          aria-label={t.scope}
           value={scopeKey(scope)}
           onChange={(e) => setScope(parseScopeKey(e.target.value))}
         >
-          <SelectItem value="all" text="すべて" />
-          <SelectItem value="parent" text="親だけ" />
+          <SelectItem value="all" text={t.scopeAll} />
+          <SelectItem value="parent" text={t.scopeParent} />
           {children.map((c) => (
-            <SelectItem key={c.name} value={`child:${c.name}`} text={`子 ${c.name}`} />
+            <SelectItem key={c.name} value={`child:${c.name}`} text={t.scopeChild(c.name)} />
           ))}
         </Select>
         <span className="muted small count" role="status">
-          {columns.length} / {entry.info.columns.length} 列
+          {t.shownCount(columns.length, entry.info.columns.length)}
         </span>
       </Layer>
       <div className="attr-scroll">
         <Table size="sm" className="attr-table">
           <TableHead>
             <TableRow>
-              <TableHeader>属性</TableHeader>
-              <TableHeader>ラベル</TableHeader>
-              <TableHeader>型</TableHeader>
-              <TableHeader>桁</TableHeader>
-              <TableHeader>必須</TableHeader>
-              <TableHeader>読み取り専用</TableHeader>
+              <TableHeader>{t.attrHeader}</TableHeader>
+              <TableHeader>{t.labelHeader}</TableHeader>
+              <TableHeader>{t.typeHeader}</TableHeader>
+              <TableHeader>{t.lengthHeader}</TableHeader>
+              <TableHeader>{t.requiredHeader}</TableHeader>
+              <TableHeader>{t.readOnlyHeader}</TableHeader>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -502,10 +499,10 @@ function StructureDetail({ entry, initialQuery, sheets, connected, refreshing, o
               <TableRow key={c.name}>
                 <TableCell className="mono">{c.name}</TableCell>
                 <TableCell>{c.title ?? ""}</TableCell>
-                <TableCell>{TYPE_LABEL[c.type] ?? c.type}</TableCell>
+                <TableCell>{typeLabel(c.type)}</TableCell>
                 <TableCell>{c.maxLength ?? ""}</TableCell>
-                <TableCell>{c.required ? "必須" : ""}</TableCell>
-                <TableCell>{c.readOnly ? "読み取り専用" : ""}</TableCell>
+                <TableCell>{c.required ? t.required : ""}</TableCell>
+                <TableCell>{c.readOnly ? t.readOnly : ""}</TableCell>
               </TableRow>
             ))}
           </TableBody>

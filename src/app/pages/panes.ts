@@ -8,6 +8,7 @@
 // - load_master で読んだマスタ（機器台帳・ロケーション）は別のシートで、meta.link で参照元とつながっている。
 
 import type { SheetLink, SheetMeta } from "../../shared/sheet";
+import { pagesMessages } from "./messages";
 
 export type PaneScope = { kind: "all" } | { kind: "parent" } | { kind: "child"; name: string };
 
@@ -45,7 +46,7 @@ export function panesFor(metas: readonly SheetMeta[], current: string, max: numb
   } else {
     panes.push({ key: `${root.name}::parent`, title: root.name, subtitle: sourceLabel(root), sheet: root.name, scope: { kind: "parent" } });
     for (const child of children) {
-      panes.push({ key: `${root.name}::child:${child}`, title: child, subtitle: `${root.name} の子`, sheet: root.name, scope: { kind: "child", name: child } });
+      panes.push({ key: `${root.name}::child:${child}`, title: child, subtitle: pagesMessages().panes.childOf(root.name), sheet: root.name, scope: { kind: "child", name: child } });
     }
   }
   for (const m of metas) {
@@ -62,7 +63,7 @@ export function panesFor(metas: readonly SheetMeta[], current: string, max: numb
 }
 
 function sourceLabel(meta: SheetMeta): string {
-  return meta.source.kind === "maximo" ? meta.source.os : meta.source.kind === "excel" ? meta.source.fileName : "シート";
+  return meta.source.kind === "maximo" ? meta.source.os : meta.source.kind === "excel" ? meta.source.fileName : pagesMessages().panes.sheet;
 }
 
 /** ペインに出す列（親のペインは親の列だけ、子のペインはキー列とその子の列だけ） */
@@ -125,7 +126,7 @@ export function ownPanes(meta: SheetMeta): PaneSpec[] {
   if (children.length === 0) return [{ key: `${meta.name}::all`, title: meta.name, subtitle: sourceLabel(meta), sheet: meta.name, scope: { kind: "all" } }];
   return [
     { key: `${meta.name}::parent`, title: meta.name, subtitle: sourceLabel(meta), sheet: meta.name, scope: { kind: "parent" } },
-    ...children.map((child) => ({ key: `${meta.name}::child:${child}`, title: child, subtitle: `${meta.name} の子`, sheet: meta.name, scope: { kind: "child" as const, name: child } })),
+    ...children.map((child) => ({ key: `${meta.name}::child:${child}`, title: child, subtitle: pagesMessages().panes.childOf(meta.name), sheet: meta.name, scope: { kind: "child" as const, name: child } })),
   ];
 }
 
@@ -155,7 +156,7 @@ export function arrangePanes(group: readonly PaneSpec[], candidates: ReadonlyMap
 export type LayoutChange = { layout: PaneLayout } | { error: string };
 
 export function tooManyPanes(max: number = MAX_PANES): string {
-  return `表は ${max} 枚まで並べられます。ほかの表を隠してから出してください。`;
+  return pagesMessages().panes.tooMany(max);
 }
 
 /** 窓に出す・隠す。足したペインを隠したら、組から外す（帯からも消える。「表を足す」で戻せる） */

@@ -2,29 +2,27 @@
 
 import type { ConflictInfo } from "../../shared/model";
 import { isStoreError } from "../store";
+import { gridMessages } from "./messages";
 
-export const CONFLICT_LABEL: Record<ConflictInfo["reason"], string> = {
-  changed_since_read: "他の変更と重なった",
-  user_editing: "編集中",
-  read_only_column: "読み取り専用の列",
-  row_not_found: "行が見つからない",
-  column_not_found: "列が見つからない",
-  invalid_value: "値が列の型に合わない",
-  lookup_ambiguous: "候補が複数ある",
-};
-
-/** 変更できなかったセルの要約。無ければ null */
-export function conflictSummary(conflicts: readonly ConflictInfo[], verb = "変更"): string | null {
-  if (conflicts.length === 0) return null;
-  const counts = new Map<string, number>();
-  for (const c of conflicts) {
-    const label = CONFLICT_LABEL[c.reason] ?? c.reason;
-    counts.set(label, (counts.get(label) ?? 0) + 1);
-  }
-  const parts = Array.from(counts, ([label, n]) => `${label} ${n} 件`).join("、");
-  return `${conflicts.length} 件のセルは${verb}できませんでした（${parts}）。`;
+/** 変更できなかった理由の文言（今の言語。知らない理由はそのまま） */
+export function conflictLabel(reason: ConflictInfo["reason"]): string {
+  const labels: Readonly<Record<string, string>> = gridMessages().conflictReason;
+  return labels[reason] ?? reason;
 }
 
-export function storeErrorMessage(e: unknown, fallback = "変更できませんでした。"): string {
+/** 変更できなかったセルの要約。無ければ null。action は直接編集（change）か取り消し（undo）か */
+export function conflictSummary(conflicts: readonly ConflictInfo[], action: "change" | "undo" = "change"): string | null {
+  if (conflicts.length === 0) return null;
+  const t = gridMessages().conflict;
+  const counts = new Map<string, number>();
+  for (const c of conflicts) {
+    const label = conflictLabel(c.reason);
+    counts.set(label, (counts.get(label) ?? 0) + 1);
+  }
+  const parts = Array.from(counts, ([label, n]) => t.part(label, n)).join(t.separator);
+  return action === "undo" ? t.summaryUndo(conflicts.length, parts) : t.summaryChange(conflicts.length, parts);
+}
+
+export function storeErrorMessage(e: unknown, fallback: string = gridMessages().conflict.changeFailed): string {
   return isStoreError(e) ? e.message : fallback;
 }

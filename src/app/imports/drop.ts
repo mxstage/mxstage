@@ -4,6 +4,7 @@
 // - ドロップしたファイルをブラウザが開いて作業画面から離れないよう、ファイルのドロップは必ず止める。
 
 import { IMPORT_MAX_BYTES, toHex } from "../relay";
+import { uiMessages } from "../ui/messages";
 import type { ImportStore } from "./store";
 
 export interface ImportDropOptions {
@@ -40,7 +41,7 @@ export function installImportDrop(opts: ImportDropOptions): () => void {
 
   const receive = async (file: File) => {
     if (file.size > maxBytes) {
-      notify(`${file.name} は大きすぎます（${Math.round(maxBytes / 1024 / 1024)}MB まで）。`, "error");
+      notify(uiMessages().drop.tooLarge(file.name, Math.round(maxBytes / 1024 / 1024)), "error");
       return;
     }
     try {
@@ -53,9 +54,9 @@ export function installImportDrop(opts: ImportDropOptions): () => void {
       }
       const importId = newId();
       store.add({ importId, fileName: file.name, contentType: file.type || "application/octet-stream", bytes, sha256 }, { dropped: true });
-      notify(`${file.name} を受け取りました。Claude に「ドロップしたファイルを取り込んで」と伝えてください。`);
+      notify(uiMessages().drop.received(file.name));
     } catch {
-      notify(`${file.name} を読み取れませんでした。`, "error");
+      notify(uiMessages().drop.unreadable(file.name), "error");
     }
   };
 

@@ -24,7 +24,7 @@ import {
 } from "../../src/app/pwa/cacheRules";
 import {
   SW_URL,
-  UPDATE_READY_MESSAGE,
+  updateReadyMessage,
   isUpdateReady,
   registerServiceWorker,
   type RegistrationLike,
@@ -52,7 +52,7 @@ describe("manifest", () => {
     expect(manifest.display).toBe("standalone");
     expect(manifest.start_url).toBe("/app");
     expect(manifest.scope).toBe("/");
-    expect(manifest.lang).toBe("ja");
+    expect(manifest.lang).toBe("en");
   });
 
   it("192・512 と maskable のアイコンが実在する", () => {
@@ -278,7 +278,7 @@ describe("Service Worker の登録", () => {
     worker.become("installed");
     worker.become("activated");
     expect(onUpdate).toHaveBeenCalledTimes(1);
-    expect(onUpdate).toHaveBeenCalledWith(UPDATE_READY_MESSAGE);
+    expect(onUpdate).toHaveBeenCalledWith(updateReadyMessage());
   });
 
   it("初回の登録では、activate の clients.claim() で controller が付いても知らせない", async () => {

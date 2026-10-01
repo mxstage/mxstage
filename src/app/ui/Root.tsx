@@ -2,12 +2,14 @@
 // 画面はこのパソコンの橋渡し（127.0.0.1）が配る。ログインも作業キーも無い。
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { getLocale, subscribeLocale } from "../../shared/i18n";
 import type { Runtime } from "../boot/runtime";
 import type { AppServices } from "../boot/types";
 import { AppPage } from "../pages/AppPage";
 import { SettingsPage } from "../settings/SettingsPage";
 import { StructuresPage } from "../structures/StructuresPage";
 import { NAVIGATE_EVENT, navigate, resolveRoute } from "./routes";
+import { uiMessages } from "./messages";
 import { Toasts } from "./toast";
 
 const ACTIVITY_EVENTS = ["pointerdown", "keydown", "wheel"] as const;
@@ -16,6 +18,12 @@ export function Root({ services }: { services: AppServices }) {
   const [path, setPath] = useState(() => window.location.pathname);
   const [runtime, setRuntime] = useState<Runtime | null>(null);
   const runtimeRef = useRef<Runtime | null>(null);
+  // 言語を切り替えたら画面を作り直す（作業データは runtime にあるので消えない）
+  const [locale, setLocale] = useState(getLocale);
+  useEffect(() => subscribeLocale(setLocale), []);
+  useEffect(() => {
+    document.documentElement.lang = locale;
+  }, [locale]);
 
   useEffect(() => {
     const sync = () => setPath(window.location.pathname);
@@ -65,13 +73,13 @@ export function Root({ services }: { services: AppServices }) {
     runtimeRef.current = rt;
     rt.start();
     setRuntime(rt);
-    services.toasts.show("作業を終了しました。新しい作業を始めます。");
+    services.toasts.show(uiMessages().workEnded);
   }, [services]);
 
   if (route.kind === "settings") {
     return (
       <>
-        <SettingsPage vault={services.vault} license={services.license} />
+        <SettingsPage key={locale} vault={services.vault} license={services.license} />
         <Toasts store={services.toasts} />
       </>
     );
@@ -80,13 +88,13 @@ export function Root({ services }: { services: AppServices }) {
     // 作業画面を開いていれば中継はそのまま続く（runtime は作り直さない）。この画面だけのタブは中継につながない
     return (
       <>
-        <StructuresPage catalog={services.catalog} vault={services.vault} toasts={services.toasts} workspace={runtime?.workspace ?? null} />
+        <StructuresPage key={locale} catalog={services.catalog} vault={services.vault} toasts={services.toasts} workspace={runtime?.workspace ?? null} />
         <Toasts store={services.toasts} />
       </>
     );
   }
   if (route.kind === "app" && runtime) {
-    return <AppPage runtime={runtime} vault={services.vault} toasts={services.toasts} catalog={services.catalog} license={services.license} onEndWork={endWork} />;
+    return <AppPage key={locale} runtime={runtime} vault={services.vault} toasts={services.toasts} catalog={services.catalog} license={services.license} onEndWork={endWork} />;
   }
   return null;
 }

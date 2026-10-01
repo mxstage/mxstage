@@ -12,6 +12,7 @@ import {
   cacheNameOf,
   isStaleCache,
   mayStore,
+  offlineText,
   planFor,
   precachePlanFor,
   type RequestInfo as PlanRequest,
@@ -126,7 +127,7 @@ async function navigateFirst(request: Request): Promise<Response> {
     const cache = await caches.open(CACHE_NAME);
     const shell = await cache.match(APP_SHELL_PATH);
     if (shell) return shell;
-    return new Response("オフラインです。ネットワークにつながってからもう一度開いてください。", {
+    return new Response(offlineText(request.headers.get("accept-language")), {
       status: 503,
       headers: { "content-type": "text/plain; charset=utf-8" },
     });

@@ -3,7 +3,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { ObjectStructureCatalog } from "../../src/app/catalog/catalog";
-import { BLOCKED_MESSAGE_PREFIX, createCommitController, ALREADY_RUNNING_MESSAGE } from "../../src/app/commit/controller";
+import { blockedMessagePrefix, createCommitController, alreadyRunningMessage } from "../../src/app/commit/controller";
 import { ENVIRONMENTS_STORAGE_KEY, LicenseClient, daysUntilExpiry, type AuthorizeOutcome, type LicenseGate, type LicenseSnapshot } from "../../src/app/license/client";
 import { authorizeFailure, licenseBlocker } from "../../src/app/license/gate";
 import { PRICING_URL } from "../../src/app/license/messages";
@@ -187,7 +187,7 @@ describe("CommitController の関門", () => {
     expect(panel.counts.changedCells).toBe(1);
     expect(panel.blockers.some((b) => b.includes("ライセンスが要ります"))).toBe(true);
     const res = await controller.run(SHEET, {});
-    expect(res.message?.startsWith(BLOCKED_MESSAGE_PREFIX)).toBe(true);
+    expect(res.message?.startsWith(blockedMessagePrefix())).toBe(true);
     expect(gate.authorize).not.toHaveBeenCalled();
     expect(posts(fake)).toEqual([]);
   });
@@ -208,7 +208,7 @@ describe("CommitController の関門", () => {
     const run = controller.run(SHEET, {});
     await vi.waitFor(() => expect(gate.authorize).toHaveBeenCalledWith(fake.baseUrl));
     expect(controller.isRunning(SHEET)).toBe(true);
-    expect((await controller.run(SHEET, {})).message).toBe(ALREADY_RUNNING_MESSAGE);
+    expect((await controller.run(SHEET, {})).message).toBe(alreadyRunningMessage());
     expect(posts(fake)).toEqual([]);
     release({ ok: true, license: ACME });
     expect((await finish(controller, run)).state).toBe("done");

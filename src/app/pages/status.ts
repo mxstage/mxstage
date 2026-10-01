@@ -2,6 +2,7 @@
 
 import type { RelayStatus } from "../relay";
 import type { VaultView } from "../keyvault/client";
+import { pagesMessages } from "./messages";
 
 export type BadgeTone = "ok" | "warn" | "error" | "muted";
 
@@ -15,43 +16,34 @@ export interface RelayBadge {
 
 /** remainingMs: 再接続までの残り（毎秒数え直す）。null なら status.nextRetryMs を使う */
 export function relayBadge(status: RelayStatus | null, remainingMs: number | null = null): RelayBadge {
-  const connecting: RelayBadge = { text: "中継: 接続中", tone: "muted", title: "中継サーバに接続しています。", showReload: false };
-  if (status === null) return { text: "中継: 未接続", tone: "muted", title: "", showReload: false };
+  const t = pagesMessages().relay;
+  const connecting: RelayBadge = { text: t.connecting, tone: "muted", title: t.connectingTitle, showReload: false };
+  if (status === null) return { text: t.notConnected, tone: "muted", title: "", showReload: false };
   switch (status.state) {
     case "connecting":
       return connecting;
     case "open":
       if (status.role === "primary") {
-        return { text: "中継: primary", tone: "ok", title: "LLM のツールはこのタブで実行されます。", showReload: false };
+        return { text: t.primary, tone: "ok", title: t.primaryTitle, showReload: false };
       }
       if (status.role === "mirror") {
-        return {
-          text: "中継: ミラー",
-          tone: "warn",
-          title: "LLM のツールは別のタブで実行されます。このタブを操作すると、このタブが primary になります。",
-          showReload: false,
-        };
+        return { text: t.mirror, tone: "warn", title: t.mirrorTitle, showReload: false };
       }
       return connecting;
     case "reconnecting": {
       const ms = remainingMs ?? status.nextRetryMs;
       const sec = ms === null ? null : Math.max(0, Math.ceil(ms / 1000));
       return {
-        text: sec === null ? "中継: 再接続中" : `中継: 再接続中（${sec} 秒後）`,
+        text: sec === null ? t.reconnecting : t.reconnectingIn(sec),
         tone: "warn",
-        title: "中継サーバとの接続が切れました。自動で再接続します（作業データはこのタブに残っています）。",
+        title: t.reconnectingTitle,
         showReload: false,
       };
     }
     case "protocol_mismatch":
-      return {
-        text: "中継: 版違い",
-        tone: "error",
-        title: "作業画面の版が古い可能性があります。再読み込みしてください（このタブの作業データと API キーは消えます）。",
-        showReload: true,
-      };
+      return { text: t.mismatch, tone: "error", title: t.mismatchTitle, showReload: true };
     case "closed":
-      return { text: "中継: 停止", tone: "muted", title: "中継サーバに接続していません。", showReload: false };
+      return { text: t.stopped, tone: "muted", title: t.stoppedTitle, showReload: false };
   }
 }
 
@@ -78,11 +70,8 @@ export interface ReopenHint {
  *   作業データと API キーはこのタブのメモリにしか無いので、開き直すと消える。
  */
 export function reopenHint(): ReopenHint {
-  return {
-    text: "つながらないときは橋渡しの起動を確かめてください",
-    title:
-      "このパソコンの橋渡し（MX Stage。Claude Code が起動します）が止まっていると、中継につながりません。橋渡しが動き出せば、このタブは自動でつなぎ直します。作業データと API キーはこのタブのメモリにしか無いので、タブを閉じたり再読み込みしたりしないでください。",
-  };
+  const t = pagesMessages().reopen;
+  return { text: t.text, title: t.title };
 }
 
 export interface MaximoBadge {
@@ -113,23 +102,23 @@ const TONE_RANK: Record<BadgeTone, number> = { ok: 0, muted: 1, warn: 2, error: 
 
 export function connectionIndicator(relay: RelayBadge, maximo: MaximoBadge, workspaceName: string): ConnectionIndicator {
   const tone = TONE_RANK[maximo.tone] > TONE_RANK[relay.tone] ? maximo.tone : relay.tone;
-  const relayText = relay.title ? `${relay.text}（${relay.title}）` : relay.text;
+  const t = pagesMessages().connection;
+  const relayText = relay.title ? t.relayWithTitle(relay.text, relay.title) : relay.text;
   return {
     tone,
-    label: `${relay.text}／${maximo.text}`,
-    title: `作業: ${workspaceName}\n${relayText}\n${maximo.text}`,
+    label: t.label(relay.text, maximo.text),
+    title: t.title(workspaceName, relayText, maximo.text),
   };
 }
 
 export function maximoBadge(view: VaultView): MaximoBadge {
+  const t = pagesMessages().maximo;
   switch (view.kind) {
     case "disconnected":
-      return { text: "Maximo: 未接続", tone: "muted", settingsLink: "設定で接続" };
+      return { text: t.disconnected, tone: "muted", settingsLink: t.connectInSettings };
     case "locked":
-      return { text: "Maximo: ロック中", tone: "warn", settingsLink: "設定で再接続" };
-    case "connected": {
-      const user = view.info.userName ? ` / ${view.info.userName}` : "";
-      return { text: `Maximo: ${view.info.connectionName}（${hostOf(view.info.baseUrl)}${user}）`, tone: "ok", settingsLink: null };
-    }
+      return { text: t.locked, tone: "warn", settingsLink: t.reconnectInSettings };
+    case "connected":
+      return { text: t.connected(view.info.connectionName, hostOf(view.info.baseUrl), view.info.userName ?? ""), tone: "ok", settingsLink: null };
   }
 }

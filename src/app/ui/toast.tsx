@@ -2,6 +2,7 @@
 
 import { ToastNotification } from "@carbon/react";
 import { useCallback, useSyncExternalStore } from "react";
+import { uiMessages } from "./messages";
 
 export type ToastTone = "info" | "error";
 
@@ -67,19 +68,20 @@ export function Toasts({ store }: { store: ToastStore }) {
   const subscribe = useCallback((l: () => void) => store.subscribe(l), [store]);
   const getItems = useCallback(() => store.getItems(), [store]);
   const items = useSyncExternalStore(subscribe, getItems);
+  const m = uiMessages();
   return (
     <div className="toasts" aria-live="polite">
-      {items.map((t) => (
+      {items.map((item) => (
         <ToastNotification
-          key={t.id}
-          className={`toast ${t.tone}`}
-          kind={t.tone === "error" ? "error" : "info"}
-          role={t.tone === "error" ? "alert" : "status"}
-          title={t.text}
-          aria-label="閉じる"
-          statusIconDescription={t.tone === "error" ? "エラー" : "お知らせ"}
+          key={item.id}
+          className={`toast ${item.tone}`}
+          kind={item.tone === "error" ? "error" : "info"}
+          role={item.tone === "error" ? "alert" : "status"}
+          title={item.text}
+          aria-label={m.close}
+          statusIconDescription={item.tone === "error" ? m.status.error : m.status.info}
           onClose={() => {
-            store.dismiss(t.id);
+            store.dismiss(item.id);
             return false;
           }}
         />

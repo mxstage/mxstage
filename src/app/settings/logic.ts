@@ -2,12 +2,12 @@
 
 import { VaultRequestError } from "../keyvault/client";
 import { MaximoError, MaximoNetworkError, type MaximoVia } from "../maximo/client";
+import { localizeVaultMessage, settingsMessages as m } from "./messages";
 
 /** 同一オリジン検査（CSRF 対策）に落ちたときの文言 */
-export const FORBIDDEN_ORIGIN_MESSAGE = "同一オリジンからの要求として受け付けられませんでした。作業画面の URL から開き直してください。";
-
-/** proxy 方式の中継役（このパソコンの橋渡し） */
-const PROXY = "橋渡し（このパソコンの MX Stage）";
+export function forbiddenOriginMessage(): string {
+  return m().connectError.forbiddenOrigin;
+}
 
 export interface SettingsFormInput {
   baseUrl: string;
@@ -34,71 +34,70 @@ export function normalizeBaseUrl(raw: string): string {
 
 /** 送信前の検査。空のオブジェクトなら問題なし */
 export function validateSettingsForm(input: SettingsFormInput): SettingsFormErrors {
+  const t = m().validation;
   const errors: SettingsFormErrors = {};
   const baseUrl = normalizeBaseUrl(input.baseUrl);
-  if (!isVia(input.via)) errors.via = "接続方式を選んでください。";
+  if (!isVia(input.via)) errors.via = t.via;
   if (baseUrl === "") {
-    errors.baseUrl = "Maximo URL を入力してください。";
+    errors.baseUrl = t.urlEmpty;
   } else {
     let u: URL | null = null;
     try {
       u = new URL(baseUrl);
     } catch {
-      errors.baseUrl = "URL の形式が正しくありません（例 https://maximo.example.com）。";
+      errors.baseUrl = t.urlFormat;
     }
     if (u) {
       const path = u.pathname.replace(/\/+$/, "");
       const loopbackHttp = u.protocol === "http:" && LOOPBACK_HOSTS.has(u.hostname);
       if (u.username || u.password || u.search || u.hash) {
-        errors.baseUrl = "URL にユーザー名・クエリ（?）・# を含めないでください。";
+        errors.baseUrl = t.urlExtras;
       } else if (u.protocol !== "https:" && !(input.via === "direct" && loopbackHttp)) {
-        errors.baseUrl = "https の URL にしてください。";
+        errors.baseUrl = t.urlHttps;
       } else if (input.via === "proxy" && path !== "") {
-        errors.baseUrl = "proxy 方式では https://host[:port] の形にしてください（/maximo などのパスは付けません）。";
+        errors.baseUrl = t.urlProxyPath;
       }
     }
   }
   const name = input.connectionName.trim();
-  if (name === "") errors.connectionName = "接続名を入力してください（例 MAXADMIN@mas-dev）。";
-  else if (name.length > CONNECTION_NAME_MAX) errors.connectionName = `接続名は ${CONNECTION_NAME_MAX} 文字以内にしてください。`;
-  if (input.apiKey === "") errors.apiKey = "API キーを入力してください。";
-  else if (!API_KEY_RE.test(input.apiKey)) errors.apiKey = "API キーに使えない文字（空白・改行・全角文字）が含まれています。";
+  if (name === "") errors.connectionName = t.nameEmpty;
+  else if (name.length > CONNECTION_NAME_MAX) errors.connectionName = t.nameTooLong(CONNECTION_NAME_MAX);
+  if (input.apiKey === "") errors.apiKey = t.keyEmpty;
+  else if (!API_KEY_RE.test(input.apiKey)) errors.apiKey = t.keyChars;
   return errors;
 }
 
 /** 橋渡しの /mx が返したエラーのコード（toMaximoError がメッセージの末尾に「（/mx: コード）」と付ける） */
 export function proxyErrorCode(message: string): string | null {
-  const m = /（\/mx: ([A-Za-z0-9_]+)）$/.exec(message);
-  return m?.[1] ?? null;
+  const found = /（\/mx: ([A-Za-z0-9_]+)）$/.exec(message);
+  return found?.[1] ?? null;
 }
 
 /** proxy 方式で Maximo に届かなかったときの案内 */
 export function unreachableHint(): string {
-  return `${PROXY} から Maximo に到達できませんでした。URL を確認してください。Maximo の証明書が私設 CA の場合などは、接続方式を「直結（direct）」にしてください（Maximo 側でこのツールのオリジンと apikey ヘッダを CORS で許可する必要があります）。`;
+  return m().connectError.unreachable;
 }
-
-/** 画面と橋渡しの版がずれているかもしれないときの、次の手 */
-const RELOAD_HINT =
-  "作業画面を読み込み直してから、もう一度接続してください。直らないときは、作業画面と橋渡しの版が合っていない可能性があります（導入をやり直してください）。";
 
 /**
  * /mx（橋渡しの中継）が自分で断ったときのエラーコードの案内。知らないコードなら null。
  * どれも Maximo までは届いていない（API キーの誤りではない）ので、キーの誤りと取り違える文言にしない。
+ * 画面と橋渡しの版がずれているかもしれないときは、読み込み直し・導入のやり直しを次の手として添える。
  */
 export function proxyRejectMessage(code: string | null): string | null {
+  const t = m().connectError;
   switch (code) {
     case "path_not_allowed":
-      return `${PROXY}が転送しないパスへの要求でした（転送するのは /maximo/api/ と /maximo/oslc/ で始まるパスだけです）。API キーの誤りではありません。${RELOAD_HINT}`;
+      return t.pathNotAllowed;
     case "invalid_path":
-      return `要求のパスに使えない文字（%2e・%2f・;・.. など）が含まれていたので、${PROXY}が転送を止めました。API キーの誤りではありません。${RELOAD_HINT}`;
+      return t.invalidPath;
     case "missing_apikey":
-      return `${PROXY}に API キーが届きませんでした。設定画面で API キーを入れ直してから、もう一度接続してください。`;
+      return t.missingApikey;
     case "apikey_in_query":
-      return `API キーを URL のクエリ（?apikey=）に入れた要求だったので、${PROXY}が転送を止めました（キーが履歴やログに残らないようにするためです）。API キーは設定画面の API キー欄にだけ入れ、Maximo URL に ? を含めないでください。`;
+      return t.apikeyInQuery;
     case "method_not_allowed":
-      return `${PROXY}が受け付けない方式の要求でした（転送するのは GET と POST だけです）。API キーの誤りではありません。${RELOAD_HINT}`;
+      return t.methodNotAllowed;
     case "upstream_timeout":
-      return `${PROXY}から Maximo への要求が、時間内に返りませんでした。Maximo が動いているか、VPN やプロキシなどのネットワークを確認してから、もう一度接続してください。`;
+      return t.upstreamTimeout;
     default:
       return null;
   }
@@ -106,22 +105,18 @@ export function proxyRejectMessage(code: string | null): string | null {
 
 /** 接続方式の選択肢の文言 */
 export function viaOptionLabel(via: MaximoVia): string {
-  if (via === "direct") return "直結（ブラウザから直接。Maximo 側の CORS 設定が必要）";
-  return "proxy（このパソコンの橋渡し経由。既定）";
+  return via === "direct" ? m().via.direct : m().via.proxy;
 }
 
 /** 接続（whoami）の失敗を、利用者が次に何をすればよいか分かる文言にする */
 export function connectErrorMessage(e: unknown, via: MaximoVia): string {
-  // keyvault が送る前に止めた・橋渡しが応答しない。自前の文言（キーやヘッダを含まない）をそのまま出す
-  if (e instanceof VaultRequestError) return e.message;
+  const t = m().connectError;
+  // keyvault が送る前に止めた・橋渡しが応答しない。自前の文言（キーやヘッダを含まない）を今の言語にして出す
+  if (e instanceof VaultRequestError) return localizeVaultMessage(e.message);
   if (e instanceof MaximoNetworkError) {
-    if (via === "direct") {
-      return e.timedOut
-        ? "Maximo の応答がタイムアウトしました。"
-        : "ブラウザから Maximo に直接届きませんでした。Maximo 側の CORS 設定（このツールのオリジンと apikey ヘッダの許可）と証明書を確認するか、接続方式を proxy にしてください。";
-    }
-    if (e.timedOut) return "Maximo の応答がタイムアウトしました。";
-    return `Maximo に接続できませんでした。${PROXY}が動いているか、ネットワークを確認してください。`;
+    if (via === "direct") return e.timedOut ? t.timeout : t.directUnreachable;
+    if (e.timedOut) return t.timeout;
+    return t.proxyUnreachable;
   }
   if (e instanceof MaximoError) {
     const code = proxyErrorCode(e.message);
@@ -130,35 +125,35 @@ export function connectErrorMessage(e: unknown, via: MaximoVia): string {
     if (rejected) return rejected;
     switch (code) {
       case "host_not_allowed":
-        return "この Maximo ホストへの接続は許可されていません（橋渡しの起動引数 --allow-host の許可ホスト外）。橋渡しを起動するときの --allow-host にこのホストを足してください。";
+        return t.hostNotAllowed;
       case "unauthorized":
-        return "橋渡しが要求を受け付けませんでした。橋渡しを起動し直してから、もう一度接続してください。";
+        return t.unauthorized;
       case "forbidden_origin":
-        return FORBIDDEN_ORIGIN_MESSAGE;
+        return t.forbiddenOrigin;
       case "upstream_unreachable":
-        return unreachableHint();
+        return t.unreachable;
       case "invalid_base":
       case "missing_base":
-        return "Maximo URL は https://host[:port] の形にしてください（パスを含めない）。";
+        return t.invalidBase;
       case "vault_locked":
-        return "API キーがロックされました。もう一度接続してください。";
+        return t.vaultLocked;
       case "vault_forbidden_destination":
-        return "この送り先には API キーを付けて送れません。Maximo URL と接続方式を確認してください。";
+        return t.vaultForbiddenDestination;
       case "vault_bad_request":
-        return "API キーまたは URL に使えない文字が含まれています。";
+        return t.vaultBadRequest;
       default:
         break;
     }
-    if (e.status === 401 || e.status === 403) return "API キーが無効か、この接続に権限がありません。";
+    if (e.status === 401 || e.status === 403) return t.invalidKey;
     if (e.status === 502 || e.status === 526 || e.status === 530 || e.status === 521 || e.status === 522 || e.status === 523 || e.status === 525) {
-      return `${unreachableHint()}（HTTP ${e.status}）`;
+      return t.unreachableStatus(e.status);
     }
-    if (e.status === 504 || e.status === 524) return `Maximo の応答が時間内に返りませんでした（HTTP ${e.status}）。`;
-    if (e.status === 404) return "whoami が見つかりません。Maximo URL（/maximo の手前まで）を確認してください。";
-    if (e.status >= 200 && e.status < 300) return "Maximo の応答が JSON ではありません。URL がログイン画面などに向いていないか確認してください。";
-    return `Maximo がエラーを返しました（HTTP ${e.status}${e.reasonCode ? `、${e.reasonCode}` : ""}）。`;
+    if (e.status === 504 || e.status === 524) return t.gatewayTimeout(e.status);
+    if (e.status === 404) return t.whoamiNotFound;
+    if (e.status >= 200 && e.status < 300) return t.notJson;
+    return t.httpError(e.status, e.reasonCode ?? null);
   }
-  return "接続できませんでした。Maximo URL と接続方式を確認してください。";
+  return t.fallback;
 }
 
 // ---------------------------------------------------------------------------
@@ -221,12 +216,10 @@ export interface LocalClientStatus {
  * LLM クライアントが起動した橋渡しは、この画面を配っている橋渡しに中継する。
  */
 export function localClientStatus(): LocalClientStatus {
+  const t = m().llm;
   return {
-    summary: "Claude Code に登録済みです。",
-    notes: [
-      "Claude Code が起動する橋渡し（stdio の MCP サーバ）は、この画面を配っている橋渡しに中継します。URL もトークンも要りません。",
-      "Claude Code のツールの一覧に MX Stage が出てこないときは、Claude Code に「MX Stage を入れ直して」と頼むか、導入をもう一度実行してください。",
-    ],
+    summary: t.summary,
+    notes: [t.relayNote, t.reinstallNote],
     checkCommand: `claude mcp list`,
   };
 }
@@ -292,6 +285,6 @@ export function bridgeJsonUrl(pathname: string, now: number = Date.now()): strin
 
 export async function fetchSkillList(fetchImpl: typeof fetch = fetch): Promise<SkillList> {
   const res = await fetchImpl(bridgeJsonUrl(SKILLS_LIST_URL), { cache: "no-store" });
-  if (!res.ok) throw new Error(`Skill の一覧を読めませんでした（${res.status}）。橋渡しの版が古い可能性があります。導入をやり直してください。`);
+  if (!res.ok) throw new Error(m().skills.listFailed(res.status));
   return parseSkillList(await res.json());
 }

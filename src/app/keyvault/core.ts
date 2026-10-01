@@ -15,6 +15,7 @@ import {
   type VaultLockReason,
   type VaultToMain,
 } from "./protocol";
+import { vaultMessages as m } from "../settings/messages";
 
 export class VaultError extends Error {
   readonly code: VaultErrorCode;
@@ -61,13 +62,13 @@ export function parseVaultBaseUrl(raw: string, via: MaximoVia): { baseUrl: strin
   try {
     u = new URL(raw);
   } catch {
-    throw new VaultError("bad_request", "Maximo の URL を解析できません。");
+    throw new VaultError("bad_request", m().urlUnparsable);
   }
-  if (u.username || u.password || u.search || u.hash) throw new VaultError("bad_request", "Maximo の URL に認証情報・クエリ・# を含めないでください。");
+  if (u.username || u.password || u.search || u.hash) throw new VaultError("bad_request", m().urlExtras);
   const loopbackHttp = u.protocol === "http:" && LOOPBACK_HOSTS.has(u.hostname);
-  if (u.protocol !== "https:" && !(via === "direct" && loopbackHttp)) throw new VaultError("bad_request", "Maximo の URL は https にしてください。");
+  if (u.protocol !== "https:" && !(via === "direct" && loopbackHttp)) throw new VaultError("bad_request", m().urlHttps);
   const path = u.pathname.replace(/\/+$/, "");
-  if (via === "proxy" && path !== "") throw new VaultError("bad_request", "proxy 方式の Maximo の URL にはパスを含めません。");
+  if (via === "proxy" && path !== "") throw new VaultError("bad_request", m().urlProxyPath);
   return { baseUrl: `${u.origin}${path}`, baseOrigin: u.origin };
 }
 
@@ -94,11 +95,11 @@ export class VaultCore {
 
   /** キーを受け取る。前のキーは置き換える */
   unlock(input: { apiKey: unknown; via: unknown; baseUrl: unknown }): void {
-    if (input.via !== "proxy" && input.via !== "direct") throw new VaultError("bad_request", "接続方式が正しくありません。");
+    if (input.via !== "proxy" && input.via !== "direct") throw new VaultError("bad_request", m().badVia);
     if (typeof input.apiKey !== "string" || !API_KEY_RE.test(input.apiKey) || input.apiKey === VAULT_SENTINEL) {
-      throw new VaultError("bad_request", "API キーが空か、使えない文字を含んでいます。");
+      throw new VaultError("bad_request", m().badKey);
     }
-    if (typeof input.baseUrl !== "string") throw new VaultError("bad_request", "Maximo の URL がありません。");
+    if (typeof input.baseUrl !== "string") throw new VaultError("bad_request", m().noUrl);
     const { baseUrl, baseOrigin } = parseVaultBaseUrl(input.baseUrl, input.via);
     this.state = { apiKey: input.apiKey, via: input.via, baseUrl, baseOrigin };
     this.touch();
@@ -133,58 +134,58 @@ export class VaultCore {
   prepare(req: VaultFetchRequest): { url: string; init: RequestInit } {
     this.expireIfIdle();
     const st = this.state;
-    if (st === null) throw new VaultError("locked", "API キーはロックされています。設定画面で再接続してください。");
+    if (st === null) throw new VaultError("locked", m().locked);
 
     const method = typeof req.method === "string" ? req.method.toUpperCase() : "";
-    if (method !== "GET" && method !== "POST") throw new VaultError("bad_request", "GET と POST だけを送ります。");
+    if (method !== "GET" && method !== "POST") throw new VaultError("bad_request", m().method);
 
     let url: URL;
     try {
       url = new URL(req.url, this.origin);
     } catch {
-      throw new VaultError("forbidden_destination", "送り先の URL を解析できません。");
+      throw new VaultError("forbidden_destination", m().destUnparsable);
     }
-    if (url.username || url.password || url.hash) throw new VaultError("forbidden_destination", "送り先の URL に認証情報や # を含めないでください。");
+    if (url.username || url.password || url.hash) throw new VaultError("forbidden_destination", m().destExtras);
     if (url.href.includes(VAULT_SENTINEL) || (req.body !== null && req.body.includes(VAULT_SENTINEL))) {
-      throw new VaultError("bad_request", "キーの置き換え用の文字列を URL や本文に入れないでください。");
+      throw new VaultError("bad_request", m().sentinel);
     }
 
     const keyHeader = KEY_HEADER[st.via];
     if (st.via === "proxy") {
       if (url.origin !== this.origin || !url.pathname.startsWith("/mx/")) {
-        throw new VaultError("forbidden_destination", "proxy 方式では、同一オリジンの /mx/ 配下にだけ API キーを付けて送ります。");
+        throw new VaultError("forbidden_destination", m().proxyDestination);
       }
       // /mx が転送する先（X-Maximo-Base）も、キーを受け取ったときの Maximo に限る
       const base = headerValue(req.headers, "x-maximo-base");
       if (base === null || base.replace(/\/+$/, "") !== st.baseUrl) {
-        throw new VaultError("forbidden_destination", "接続した Maximo 以外へは API キーを付けて送りません。");
+        throw new VaultError("forbidden_destination", m().otherMaximo);
       }
     } else if (url.origin !== st.baseOrigin) {
-      throw new VaultError("forbidden_destination", "direct 方式では、接続した Maximo のオリジンにだけ API キーを付けて送ります。");
+      throw new VaultError("forbidden_destination", m().directDestination);
     }
 
     const headers: Record<string, string> = {};
     const seen = new Set<string>();
     let replaced = false;
     for (const [name, value] of Object.entries(req.headers)) {
-      if (typeof value !== "string") throw new VaultError("bad_request", "ヘッダの値が文字列ではありません。");
+      if (typeof value !== "string") throw new VaultError("bad_request", m().headerNotString);
       const lower = name.toLowerCase();
       // 大文字小文字違いの同名ヘッダ（送り先の検査をすり抜ける X-Maximo-Base の重ね付けなど）は受け付けない
-      if (seen.has(lower)) throw new VaultError("bad_request", `ヘッダ ${lower} が重複しています。`);
+      if (seen.has(lower)) throw new VaultError("bad_request", m().headerDuplicate(lower));
       seen.add(lower);
       if (lower === keyHeader) {
-        if (value !== VAULT_SENTINEL || replaced) throw new VaultError("bad_request", "API キーのヘッダが正しくありません。");
+        if (value !== VAULT_SENTINEL || replaced) throw new VaultError("bad_request", m().keyHeaderInvalid);
         headers[name] = st.apiKey;
         replaced = true;
         continue;
       }
       if (ALL_KEY_HEADERS.has(lower) || lower === "authorization" || lower === "cookie") {
-        throw new VaultError("bad_request", `ヘッダ ${lower} は付けられません。`);
+        throw new VaultError("bad_request", m().headerNotAllowed(lower));
       }
-      if (value.includes(VAULT_SENTINEL)) throw new VaultError("bad_request", "キーの置き換え用の文字列を別のヘッダに入れないでください。");
+      if (value.includes(VAULT_SENTINEL)) throw new VaultError("bad_request", m().sentinelInHeader);
       headers[name] = value;
     }
-    if (!replaced) throw new VaultError("bad_request", "API キーのヘッダがありません。");
+    if (!replaced) throw new VaultError("bad_request", m().keyHeaderMissing);
 
     const init: RequestInit = {
       method,
@@ -209,12 +210,12 @@ export class VaultCore {
       bodyText = await res.text();
     } catch {
       // 例外の中身（URL やヘッダを含みうる）は返さない
-      if (signal?.aborted) throw new VaultError("aborted", "中止しました。");
-      throw new VaultError("network", "Maximo へ通信できません。");
+      if (signal?.aborted) throw new VaultError("aborted", m().aborted);
+      throw new VaultError("network", m().network);
     }
     // redirect:"manual" のリダイレクトは status 0 の opaqueredirect になる。辿らずに通信エラーとして扱う
     if (res.type === "opaqueredirect" || res.status < 200 || res.status > 599) {
-      throw new VaultError("network", "Maximo がリダイレクトを返しました。URL を確認してください。");
+      throw new VaultError("network", m().redirect);
     }
     const headers: Record<string, string> = {};
     for (const name of PASS_RESPONSE_HEADERS) {
@@ -284,7 +285,7 @@ export function createVaultEndpoint(opts: VaultEndpointOptions): (data: unknown)
   const aborts = new Map<number, AbortController>();
   const fail = (id: number, e: unknown) => {
     const code: VaultErrorCode = e instanceof VaultError ? e.code : "bad_request";
-    const message = e instanceof VaultError ? e.message : "処理できない要求です。";
+    const message = e instanceof VaultError ? e.message : m().unprocessable;
     post({ type: "reply", id, ok: false, code, message });
   };
   return (data: unknown) => {
@@ -316,7 +317,7 @@ export function createVaultEndpoint(opts: VaultEndpointOptions): (data: unknown)
         const id = data.id;
         const req = parseFetchRequest(data.request);
         if (!req) {
-          fail(id, new VaultError("bad_request", "送信の要求が正しくありません。"));
+          fail(id, new VaultError("bad_request", m().badFetch));
           return;
         }
         const controller = new AbortController();

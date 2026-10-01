@@ -2,6 +2,7 @@
 // ダブルクリックで半分ずつに戻す。キーボードでは矢印キーで動かせる。
 
 import { useRef, type KeyboardEvent, type PointerEvent } from "react";
+import { pagesMessages } from "./messages";
 import { EVEN_SPLIT, clampSplit, splitAxes, type PaneSplit } from "./panes";
 
 export interface PaneSplittersProps {
@@ -53,6 +54,7 @@ export function PaneSplitters({ count, split, onChange }: PaneSplittersProps) {
     onChange({ ...split, [axis]: clampSplit(next, box ? (axis === "col" ? box.width : box.height) : 0) });
   };
 
+  const t = pagesMessages().splitters;
   const handle = (axis: "col" | "row") => {
     const pct = Math.round(split[axis] * 100);
     const style =
@@ -66,12 +68,12 @@ export function PaneSplitters({ count, split, onChange }: PaneSplittersProps) {
         className={`pane-split ${axis}`}
         role="separator"
         aria-orientation={axis === "col" ? "vertical" : "horizontal"}
-        aria-label={axis === "col" ? "左右の表の幅" : "上下の表の高さ"}
+        aria-label={axis === "col" ? t.col : t.row}
         aria-valuemin={10}
         aria-valuemax={90}
         aria-valuenow={pct}
         tabIndex={0}
-        title="つかんで動かすと大きさを変えます（ダブルクリックで半分ずつに戻す）"
+        title={t.title}
         style={style}
         onPointerDown={start(axis)}
         onPointerMove={move}

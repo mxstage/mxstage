@@ -3,6 +3,7 @@
 import type { CommitRowResult, CommitState } from "../../shared/model";
 import { parseRowKey } from "../../shared/sheet";
 import type { CommitCounts, CommitPanelState } from "../runtime/contracts";
+import { commitMessages as m } from "../commit/messages";
 
 /** 行キーを人が読める形にする（例 "BEDFORD / WO062041 #EXT_WOPERMIT:12"） */
 export function displayRowKey(rowKey: string): string {
@@ -30,14 +31,15 @@ export interface CommitButtonState {
 
 /** [Maximo に反映] は、未接続・blockers あり・実行中・カナリアの判断待ち・変更なしのとき押せない */
 export function commitButtonState(panel: CommitPanelState | null, opts: { connected: boolean; locked?: boolean }): CommitButtonState {
-  if (panel === null) return { enabled: false, reason: "シートがありません。" };
-  if (panel.state === "running") return { enabled: false, reason: "反映中です。" };
-  if (panel.awaitingCanary !== null) return { enabled: false, reason: "最初の 1 件の結果を確認してください。" };
+  const t = m().button;
+  if (panel === null) return { enabled: false, reason: t.noSheet };
+  if (panel.state === "running") return { enabled: false, reason: t.running };
+  if (panel.awaitingCanary !== null) return { enabled: false, reason: t.awaitingCanary };
   if (!opts.connected) {
-    return { enabled: false, reason: opts.locked ? "Maximo の接続がロックされています。設定で再接続してください。" : "Maximo に接続していません。設定で接続してください。" };
+    return { enabled: false, reason: opts.locked ? t.locked : t.notConnected };
   }
-  if (panel.blockers.length > 0) return { enabled: false, reason: "反映できない理由があります。" };
-  if (totalChanges(panel.counts) === 0) return { enabled: false, reason: "反映する変更がありません。" };
+  if (panel.blockers.length > 0) return { enabled: false, reason: t.blocked };
+  if (totalChanges(panel.counts) === 0) return { enabled: false, reason: t.noChanges };
   return { enabled: true, reason: null };
 }
 
@@ -62,30 +64,19 @@ export function canConfirmCommit(panel: CommitPanelState, checks: ConfirmChecks)
 
 export function confirmLines(panel: CommitPanelState): string[] {
   const c = panel.counts;
-  return [
-    `シート: ${panel.sheet}`,
-    `親レコード: ${c.parents} 件`,
-    `変更するセル: ${c.changedCells} 件`,
-    `追加する行: ${c.addedRows} 件`,
-    `削除する行: ${c.deletedRows} 件`,
-  ];
+  const t = m().confirmLine;
+  return [t.sheet(panel.sheet), t.parents(c.parents), t.changedCells(c.changedCells), t.addedRows(c.addedRows), t.deletedRows(c.deletedRows)];
 }
 
-export const COMMIT_STATE_LABEL: Record<CommitState, string> = {
-  idle: "未反映",
-  requested: "反映の依頼あり",
-  running: "反映中",
-  done: "完了",
-  failed: "失敗あり",
-};
+/** 反映パネルの状態の表示名（今の言語） */
+export function commitStateLabel(state: CommitState): string {
+  return m().state[state];
+}
 
-export const RESULT_STATUS_LABEL: Record<CommitRowResult["status"], string> = {
-  verified: "反映済み（読み直して確認）",
-  conflict: "競合（他で変更済み）",
-  error: "エラー",
-  unknown: "結果不明（Maximo で確認が必要）",
-  skipped: "未送信",
-};
+/** 行ごとの結果の表示名（今の言語） */
+export function resultStatusLabel(status: CommitRowResult["status"]): string {
+  return m().resultStatus[status];
+}
 
 const RESULT_ORDER: Array<CommitRowResult["status"]> = ["verified", "conflict", "error", "unknown", "skipped"];
 
@@ -98,10 +89,10 @@ export function countResults(results: readonly CommitRowResult[]): Record<Commit
 /** 例「反映済み 3 件、エラー 1 件」。結果が無ければ空文字 */
 export function resultSummary(results: readonly CommitRowResult[]): string {
   const counts = countResults(results);
-  const short: Record<CommitRowResult["status"], string> = { verified: "反映済み", conflict: "競合", error: "エラー", unknown: "結果不明", skipped: "未送信" };
+  const t = m();
   return RESULT_ORDER.filter((s) => counts[s] > 0)
-    .map((s) => `${short[s]} ${counts[s]} 件`)
-    .join("、");
+    .map((s) => t.resultCount[s](counts[s]))
+    .join(t.resultSeparator);
 }
 
 export interface RunOutcome {
@@ -115,18 +106,19 @@ export interface RunOutcome {
  * 無ければ、これまでどおりボタンの条件から理由を推測する。
  */
 export function runOutcomeMessage(result: CommitPanelState, opts: { connected: boolean; locked?: boolean }): RunOutcome {
+  const t = m().outcome;
   const message = result.message !== undefined && result.message !== "" ? result.message : null;
   // run は実行できないとき（未接続・blockers・確認不足・実行中）に何もせず状態を返す。終わったように見せない
   if (result.state === "running") {
-    return { text: message ?? "すでに反映中です。", tone: "error" };
+    return { text: message ?? t.alreadyRunning, tone: "error" };
   }
   if (result.results.length === 0) {
     const why = message ?? commitButtonState(result, opts).reason;
-    return { text: why ? `反映しませんでした: ${why}` : "反映しませんでした。", tone: "error" };
+    return { text: why ? t.notCommittedBecause(why) : t.notCommitted, tone: "error" };
   }
   const summary = resultSummary(result.results);
-  const done = summary ? `反映が終わりました（${summary}）。` : "反映が終わりました。";
-  return { text: message ? `${done}${message}` : done, tone: result.state === "failed" ? "error" : "info" };
+  const done = summary ? t.finishedWith(summary) : t.finished;
+  return { text: message ? t.withMessage(done, message) : done, tone: result.state === "failed" ? "error" : "info" };
 }
 
 export function writeLogFileName(d: Date): string {

@@ -7,6 +7,7 @@ import type { ColumnSchema } from "../../shared/model";
 import { parseRowKey, type SheetMeta } from "../../shared/sheet";
 import type { CommitChanges } from "../maximo/commit";
 import type { ObjectStructureInfo } from "../maximo/meta";
+import { commitMessages } from "../commit/messages";
 
 /** 反映に使う列と子オブジェクト（変更したセル・追加した行の列、変更・追加・削除する子） */
 function usedByChanges(changes: CommitChanges): { columns: Set<string>; children: Set<string> } {
@@ -30,6 +31,7 @@ function usedByChanges(changes: CommitChanges): { columns: Set<string>; children
 
 /** 食い違いの説明（無ければ空）。変更に関係しない列の違いは問わない */
 export function structureDriftProblems(meta: SheetMeta, current: ObjectStructureInfo, changes: CommitChanges): string[] {
+  const m = commitMessages().drift;
   const problems: string[] = [];
   const before = new Map<string, ColumnSchema>(meta.columns.map((c) => [c.name.toUpperCase(), c]));
   const now = new Map<string, ColumnSchema>(current.columns.map((c) => [c.name.toUpperCase(), c]));
@@ -39,26 +41,26 @@ export function structureDriftProblems(meta: SheetMeta, current: ObjectStructure
     if (old === undefined) continue; // シートに無い列は反映の組み立てで弾かれる
     const cur = now.get(name);
     if (cur === undefined) {
-      problems.push(`列 ${name} が無くなりました`);
+      problems.push(m.columnRemoved(name));
       continue;
     }
-    if (cur.readOnly === true && old.readOnly !== true) problems.push(`列 ${name} が読み取り専用になりました`);
-    if (cur.type !== old.type) problems.push(`列 ${name} の型が ${old.type} から ${cur.type} に変わりました`);
+    if (cur.readOnly === true && old.readOnly !== true) problems.push(m.columnReadOnly(name));
+    if (cur.type !== old.type) problems.push(m.columnType(name, old.type, cur.type));
     if (cur.maxLength !== undefined && old.maxLength !== undefined && cur.maxLength < old.maxLength) {
-      problems.push(`列 ${name} の桁が ${old.maxLength} から ${cur.maxLength} に減りました`);
+      problems.push(m.columnLength(name, old.maxLength, cur.maxLength));
     }
   }
   for (const child of Array.from(used.children).sort()) {
     if (!Object.prototype.hasOwnProperty.call(current.childIdAttrs, child)) {
-      problems.push(`子オブジェクト ${child} が無くなりました`);
+      problems.push(m.childRemoved(child));
       continue;
     }
     const oldId = meta.childIdAttrs[child] ?? null;
     const newId = current.childIdAttrs[child] ?? null;
-    if (oldId !== newId) problems.push(`子オブジェクト ${child} を特定する属性が ${oldId ?? "不明"} から ${newId ?? "不明"} に変わりました`);
+    if (oldId !== newId) problems.push(m.childIdAttr(child, oldId ?? m.unknown, newId ?? m.unknown));
   }
   if (current.keyColumns.length > 0 && meta.keyColumns.length > 0 && current.keyColumns.join(",") !== meta.keyColumns.join(",")) {
-    problems.push(`キー列が ${meta.keyColumns.join(", ")} から ${current.keyColumns.join(", ")} に変わりました`);
+    problems.push(m.keyColumns(meta.keyColumns.join(", "), current.keyColumns.join(", ")));
   }
   return problems;
 }

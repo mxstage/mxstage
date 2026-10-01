@@ -4,8 +4,9 @@ import react from "@vitejs/plugin-react";
 import { BUILD_MARKER, PRECACHE_MARKER, buildIdFrom, findModuleSyntax, precacheList, replaceMarker } from "./src/app/pwa/cacheRules";
 
 // 画面（SPA）と Service Worker のビルド設定。
-// 開発サーバ（npm run dev:app）は、中継・Maximo の代理・取り込みをこのパソコンの橋渡し（ポート 8788）へ渡す。
-const BRIDGE = "http://127.0.0.1:8788";
+// 開発サーバ（npm run dev:app）は、中継・Maximo の代理・取り込みを開発用の橋渡し（npm run dev:bridge、ポート 8790）へ渡す。
+// ふだん使いの橋渡し（8788）にはつながない（開発中の画面が作業中のタブを奪わないように）。MXSTAGE_DEV_BRIDGE で変えられる
+const BRIDGE = process.env.MXSTAGE_DEV_BRIDGE ?? "http://127.0.0.1:8790";
 const path = (rel: string) => fileURLToPath(new URL(rel, import.meta.url));
 
 /**

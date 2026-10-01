@@ -6,6 +6,7 @@
 import type { ConnectionProvider, MaximoConnection, MaximoConnectionInfo } from "../runtime/contracts";
 import { MaximoClient, isRecord, type FetchLike, type MaximoClientOptions, type MaximoVia } from "../maximo/client";
 import { VAULT_SENTINEL, type MainToVault, type VaultErrorCode, type VaultFetchResponse, type VaultLockReason, type VaultToMain } from "./protocol";
+import { vaultClientMessages as m } from "../settings/messages";
 
 export interface VaultTransport {
   post(msg: MainToVault): void;
@@ -14,8 +15,6 @@ export interface VaultTransport {
   /** Worker を起動できない・壊れたことを知らせる（任意）。待っている要求を終わらせるために使う */
   onFailure?(listener: (message: string) => void): void;
 }
-
-export const VAULT_WORKER_UNAVAILABLE = "API キーの保管用 Worker を起動できませんでした。ページを再読み込みしてください。";
 
 /** 専用 Web Worker を起動する。起動できないときは、待たせずに失敗を返す transport にする */
 export function createWorkerTransport(): VaultTransport {
@@ -27,7 +26,7 @@ export function createWorkerTransport(): VaultTransport {
   } catch {
     // 例外の中身は出さない（パスなどを含みうる）
     return {
-      post: () => fail(VAULT_WORKER_UNAVAILABLE),
+      post: () => fail(m().workerUnavailable),
       listen: () => undefined,
       terminate: () => undefined,
       onFailure: (listener) => {
@@ -36,8 +35,8 @@ export function createWorkerTransport(): VaultTransport {
     };
   }
   const w = worker;
-  w.onerror = () => fail(VAULT_WORKER_UNAVAILABLE);
-  w.onmessageerror = () => fail("API キーの保管用 Worker との通信に失敗しました。");
+  w.onerror = () => fail(m().workerUnavailable);
+  w.onmessageerror = () => fail(m().workerMessageError);
   return {
     post: (msg) => w.postMessage(msg),
     listen: (listener) => {
@@ -125,11 +124,11 @@ function headersToRecord(h: HeadersInit | undefined): Record<string, string> {
 }
 
 function abortError(): Error {
-  return typeof DOMException === "function" ? new DOMException("中止しました", "AbortError") : new Error("中止しました");
+  return typeof DOMException === "function" ? new DOMException(m().aborted, "AbortError") : new Error(m().aborted);
 }
 
 function toResponse(r: VaultFetchResponse): Response {
-  if (r.status < 200 || r.status > 599) throw new TypeError("Maximo の応答を受け取れませんでした");
+  if (r.status < 200 || r.status > 599) throw new TypeError(m().noResponse);
   return new Response(NULL_BODY_STATUSES.has(r.status) ? null : r.bodyText, { status: r.status, statusText: r.statusText, headers: r.headers });
 }
 
@@ -207,7 +206,7 @@ export class KeyVault implements ConnectionProvider {
     try {
       await unlocked;
       const body = await client.get(`${client.apiRoot}/whoami`);
-      if (seq !== this.connectSeq) throw new Error("別の接続を始めたため、この接続は取りやめました。");
+      if (seq !== this.connectSeq) throw new Error(m().superseded);
       const info: MaximoConnectionInfo = { baseUrl: client.baseUrl, via, connectionName, userName: whoamiUserName(body), connectedAt: this.now() };
       this.setState({ info, client }, { kind: "connected", info });
       return info;
@@ -236,7 +235,7 @@ export class KeyVault implements ConnectionProvider {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    for (const p of this.pending.values()) p.reject(new Error("キーの保管を終了しました"));
+    for (const p of this.pending.values()) p.reject(new Error(m().disposed));
     this.pending.clear();
     this.setState(null, { kind: "disconnected" });
     this.transport.terminate();
@@ -267,13 +266,13 @@ export class KeyVault implements ConnectionProvider {
         resolve: (res) => {
           cleanup();
           if (!res) {
-            reject(new TypeError("Maximo の応答を受け取れませんでした"));
+            reject(new TypeError(m().noResponse));
             return;
           }
           try {
             resolve(toResponse(res));
           } catch (e) {
-            reject(e instanceof Error ? e : new TypeError("Maximo の応答を受け取れませんでした"));
+            reject(e instanceof Error ? e : new TypeError(m().noResponse));
           }
         },
         reject: (e) => {
@@ -283,7 +282,7 @@ export class KeyVault implements ConnectionProvider {
           } else if (e instanceof VaultRequestError && e.code === "aborted") {
             reject(abortError());
           } else {
-            reject(new TypeError("Maximo へ通信できません"));
+            reject(new TypeError(m().network));
           }
         },
       });
@@ -296,7 +295,7 @@ export class KeyVault implements ConnectionProvider {
       let id = -1;
       const timer = setTimeout(() => {
         if (!this.pending.delete(id)) return;
-        reject(new VaultRequestError("network", "API キーの保管用 Worker が応答しません。ページを再読み込みしてください。"));
+        reject(new VaultRequestError("network", m().workerTimeout));
       }, this.controlTimeoutMs);
       id = this.send(build, {
         resolve: (r) => {
@@ -314,7 +313,7 @@ export class KeyVault implements ConnectionProvider {
   private send(build: (id: number) => MainToVault, pending: Pending): number {
     const id = ++this.seq;
     if (this.disposed) {
-      pending.reject(new Error("キーの保管を終了しました"));
+      pending.reject(new Error(m().disposed));
       return id;
     }
     this.pending.set(id, pending);
@@ -322,7 +321,7 @@ export class KeyVault implements ConnectionProvider {
       this.transport.post(build(id));
     } catch {
       this.pending.delete(id);
-      pending.reject(new Error("キーの保管用の Worker に送れませんでした"));
+      pending.reject(new Error(m().postFailed));
     }
     return id;
   }

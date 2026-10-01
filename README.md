@@ -34,6 +34,17 @@ Several Maximo MCP servers let the AI call the REST API. That is fine for readin
 
 ## Install
 
+### Claude Desktop (simplest)
+
+1. Download `mxstage-<version>.mcpb` from the [latest release](https://github.com/mxstage/mxstage/releases/latest).
+2. In Claude Desktop, open **Settings → Extensions**, then **Advanced settings → Install Extension…** and choose the file (or double-click the file, or drag it onto the Extensions page). Choose **Install**.
+3. Open `http://127.0.0.1:8788/app` in Chrome or Edge and **enter your Maximo URL and API key in Settings.** Never paste the API key into the chat.
+4. In a new chat, ask "show the MX Stage status".
+
+The extension needs no Node.js or Git: Claude Desktop runs it. To use MX Stage from other assistants as well (ChatGPT desktop, IBM Bob, Claude Code in the terminal, Antigravity), use the installer below; it detects the extension and does not register MX Stage twice.
+
+### Other assistants (installer)
+
 **Ask Claude Code (or the Code tab of Claude Desktop) to install it:** give it this repository's URL and say "install this". It follows [Installation steps for Claude Code](#installation-steps-for-claude-code) below and asks before running each command.
 
 To install by hand, clone this repository to `%USERPROFILE%\mxstage` and run `node scripts/setup-local.mjs` in it.

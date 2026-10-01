@@ -14,6 +14,17 @@ Maximo（MAS Manage）のデータ整備を、利用者の LLM クライアン�
 
 ## 入れ方
 
+### Claude Desktop（いちばん簡単）
+
+1. [最新のリリース](https://github.com/mxstage/mxstage/releases/latest)から `mxstage-<版>.mcpb` を取得する。
+2. Claude Desktop の「Settings → Extensions」で「Advanced settings → Install Extension…」を押してファイルを選ぶ（ファイルをダブルクリックするか、Extensions の画面にドラッグしてもよい）。「Install」を押す。
+3. Chrome か Edge で `http://127.0.0.1:8788/app` を開き、**設定で Maximo の URL と API キーを入れる。** API キーはチャットに書かない。
+4. 新しいチャットで「MX Stage の状態を見せて」と頼む。
+
+拡張には Node.js も Git も要らない（Claude Desktop が動かす）。ほかの AI アシスタント（ChatGPT デスクトップ・IBM Bob・ターミナルの Claude Code・Antigravity）でも使うときは、下の導入スクリプトを使う。拡張が入っていれば、二重には登録しない。
+
+### ほかの AI アシスタント（導入スクリプト）
+
 **Claude Code（Claude Desktop の Code タブでもよい）に、このリポジトリの URL と「インストールして」とだけ伝える。**
 Claude Code が下の「導入手順（Claude Code 向け）」に沿って入れる。コマンドを実行する前に、Claude Code が確認を求める。
 

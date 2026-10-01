@@ -8,6 +8,7 @@
 //   icon.png、LICENSE、THIRD_PARTY_NOTICES.md、README.md
 // 出力: dist/mcpb/mxstage-<版>.mcpb（ZIP）と、その SHA-256（MCP Registry の server.json の fileSha256 に使う）。
 
+import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
@@ -51,6 +52,39 @@ await build({
 cpSync(join(ROOT, "dist", "app"), join(STAGE, "app"), { recursive: true });
 cpSync(join(ROOT, "public", "icon-512.png"), join(STAGE, "icon.png"));
 for (const f of ["LICENSE", "THIRD_PARTY_NOTICES.md", "README.md"]) cpSync(join(ROOT, f), join(STAGE, f));
+
+// 2b. 配る依存（npm の本番の依存のすべて）のライセンスの全文を 1 つのファイルに集める。
+//     画面と橋渡しに入るのはこの一部だが、多めに載せる（載せ漏れを避ける）
+writeFileSync(join(STAGE, "THIRD_PARTY_LICENSES.txt"), thirdPartyLicenses());
+
+function thirdPartyLicenses(): string {
+  const paths = execSync("npm ls --omit=dev --all --parseable", { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] })
+    .split(/\r?\n/)
+    .map((p) => p.trim())
+    .filter((p) => p !== "" && resolve(p) !== ROOT);
+  const seen = new Set<string>();
+  const sections: string[] = [];
+  for (const dir of paths.sort()) {
+    let meta: { name?: string; version?: string; license?: unknown; author?: unknown; homepage?: string };
+    try {
+      meta = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as typeof meta;
+    } catch {
+      continue;
+    }
+    const id = `${meta.name ?? dir}@${meta.version ?? "?"}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const licenseFile = readdirSync(dir).find((f) => /^(licen[cs]e|copying|notice)(\.|$)/i.test(f));
+    const text = licenseFile ? readFileSync(join(dir, licenseFile), "utf8").trim() : "(no license file in the package)";
+    const declared = typeof meta.license === "string" ? meta.license : JSON.stringify(meta.license ?? "UNKNOWN");
+    sections.push(`${"=".repeat(78)}\n${id}\nLicense: ${declared}${meta.homepage ? `\nHomepage: ${meta.homepage}` : ""}\n${"-".repeat(78)}\n${text}\n`);
+  }
+  return (
+    "MX Stage includes the following third-party software. Each is distributed under its own license, reproduced below.\n" +
+    "See THIRD_PARTY_NOTICES.md for a summary.\n\n" +
+    sections.join("\n")
+  );
+}
 
 // 3. manifest.json（ツールの一覧は TOOL_DEFS から。説明は 1 文目だけ）
 const template = JSON.parse(readFileSync(join(ROOT, "mcpb", "manifest.template.json"), "utf8")) as Record<string, unknown>;

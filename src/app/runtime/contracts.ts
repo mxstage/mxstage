@@ -21,6 +21,8 @@ export interface MaximoConnectionInfo {
   /** whoami で確認した Maximo の利用者名 */
   userName: string | null;
   connectedAt: number;
+  /** 橋渡しに保存した接続先でつないだとき、その ID（API キーは橋渡しが持つ。src/app/connections） */
+  savedId?: string;
 }
 
 export interface MaximoConnection {

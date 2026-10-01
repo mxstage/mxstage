@@ -172,6 +172,8 @@ export class KeyVault implements ConnectionProvider {
     const waiting = Array.from(this.pending.values());
     this.pending.clear();
     for (const p of waiting) p.reject(new VaultRequestError("network", message));
+    // 保存した接続先は Worker を使わないので、そのままつないでおく
+    if (this.view.kind === "connected" && this.view.info.savedId !== undefined) return;
     if (this.view.kind === "connected") this.setState(null, { kind: "locked", info: this.view.info, reason: "manual" });
     else this.setState(null, { kind: "disconnected" });
   }
@@ -214,6 +216,29 @@ export class KeyVault implements ConnectionProvider {
       if (seq === this.connectSeq) this.request((id) => ({ type: "lock", id })).catch(() => undefined);
       throw e;
     }
+  }
+
+  /**
+   * 橋渡しに保存した接続先でつなぐ。API キーはこの画面に来ない（/mx に接続先の ID を送り、橋渡しがキーを付ける）。
+   * Worker のキーは使わないので消しておく。保存した接続先は無操作でもロックしない（どの窓でも自動でつなぐため）。
+   */
+  async connectSaved(saved: { id: string; name: string; baseUrl: string }): Promise<MaximoConnectionInfo> {
+    const seq = ++this.connectSeq;
+    const client = this.createClient({ baseUrl: saved.baseUrl, via: "proxy", apiKey: () => "", connectionId: saved.id });
+    this.request((id) => ({ type: "lock", id })).catch(() => undefined);
+    this.setState(null, { kind: "disconnected" });
+    const body = await client.get(`${client.apiRoot}/whoami`);
+    if (seq !== this.connectSeq) throw new Error(m().superseded);
+    const info: MaximoConnectionInfo = {
+      baseUrl: client.baseUrl,
+      via: "proxy",
+      connectionName: saved.name,
+      userName: whoamiUserName(body),
+      connectedAt: this.now(),
+      savedId: saved.id,
+    };
+    this.setState({ info, client }, { kind: "connected", info });
+    return info;
   }
 
   /** 接続を切る（Worker のキーを消す） */
@@ -329,7 +354,8 @@ export class KeyVault implements ConnectionProvider {
   private onMessage(msg: VaultToMain): void {
     if (!isRecord(msg)) return;
     if (msg.type === "locked") {
-      if (this.view.kind === "connected") this.setState(null, { kind: "locked", info: this.view.info, reason: msg.reason });
+      // 保存した接続先（Worker のキーを使わない）は Worker のロックで切らない
+      if (this.view.kind === "connected" && this.view.info.savedId === undefined) this.setState(null, { kind: "locked", info: this.view.info, reason: msg.reason });
       return;
     }
     if (msg.type === "reply") {

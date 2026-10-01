@@ -23,6 +23,7 @@ import { BRIDGE_PEER_PROTOCOL, PeerUnreachableError, RemoteHub, probeBridgeHealt
 import type { HealthBody, TicketIssuer } from "./peer.ts";
 import { isPortInUseError, startBridgeServer } from "./server.ts";
 import type { LicenseStore } from "./license.ts";
+import type { ConnectionStore } from "./connections.ts";
 import type { BridgeServer } from "./server.ts";
 
 /** CLI の client が primary の終了を確かめる間隔 */
@@ -65,6 +66,8 @@ export interface BridgeCoordinatorOptions {
   codeStale?: () => boolean;
   /** ライセンスキーの保存と確かめ（primary のとき /_mxstage/license で作業画面に出す） */
   license?: LicenseStore | null;
+  /** 保存した接続先（primary のとき /_mxstage/connections と /mx で使う） */
+  connections?: ConnectionStore | null;
 }
 
 export class BridgeCoordinator {
@@ -231,6 +234,7 @@ export class BridgeCoordinator {
       userSkillsDir: this.opts.userSkillsDir ?? null,
       ...(this.opts.codeStale !== undefined ? { codeStale: this.opts.codeStale } : {}),
       license: this.opts.license ?? null,
+      connections: this.opts.connections ?? null,
     });
   }
 

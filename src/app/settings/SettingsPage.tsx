@@ -4,9 +4,11 @@
 // 節はタブに分ける（接続・ライセンス・AI アシスタント・Skill・言語）。選んだタブは URL のハッシュ（/settings#license）に出す。
 // タブを切り替えても各節は描いたまま（隠すだけ）にして、入力途中の値を失わない。
 
-import { Button, Form, Layer, RadioButton, RadioButtonGroup, Select, SelectItem, Tab, TabList, TabPanel, TabPanels, Tabs, TextInput } from "@carbon/react";
+import { Button, Checkbox, Form, Layer, RadioButton, RadioButtonGroup, Select, SelectItem, Tab, TabList, TabPanel, TabPanels, Tabs, TextInput } from "@carbon/react";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from "react";
 import { LOCALES, getLocale, isLocale, subscribeLocale } from "../../shared/i18n";
+import type { AutoConnector } from "../connections/auto";
+import type { SavedConnection, SavedConnectionsClient, SaveProblem } from "../connections/client";
 import type { ConnectInput, VaultView } from "../keyvault/client";
 import type { Environment, LicenseClient } from "../license/client";
 import { licenseMessages } from "../license/messages";
@@ -64,6 +66,10 @@ export interface SettingsPageProps {
   loadSkills?: () => Promise<SkillList>;
   /** ライセンスキーと接続先ごとの環境（本番／テスト）。省くとライセンスの節と環境の選択を出さない */
   license?: LicenseClient;
+  /** 橋渡しに保存した接続先。省くと保存の機能を出さない（API キーはこのタブのメモリだけ） */
+  connections?: SavedConnectionsClient | null;
+  /** 保存した接続先への接続（connections と一緒に渡す） */
+  autoConnect?: AutoConnector | null;
 }
 
 /** 接続に成功したら、この URL に replaceState する（パスワードマネージャーの保存検知のため URL を変える） */
@@ -185,6 +191,7 @@ export function SettingsPage(props: SettingsPageProps) {
           passwordCredential={passwordCredential}
           replaceUrl={replaceUrl}
           license={props.license ?? null}
+          saved={props.connections && props.autoConnect ? { client: props.connections, auto: props.autoConnect } : null}
         />
       ),
     },
@@ -325,9 +332,19 @@ interface MaximoSectionProps {
   passwordCredential: PasswordCredentialSupport | null;
   replaceUrl: (url: string) => void;
   license: LicenseClient | null;
+  saved: SavedSupport | null;
 }
 
-function MaximoSection({ vault, view, storage, passwordCredential, replaceUrl, license }: MaximoSectionProps) {
+interface SavedSupport {
+  client: SavedConnectionsClient;
+  auto: AutoConnector;
+}
+
+function savedProblemText(problem: SaveProblem): string {
+  return m().saved.problem[problem] ?? m().page.failed;
+}
+
+function MaximoSection({ vault, view, storage, passwordCredential, replaceUrl, license, saved: savedSupport }: MaximoSectionProps) {
   const saved = useMemo(() => loadSavedSettings(storage), [storage]);
   const [baseUrl, setBaseUrl] = useState(view.kind === "disconnected" ? saved.baseUrl : view.info.baseUrl);
   const [via, setVia] = useState<MaximoVia>(view.kind === "disconnected" ? saved.via : view.info.via);
@@ -340,6 +357,15 @@ function MaximoSection({ vault, view, storage, passwordCredential, replaceUrl, l
   const [failure, setFailure] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [showForm, setShowForm] = useState(view.kind !== "connected");
+  // 保存した接続先（橋渡しが API キーを預かる）。使えるときは「この PC に保存する」を初めから選んでおく
+  const savedSnapshot = useSyncExternalStore(
+    useCallback((l: () => void) => savedSupport?.client.subscribe(l) ?? (() => undefined), [savedSupport]),
+    useCallback(() => savedSupport?.client.snapshot() ?? null, [savedSupport]),
+  );
+  const canSave = savedSupport !== null && savedSnapshot !== null && savedSnapshot.status !== "unavailable";
+  const [saveOnPc, setSaveOnPc] = useState(true);
+  const [editing, setEditing] = useState<SavedConnection | null>(null);
+  const willSave = canSave && saveOnPc && via === "proxy";
   const keyRef = useRef<HTMLInputElement>(null);
   const mounted = useRef(true);
 
@@ -350,10 +376,63 @@ function MaximoSection({ vault, view, storage, passwordCredential, replaceUrl, l
     };
   }, []);
 
-  // ロック・切断されたらフォームに戻す
+  // ロック・切断されたらフォームに戻す。自動でつながったら（保存した接続先）接続の情報を出す
   useEffect(() => {
-    if (view.kind !== "connected") setShowForm(true);
+    setShowForm(view.kind !== "connected");
   }, [view.kind]);
+
+  const startEdit = (c: SavedConnection) => {
+    setEditing(c);
+    setConnectionName(c.name);
+    setBaseUrl(c.baseUrl);
+    setVia("proxy");
+    setSaveOnPc(true);
+    setEnvironment(c.environment ?? license?.declared(c.baseUrl) ?? null);
+    setErrors({});
+    setFailure(null);
+    setShowForm(true);
+  };
+
+  /** 保存してからつなぐ（API キーは入力欄から橋渡しへ 1 回だけ送り、すぐ入力欄を空にする） */
+  const saveAndConnect = async (support: SavedSupport, keyInput: HTMLInputElement, name: string, url: string) => {
+    const apiKey = keyInput.value;
+    keyInput.value = "";
+    const editingId = editing?.id;
+    setBusy(true);
+    try {
+      const out = await support.client.save({
+        ...(editingId !== undefined ? { id: editingId } : {}),
+        name,
+        baseUrl: url,
+        environment: licensed !== null ? "production" : environment,
+        ...(apiKey !== "" ? { apiKey } : {}),
+      });
+      if (!out.ok) {
+        if (mounted.current) setFailure(savedProblemText(out.problem));
+        return;
+      }
+      try {
+        await support.auto.connect(out.connection);
+      } catch (err) {
+        // 新しく保存した接続先が通らなければ、残さない（直したときは残して、もう一度直せるようにする）
+        if (editingId === undefined) await support.client.remove(out.connection.id);
+        if (mounted.current) {
+          setFailure(connectErrorMessage(err, "proxy"));
+          keyRef.current?.focus();
+        }
+        return;
+      }
+      saveSettings(storage, { baseUrl: url, via: "proxy" });
+      if (license !== null && licensed === null && environment !== null) license.declare(url, environment);
+      replaceUrl(CONNECTED_URL);
+      if (mounted.current) {
+        setEditing(null);
+        setShowForm(false);
+      }
+    } finally {
+      if (mounted.current) setBusy(false);
+    }
+  };
 
   const onSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -363,12 +442,18 @@ function MaximoSection({ vault, view, storage, passwordCredential, replaceUrl, l
     const name = connectionName.trim();
     const url = normalizeBaseUrl(baseUrl);
     const found = validateSettingsForm({ baseUrl: url, via, connectionName: name, apiKey: keyInput.value });
+    // 保存した接続先を直すときは、API キーを空にすれば保存してあるキーのまま
+    if (willSave && editing !== null && keyInput.value === "") delete found.apiKey;
     setErrors(found);
     setFailure(null);
     // 環境は必ず選ぶ（ライセンスキーに書かれた接続先はいつも本番なので選ばなくてよい）
     const needsEnvironment = license !== null && licensed === null && environment === null;
     setEnvironmentError(needsEnvironment ? licenseMessages().environment.required : null);
     if (Object.keys(found).length > 0 || needsEnvironment) return;
+    if (willSave && savedSupport !== null) {
+      await saveAndConnect(savedSupport, keyInput, name, url);
+      return;
+    }
 
     // パスワードマネージャーへの保存（Chromium 系）は whoami の成功後に行うため、資格情報のオブジェクトだけ先に作る。
     // 【これが無いと成功後に保存できない。PasswordCredential が無いブラウザではキーはここで手放す】
@@ -397,11 +482,25 @@ function MaximoSection({ vault, view, storage, passwordCredential, replaceUrl, l
   };
 
   const t = m().maximo;
+  const s = m().saved;
+  const savedList =
+    savedSupport !== null && savedSnapshot !== null && savedSnapshot.status !== "unavailable" ? (
+      <SavedConnections
+        support={savedSupport}
+        connections={savedSnapshot.connections}
+        protection={savedSnapshot.protection}
+        currentId={view.kind === "connected" ? (view.info.savedId ?? null) : null}
+        onEdit={startEdit}
+        formFailure={failure}
+      />
+    ) : null;
+  const disconnect = () => (savedSupport !== null ? savedSupport.auto.disconnect() : vault.disconnect());
   if (!showForm && view.kind === "connected") {
     return (
       <section className="card">
         <h2>{t.title}</h2>
-        <ConnectedInfo info={view.info} license={license} onReconnect={() => setShowForm(true)} onDisconnect={() => vault.disconnect()} />
+        <ConnectedInfo info={view.info} license={license} onReconnect={() => setShowForm(true)} onDisconnect={disconnect} />
+        {savedList}
       </section>
     );
   }
@@ -410,7 +509,9 @@ function MaximoSection({ vault, view, storage, passwordCredential, replaceUrl, l
     <section className="card">
       <h2>{t.title}</h2>
       {view.kind === "locked" && <Notice kind="warning">{view.reason === "idle" ? t.lockedIdle : t.lockedManual}</Notice>}
-      <p className="muted">{t.keyNote}</p>
+      {savedList}
+      {editing !== null && <Notice kind="info">{s.editing(editing.name)}</Notice>}
+      {!canSave ? <p className="muted">{t.keyNote}</p> : !willSave ? <p className="muted">{s.unsavedKeyNote}</p> : null}
       {/* カードは layer-01 の面。入力欄は一段上の面の色で描く */}
       <Layer>
         <Form className="connect-form" onSubmit={onSubmit} noValidate>
@@ -471,6 +572,18 @@ function MaximoSection({ vault, view, storage, passwordCredential, replaceUrl, l
             invalidText={errors.apiKey}
             required
           />
+          {canSave && (
+            <div className="field">
+              <Checkbox
+                id="mx-save"
+                labelText={s.saveLabel}
+                checked={saveOnPc && via === "proxy"}
+                disabled={via !== "proxy" || editing !== null}
+                onChange={(_e, { checked }) => setSaveOnPc(checked)}
+                {...(via !== "proxy" ? { helperText: s.saveDirect } : {})}
+              />
+            </div>
+          )}
           {license !== null && (
             <EnvironmentField environment={environment} onChange={setEnvironment} licensedOrg={licensed ? (licensed.org ?? licensed.licenseId) : null} error={environmentError} />
           )}
@@ -481,13 +594,113 @@ function MaximoSection({ vault, view, storage, passwordCredential, replaceUrl, l
           )}
           <div className="actions">
             <Button type="submit" kind="primary" disabled={busy}>
-              {t.connect}
+              {editing !== null ? s.update : t.connect}
             </Button>
+            {editing !== null && (
+              <Button
+                kind="ghost"
+                disabled={busy}
+                onClick={() => {
+                  setEditing(null);
+                  setShowForm(view.kind !== "connected");
+                }}
+              >
+                {s.cancelEdit}
+              </Button>
+            )}
             {busy && <span className="muted">{t.checking}</span>}
           </div>
         </Form>
       </Layer>
     </section>
+  );
+}
+
+/**
+ * 保存した接続先の一覧。選んでつなぐ・直す（API キーの入れ直し）・消す。
+ * 自動の接続に失敗したときは、その理由もここに出す。
+ */
+function SavedConnections(p: {
+  support: SavedSupport;
+  connections: readonly SavedConnection[];
+  protection: string | null;
+  currentId: string | null;
+  onEdit: (c: SavedConnection) => void;
+  formFailure: string | null;
+}) {
+  const s = m().saved;
+  const env = licenseMessages().environment;
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const failure = useSyncExternalStore(
+    useCallback((l: () => void) => p.support.auto.subscribe(l), [p.support]),
+    useCallback(() => p.support.auto.failure(), [p.support]),
+  );
+  const shownFailure = failure !== null && p.formFailure === null && p.connections.some((c) => c.id === failure.connection.id) ? failure : null;
+  return (
+    <div className="saved-connections">
+      <h3>{s.title}</h3>
+      <p className="muted small">
+        {s.intro} {p.protection !== null ? s.protection(p.protection) : null}
+      </p>
+      {shownFailure !== null && (
+        <Notice kind="warning" role="alert">
+          {s.autoFailed(shownFailure.connection.name)} {connectErrorMessage(shownFailure.error, "proxy")}
+          {shownFailure.retrying ? ` ${s.autoRetrying}` : ""}
+        </Notice>
+      )}
+      {p.connections.length === 0 ? (
+        <p className="muted small">{s.empty}</p>
+      ) : (
+        <ul className="plain saved-list">
+          {p.connections.map((c) => (
+            <li key={c.id} className="saved-item" data-connection={c.id}>
+              <div className="saved-text">
+                <strong>{c.name}</strong>
+                <span className="muted small">
+                  {hostOf(c.baseUrl)}
+                  {c.environment !== null ? ` · ${c.environment === "production" ? env.production : env.test}` : ""}
+                </span>
+              </div>
+              <div className="saved-actions">
+                {p.currentId === c.id ? (
+                  <span className="saved-current">{s.inUse}</span>
+                ) : (
+                  <Button
+                    kind="primary"
+                    size="sm"
+                    disabled={busyId !== null}
+                    onClick={() => {
+                      setBusyId(c.id);
+                      p.support.auto
+                        .connect(c)
+                        .catch(() => undefined)
+                        .finally(() => setBusyId(null));
+                    }}
+                  >
+                    {busyId === c.id ? s.connecting : s.use}
+                  </Button>
+                )}
+                <Button kind="ghost" size="sm" disabled={busyId !== null} onClick={() => p.onEdit(c)}>
+                  {s.editKey}
+                </Button>
+                <Button
+                  kind="danger--ghost"
+                  size="sm"
+                  disabled={busyId !== null}
+                  onClick={() => {
+                    if (!window.confirm(s.removeConfirm(c.name))) return;
+                    if (p.currentId === c.id) p.support.auto.disconnect();
+                    void p.support.client.remove(c.id);
+                  }}
+                >
+                  {s.remove}
+                </Button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -539,6 +752,12 @@ function ConnectedInfo({ info, license, onReconnect, onDisconnect }: { info: Max
         <dd>{c.hostVia(hostOf(info.baseUrl), info.via !== "proxy")}</dd>
         <dt>{c.user}</dt>
         <dd>{info.userName ?? c.unknownUser}</dd>
+        {info.savedId !== undefined && (
+          <>
+            <dt>{m().saved.title}</dt>
+            <dd>{m().saved.savedBadge}</dd>
+          </>
+        )}
         {license !== null && (
           <>
             <dt>{t.label}</dt>

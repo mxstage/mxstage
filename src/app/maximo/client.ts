@@ -15,6 +15,11 @@ export interface MaximoClientOptions {
   apiKey: () => string;
   /** proxy: 橋渡しの /mx 経由、direct: ブラウザから Maximo へ直接（CORS 設定が必要） */
   via: MaximoVia;
+  /**
+   * 橋渡しに保存した接続先の ID（proxy だけ）。あれば API キーを送らず、橋渡しがキーを付ける（src/bridge/connections.ts）。
+   * このとき apiKey は使わない
+   */
+  connectionId?: string;
   fetchImpl?: FetchLike;
   /** 再試行の待ち。試験で待たないよう差し替える */
   sleep?: (ms: number) => Promise<void>;
@@ -68,6 +73,8 @@ export class MaximoClient {
   /** 例 /maximo/api */
   readonly apiRoot: string;
   private readonly apiKey: () => string;
+  /** 橋渡しに保存した接続先の ID（無ければ null） */
+  readonly connectionId: string | null;
   private readonly fetchImpl: FetchLike;
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly retryBaseMs: number;
@@ -88,6 +95,8 @@ export class MaximoClient {
       throw new Error("A baseUrl through the proxy must be https://host[:port] (no path)");
     }
     this.via = opts.via;
+    if (opts.connectionId !== undefined && opts.via !== "proxy") throw new Error("A saved connection works only through the proxy");
+    this.connectionId = opts.connectionId ?? null;
     this.contextRoot = (opts.contextRoot ?? "/maximo").replace(/\/+$/, "");
     if (!/^\/[A-Za-z0-9_\-/]*$/.test(this.contextRoot)) throw new Error("Invalid contextRoot");
     this.apiRoot = `${this.contextRoot}/api`;
@@ -169,6 +178,7 @@ export class MaximoClient {
   }
 
   private buildHeaders(extra: Record<string, string>): Record<string, string> {
+    if (this.connectionId !== null) return { accept: "application/json", ...extra, "X-Maximo-Connection": this.connectionId };
     const key = this.apiKey();
     if (!key) throw new Error("The Maximo API key is not set");
     const headers: Record<string, string> = { accept: "application/json", ...extra };

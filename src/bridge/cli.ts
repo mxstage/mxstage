@@ -25,6 +25,7 @@ import { BridgeCoordinator, CLIENT_WATCH_INTERVAL_MS } from "./coordinator.ts";
 import { CodeFingerprint, checkUpdates, isDefaultAppDir } from "./freshness.ts";
 import { migrateLegacyFiles } from "./legacy.ts";
 import { LicenseStore, licenseTestKeysAllowed, readDevLicenses } from "./license.ts";
+import { ConnectionStore } from "./connections.ts";
 import { createBridgeLogger } from "./logFile.ts";
 import { buildBridgeMcpServer } from "./mcp.ts";
 import { userSkillsDirOf } from "./skills.ts";
@@ -124,6 +125,8 @@ export async function main(argv: readonly string[]): Promise<number> {
       allowTestKeys: opts.devLicense || licenseTestKeysAllowed(),
       bundled: opts.devLicense && !BUNDLE ? readDevLicenses(ROOT, record) : [],
     }),
+    // 保存した Maximo の接続先（API キーは OS の保護付きで暗号化する。src/bridge/connections.ts）
+    connections: new ConnectionStore({ dir: dirname(keyPath) }),
     // MCP を話さないプロセスは client として残らないので、見張りは MCP を話すときだけ
     watchIntervalMs: opts.mcp ? CLIENT_WATCH_INTERVAL_MS : 0,
     log: record,

@@ -62,6 +62,44 @@ export const settingsMessages = defineMessages(
       reconnect: "Use another connection",
       disconnect: "Disconnect",
     },
+    saved: {
+      title: "Saved connections",
+      intro: "Saved on this PC. Every window of the work screen on this PC (the installed app, a browser tab, or the browser inside your AI assistant) connects automatically, even after a restart.",
+      protection: (kind: string) =>
+        kind === "dpapi"
+          ? "The API keys are encrypted by the bridge with Windows data protection (DPAPI) for your Windows user. They are never sent to the browser."
+          : kind === "keychain"
+            ? "The API keys are encrypted by the bridge with a key kept in the macOS Keychain. They are never sent to the browser."
+            : "The API keys are encrypted by the bridge with a key in a file only you can read. They are never sent to the browser.",
+      empty: "No saved connections yet. Connect below with “Save on this PC” checked.",
+      use: "Connect",
+      inUse: "Connected",
+      connecting: "Connecting…",
+      editKey: "Edit",
+      remove: "Delete",
+      removeConfirm: (name: string) => `Delete the saved connection “${name}” and its API key from this PC?`,
+      saveLabel: "Save on this PC and connect automatically from now on",
+      saveDirect: "A direct connection cannot be saved (the API key would have to be in the browser). Use Proxy to save it.",
+      editing: (name: string) => `Editing “${name}”. Leave the API key empty to keep the saved key.`,
+      cancelEdit: "Cancel editing",
+      update: "Save and connect",
+      autoFailed: (name: string) => `Could not connect automatically to “${name}”.`,
+      autoRetrying: "Retrying automatically.",
+      savedBadge: "Saved on this PC",
+      unsavedKeyNote:
+        "Not saved: the API key is kept only in this tab's memory (a dedicated Web Worker) and is cleared when the tab is reloaded or after 30 minutes of inactivity.",
+      problem: {
+        invalid_name: "Enter a connection name of 128 characters or fewer.",
+        invalid_url: "Use the form https://host[:port] for the Maximo URL (no path).",
+        invalid_key: "The API key contains characters that cannot be used.",
+        key_required: "Enter the API key.",
+        not_found: "This saved connection no longer exists. It may have been deleted in another window.",
+        too_many: "You cannot save more than 50 connections. Delete ones you no longer use.",
+        unavailable: "This PC could not protect the API key, so it was not saved. Connect without saving.",
+        unreadable: "The saved API keys cannot be decrypted on this PC (they were saved by another user or PC). Enter the API key again.",
+        bridge_unavailable: "The bridge cannot save connections. It may be an older version. Run the setup again, or connect without saving.",
+      },
+    },
     via: {
       direct: "Direct (from the browser; Maximo needs CORS settings)",
       proxy: "Proxy (through the bridge on this PC; default)",
@@ -99,6 +137,9 @@ export const settingsMessages = defineMessages(
       vaultLocked: "The API key was locked. Connect again.",
       vaultForbiddenDestination: "The API key cannot be sent to this destination. Check the Maximo URL and the connection method.",
       vaultBadRequest: "The API key or the URL contains characters that cannot be used.",
+      connectionNotFound: "This saved connection no longer exists on this PC. Choose another one or connect again.",
+      connectionUnreadable: "The saved API key cannot be decrypted on this PC (it was saved by another user or PC). Edit the connection and enter the API key again.",
+      connectionUnavailable: "The bridge cannot use saved connections. Run the setup again, or connect without saving.",
       invalidKey: "The API key is not valid, or this connection does not have permission.",
       gatewayTimeout: (status: number) => `Maximo did not respond in time (HTTP ${status}).`,
       whoamiNotFound: "whoami was not found. Check the Maximo URL (everything before /maximo).",
@@ -175,6 +216,44 @@ export const settingsMessages = defineMessages(
       reconnect: "別の接続にする",
       disconnect: "接続を切る",
     },
+    saved: {
+      title: "保存した接続先",
+      intro: "この PC に保存しています。この PC で開いた作業画面は、どの窓（インストールしたアプリ・ブラウザのタブ・AI アシスタントの中のブラウザ）でも、PC を再起動したあとでも、自動でつながります。",
+      protection: (kind) =>
+        kind === "dpapi"
+          ? "API キーは、橋渡しが Windows のデータ保護（DPAPI）で、あなたの Windows ユーザーにだけ開けるように暗号化しています。ブラウザには渡しません。"
+          : kind === "keychain"
+            ? "API キーは、橋渡しが macOS のキーチェーンに置いた鍵で暗号化しています。ブラウザには渡しません。"
+            : "API キーは、橋渡しが、あなただけが読めるファイルの鍵で暗号化しています。ブラウザには渡しません。",
+      empty: "保存した接続先はまだありません。下で「この PC に保存する」を選んで接続してください。",
+      use: "接続",
+      inUse: "接続中",
+      connecting: "接続しています…",
+      editKey: "直す",
+      remove: "削除",
+      removeConfirm: (name) => `保存した接続先「${name}」と、その API キーをこの PC から消しますか？`,
+      saveLabel: "この PC に保存して、次からは自動で接続する",
+      saveDirect: "直結の接続は保存できません（API キーをブラウザに置くことになるため）。保存するときは proxy にしてください。",
+      editing: (name) => `「${name}」を直しています。API キーを空のままにすると、保存してあるキーのままにします。`,
+      cancelEdit: "直すのをやめる",
+      update: "保存して接続",
+      autoFailed: (name) => `「${name}」に自動で接続できませんでした。`,
+      autoRetrying: "自動でやり直します。",
+      savedBadge: "この PC に保存",
+      unsavedKeyNote:
+        "保存しない場合: API キーはこのタブのメモリ（専用の Web Worker）にだけ置き、タブを読み込み直したときと、30 分操作が無いときに消えます。",
+      problem: {
+        invalid_name: "接続名を 128 文字以内で入れてください。",
+        invalid_url: "Maximo URL は https://host[:port] の形にしてください（パスを含めない）。",
+        invalid_key: "API キーに使えない文字が含まれています。",
+        key_required: "API キーを入れてください。",
+        not_found: "この接続先はもうありません。別の窓で削除されたかもしれません。",
+        too_many: "保存できる接続先は 50 までです。使わないものを削除してください。",
+        unavailable: "この PC で API キーを保護できなかったので、保存しませんでした。保存せずに接続してください。",
+        unreadable: "保存した API キーをこの PC では開けません（別のユーザーか別の PC で保存したものです）。API キーを入れ直してください。",
+        bridge_unavailable: "橋渡しが接続先を保存できません。古い版かもしれません。導入をやり直すか、保存せずに接続してください。",
+      },
+    },
     via: {
       direct: "直結（ブラウザから直接。Maximo 側の CORS 設定が必要）",
       proxy: "proxy（このパソコンの橋渡し経由。既定）",
@@ -212,6 +291,9 @@ export const settingsMessages = defineMessages(
       vaultLocked: "API キーがロックされました。もう一度接続してください。",
       vaultForbiddenDestination: "この送り先には API キーを付けて送れません。Maximo URL と接続方式を確認してください。",
       vaultBadRequest: "API キーまたは URL に使えない文字が含まれています。",
+      connectionNotFound: "この接続先は、この PC にもうありません。別の接続先を選ぶか、接続し直してください。",
+      connectionUnreadable: "保存した API キーをこの PC では開けません（別のユーザーか別の PC で保存したものです）。接続先を「直す」で API キーを入れ直してください。",
+      connectionUnavailable: "橋渡しが保存した接続先を使えません。導入をやり直すか、保存せずに接続してください。",
       invalidKey: "API キーが無効か、この接続に権限がありません。",
       gatewayTimeout: (status) => `Maximo の応答が時間内に返りませんでした（HTTP ${status}）。`,
       whoamiNotFound: "whoami が見つかりません。Maximo URL（/maximo の手前まで）を確認してください。",

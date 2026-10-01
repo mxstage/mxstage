@@ -141,6 +141,12 @@ export function connectErrorMessage(e: unknown, via: MaximoVia): string {
         return t.vaultForbiddenDestination;
       case "vault_bad_request":
         return t.vaultBadRequest;
+      case "connection_not_found":
+        return t.connectionNotFound;
+      case "connection_unreadable":
+        return t.connectionUnreadable;
+      case "connection_unavailable":
+        return t.connectionUnavailable;
       default:
         break;
     }

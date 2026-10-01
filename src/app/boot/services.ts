@@ -4,6 +4,8 @@ import { startCatalogAutoSync } from "../catalog/autosync";
 import { ObjectStructureCatalog } from "../catalog/catalog";
 import { createDefaultCatalogStorage } from "../catalog/storage";
 import { ImportStore, installImportDrop } from "../imports";
+import { AutoConnector } from "../connections/auto";
+import { SavedConnectionsClient } from "../connections/client";
 import { KeyVault, createWorkerTransport } from "../keyvault/client";
 import { LicenseClient } from "../license/client";
 import { relayUrl, type ImportErrorReason } from "../relay";
@@ -42,6 +44,10 @@ export function createServices(): AppServices {
   const license = new LicenseClient({ storage: browserStorage() });
   void license.refresh();
   if (typeof window !== "undefined") window.addEventListener("focus", () => void license.refresh());
+  // 保存した接続先（API キーは橋渡しが OS の保護付きで預かる）。どの窓で開いても、前に使った接続先へ自動でつなぐ
+  const connections = new SavedConnectionsClient({ storage: browserStorage() });
+  const autoConnect = new AutoConnector({ saved: connections, vault, license, win: typeof window === "undefined" ? null : window });
+  void autoConnect.start();
   const toasts = new ToastStore();
   // オブジェクト構造は設定としてブラウザに保存し、作業終了でも消さない。
   // Maximo に接続したら、LLM の操作を待たずにすべての定義を機械的に読み込む
@@ -55,6 +61,8 @@ export function createServices(): AppServices {
     toasts,
     catalog,
     license,
+    connections,
+    autoConnect,
     createRuntime: () => {
       const runtime = createRuntime({
         connection: vault,

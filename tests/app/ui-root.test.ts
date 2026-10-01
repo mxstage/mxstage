@@ -7,6 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ObjectStructureCatalog } from "../../src/app/catalog/catalog";
 import type { Runtime } from "../../src/app/boot/runtime";
 import type { AppServices } from "../../src/app/boot/types";
+import { AutoConnector } from "../../src/app/connections/auto";
+import { SavedConnectionsClient } from "../../src/app/connections/client";
 import type { KeyVault, VaultView } from "../../src/app/keyvault/client";
 import { LicenseClient } from "../../src/app/license/client";
 import { REOPEN_HINT_AFTER } from "../../src/app/pages/status";
@@ -76,12 +78,16 @@ function makeServices(counters: Counters, relay: RelayStatus = RELAY_OPEN): AppS
     disconnect: () => undefined,
     noteActivity: () => undefined,
   };
+  const connections = new SavedConnectionsClient({ fetch: async () => new Response("{}", { status: 503 }) });
   return {
     vault: vault as unknown as KeyVault,
     toasts: new ToastStore(),
     catalog: new ObjectStructureCatalog(),
     // 橋渡しにつながない（ライセンスは読めないまま）
     license: new LicenseClient({ fetch: async () => new Response("{}", { status: 503 }) }),
+    connections,
+    // 自動の接続は始めない（この試験では接続しない）
+    autoConnect: new AutoConnector({ saved: connections, vault: vault as unknown as KeyVault }),
     createRuntime: (): Runtime => {
       counters.created++;
       const workspace = new Workspace(`作業${counters.created}`);

@@ -12,7 +12,7 @@ import { createServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { RELAY_SUBPROTOCOL } from "../shared/protocol.ts";
-import { checkRequest, checkUpgrade } from "./guard.ts";
+import { checkRequest, checkUpgrade, isLocalOrigin } from "./guard.ts";
 import type { GuardResult } from "./guard.ts";
 import { LocalHub } from "./hub.ts";
 import { ImportTickets, handleImportUpload } from "./importUpload.ts";
@@ -20,6 +20,7 @@ import { handleMaximoProxy } from "./mx.ts";
 import type { UpstreamRequest } from "./mx.ts";
 import { PEER_PREFIX, handlePeerRequest, readBody } from "./peer.ts";
 import type { LicenseStore } from "./license.ts";
+import type { ConnectionStore } from "./connections.ts";
 import type { BridgeKeyStore } from "./bridgeKey.ts";
 import { readSkillCatalog } from "./skills.ts";
 import { serveStatic } from "./staticFiles.ts";
@@ -56,6 +57,8 @@ export interface BridgeServerOptions {
   codeStale?: () => boolean;
   /** ライセンスキーの保存と確かめ。省くと /_mxstage/license は 503（本番への反映はできない） */
   license?: LicenseStore | null;
+  /** 保存した接続先（API キーを預かる）。省くと /_mxstage/connections は 503、/mx は毎回キーを受け取る方式だけ */
+  connections?: ConnectionStore | null;
 }
 
 /** 作業画面の設定が読む Skill の一覧（本文は含めない） */
@@ -67,6 +70,17 @@ export const LICENSE_REMOVE_PATH = "/_mxstage/license/remove";
 /** 本番の接続先に反映してよいかを確かめる（POST） */
 export const LICENSE_AUTHORIZE_PATH = "/_mxstage/license/authorize";
 const LICENSE_PATHS: readonly string[] = [LICENSE_PATH, LICENSE_REMOVE_PATH, LICENSE_AUTHORIZE_PATH];
+/** 保存した接続先の一覧（GET）と保存（POST） */
+export const CONNECTIONS_PATH = "/_mxstage/connections";
+/** 保存した接続先を消す（POST） */
+export const CONNECTIONS_REMOVE_PATH = "/_mxstage/connections/remove";
+/** 最後に使った接続先にする（POST） */
+export const CONNECTIONS_USE_PATH = "/_mxstage/connections/use";
+const CONNECTIONS_PATHS: readonly string[] = [CONNECTIONS_PATH, CONNECTIONS_REMOVE_PATH, CONNECTIONS_USE_PATH];
+/** 接続先の入口が受ける本文の上限 */
+export const CONNECTIONS_BODY_LIMIT = 16 * 1024;
+/** /mx で保存した接続先を指すヘッダ（小文字） */
+export const MAXIMO_CONNECTION_HEADER = "x-maximo-connection";
 /** ライセンスの入口が受ける本文の上限 */
 export const LICENSE_BODY_LIMIT = 8 * 1024;
 
@@ -190,6 +204,69 @@ async function handleLicenseRequest(req: IncomingMessage, res: ServerResponse, p
   else sendJson(res, 403, { ok: false, error: "license_required", problem: result.problem, host: result.host, licensedHosts: result.licensedHosts });
 }
 
+/**
+ * 保存した接続先の入口（作業画面の「設定」→「接続」と、開いたときの自動接続が使う）。API キーは返さない。
+ *   GET  /_mxstage/connections         一覧と、最後に使った接続先
+ *   POST /_mxstage/connections         { id?, name, baseUrl, environment, apiKey? } を保存する
+ *   POST /_mxstage/connections/remove  { id } を消す
+ *   POST /_mxstage/connections/use     { id } を最後に使った接続先にする
+ */
+async function handleConnectionsRequest(req: IncomingMessage, res: ServerResponse, pathname: string, store: ConnectionStore | null): Promise<void> {
+  const method = (req.method ?? "GET").toUpperCase();
+  const allowed = pathname === CONNECTIONS_PATH ? ["GET", "POST"] : ["POST"];
+  if (!allowed.includes(method)) {
+    sendJson(res, 405, { ok: false, error: "method_not_allowed", message: `Only ${allowed.join(", ")} is accepted.` }, { Allow: allowed.join(", ") });
+    return;
+  }
+  if (store === null) {
+    sendJson(res, 503, { ok: false, error: "connections_unavailable", message: "This bridge cannot save connections." });
+    return;
+  }
+  if (method === "GET") {
+    sendJson(res, 200, { ok: true, ...store.list() });
+    return;
+  }
+  const body = await readJsonBody(req, CONNECTIONS_BODY_LIMIT);
+  if (body === "too_large") {
+    sendJson(res, 413, { ok: false, error: "too_large", message: `The body is too large (limit ${CONNECTIONS_BODY_LIMIT} bytes).` });
+    return;
+  }
+  if (body === null) {
+    sendJson(res, 400, { ok: false, error: "invalid_request", message: "Send a JSON object." });
+    return;
+  }
+  if (pathname === CONNECTIONS_PATH) {
+    const saved = await store.save({
+      ...(typeof body.id === "string" ? { id: body.id } : {}),
+      name: typeof body.name === "string" ? body.name : "",
+      baseUrl: typeof body.baseUrl === "string" ? body.baseUrl : "",
+      environment: body.environment === "production" || body.environment === "test" ? body.environment : null,
+      ...(typeof body.apiKey === "string" ? { apiKey: body.apiKey } : {}),
+    });
+    if (saved.ok) sendJson(res, 200, { ok: true, connection: saved.connection, ...store.list() });
+    else sendJson(res, 422, { ok: false, error: "connection_rejected", problem: saved.problem, ...store.list() });
+    return;
+  }
+  if (typeof body.id !== "string") {
+    sendJson(res, 400, { ok: false, error: "invalid_request", message: "Send id as a string." });
+    return;
+  }
+  if (pathname === CONNECTIONS_REMOVE_PATH) {
+    sendJson(res, 200, { ok: true, removed: store.remove(body.id), ...store.list() });
+    return;
+  }
+  const used = store.use(body.id);
+  if (used) sendJson(res, 200, { ok: true, connection: used, ...store.list() });
+  else sendJson(res, 404, { ok: false, error: "connection_not_found", message: "The saved connection was not found." });
+}
+
+/** ブラウザの同一オリジンの要求か（保存した接続先で Maximo へ送るときに求める） */
+function isSameOriginBrowserRequest(req: IncomingMessage, port: number): boolean {
+  const origin = header(req, "origin");
+  if (origin !== undefined) return isLocalOrigin(origin, port);
+  return header(req, "sec-fetch-site") === "same-origin";
+}
+
 export async function startBridgeServer(opts: BridgeServerOptions): Promise<BridgeServer> {
   const hub = opts.hub ?? new LocalHub();
   const tickets = opts.tickets ?? new ImportTickets();
@@ -208,7 +285,8 @@ export async function startBridgeServer(opts: BridgeServerOptions): Promise<Brid
     try {
       const pathname = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
       // ライセンスの入口は作業画面（同一オリジン）からだけ受ける
-      isTicketPath = pathname.startsWith("/import/") || (pathname.startsWith(PEER_PREFIX) && !LICENSE_PATHS.includes(pathname));
+      // ライセンスと保存した接続先の入口は作業画面（同一オリジン）からだけ受ける
+      isTicketPath = pathname.startsWith("/import/") || (pathname.startsWith(PEER_PREFIX) && !LICENSE_PATHS.includes(pathname) && !CONNECTIONS_PATHS.includes(pathname));
     } catch {
       isTicketPath = false;
     }
@@ -253,13 +331,35 @@ export async function startBridgeServer(opts: BridgeServerOptions): Promise<Brid
       return;
     }
 
+    if (CONNECTIONS_PATHS.includes(url.pathname)) {
+      await handleConnectionsRequest(req, res, url.pathname, opts.connections ?? null);
+      return;
+    }
+
     if (url.pathname.startsWith(PEER_PREFIX)) {
       await handlePeerRequest(req, res, url.pathname, { hub, tickets, keyStore, version, ...(opts.codeStale !== undefined ? { codeStale: opts.codeStale } : {}) });
       return;
     }
 
     if (url.pathname === "/mx" || url.pathname.startsWith("/mx/")) {
-      handleMaximoProxy(req, res, url, { allowedHosts, insecure, requestImpl: opts.requestImpl, timeoutMs: opts.upstreamTimeoutMs });
+      // 保存した接続先を指す要求は、橋渡しが API キーを付ける。作業画面（ブラウザの同一オリジン）からだけ受ける
+      const connectionId = header(req, MAXIMO_CONNECTION_HEADER);
+      let saved: { origin: string; apiKey: string } | undefined;
+      if (connectionId !== undefined) {
+        if (!isSameOriginBrowserRequest(req, boundPort)) {
+          sendJson(res, 403, { ok: false, error: "forbidden_origin", message: "Saved connections can only be used from the work screen." });
+          return;
+        }
+        const store = opts.connections ?? null;
+        const resolved = store === null ? ({ ok: false, problem: "unavailable" } as const) : await store.resolve(connectionId);
+        if (!resolved.ok) {
+          const status = resolved.problem === "not_found" ? 404 : resolved.problem === "unavailable" ? 503 : 500;
+          sendJson(res, status, { ok: false, error: `connection_${resolved.problem}`, message: "The saved connection cannot be used." });
+          return;
+        }
+        saved = { origin: resolved.origin, apiKey: resolved.apiKey };
+      }
+      handleMaximoProxy(req, res, url, { allowedHosts, insecure, requestImpl: opts.requestImpl, timeoutMs: opts.upstreamTimeoutMs, saved });
       return;
     }
 

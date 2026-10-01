@@ -138,6 +138,8 @@ export interface MaximoProxyOptions {
   requestImpl?: UpstreamRequest | undefined;
   /** 上流への要求の時間の上限（既定 MX_UPSTREAM_TIMEOUT_MS） */
   timeoutMs?: number | undefined;
+  /** 保存した接続先のオリジンと API キー（あれば X-Maximo-Base・X-Maximo-Apikey は読まない。src/bridge/connections.ts） */
+  saved?: { origin: string; apiKey: string } | undefined;
 }
 
 function sendError(res: ServerResponse, err: ProxyError): void {
@@ -167,14 +169,14 @@ export function handleMaximoProxy(req: IncomingMessage, res: ServerResponse, url
   }
 
   const baseHeader = req.headers["x-maximo-base"];
-  const base = parseMaximoBase(Array.isArray(baseHeader) ? baseHeader[0] : baseHeader, opts.allowedHosts);
+  const base = parseMaximoBase(opts.saved ? opts.saved.origin : Array.isArray(baseHeader) ? baseHeader[0] : baseHeader, opts.allowedHosts);
   if (!("origin" in base)) {
     sendError(res, base);
     return;
   }
 
   const keyHeader = req.headers["x-maximo-apikey"];
-  const apikey = Array.isArray(keyHeader) ? keyHeader[0] : keyHeader;
+  const apikey = opts.saved ? opts.saved.apiKey : Array.isArray(keyHeader) ? keyHeader[0] : keyHeader;
   if (!apikey) {
     sendError(res, { status: 400, error: "missing_apikey", message: "X-Maximo-Apikey ヘッダが必要です。" });
     return;

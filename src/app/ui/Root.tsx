@@ -79,7 +79,7 @@ export function Root({ services }: { services: AppServices }) {
   if (route.kind === "settings") {
     return (
       <>
-        <SettingsPage key={locale} vault={services.vault} license={services.license} />
+        <SettingsPage key={locale} vault={services.vault} license={services.license} connections={services.connections} autoConnect={services.autoConnect} />
         <Toasts store={services.toasts} />
       </>
     );

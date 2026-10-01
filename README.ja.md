@@ -40,12 +40,12 @@ Claude Code が下の「導入手順（Claude Code 向け）」に沿って入�
 
 `~` は `%USERPROFILE%`（例 `C:\Users\<名前>`）。導入は、入っていない環境には何も作らない
 （Claude Desktop は設定フォルダ、Antigravity は `~\.gemini`、Codex は `~\.codex`、IBM Bob は `~\.bob` があるかで見分ける）。
-入っていても登録しないときは、導入に `--no-claude-desktop`・`--no-antigravity`・`--no-codex`・`--no-bob` を付ける（Skill を写さないときは `--no-skills`）。
+入っていても登録しないときは、導入に `--no-claude-desktop`・`--no-antigravity`・`--no-codex`・`--no-bob` を付ける（Skill を写さないときは `--no-skills`）。拡張機能が有効でも Claude Code に登録するときは `--claude-code`。
 
 | 環境 | MCP（ツール）の設定 | Skill の置き場所 | 導入・更新のあと |
 |---|---|---|---|
-| Claude Code（CLI） | `~\.claude.json` の `mcpServers.mxstage` | `~\.claude\skills\<名前>\SKILL.md` | Claude Code を終了して開き直す |
-| Claude Desktop の Code タブ | Claude Code と同じ（下のチャットの設定も読む。どちらも同じ `mxstage`） | Claude Code と同じ | Claude Desktop をタスクトレイのアイコンから終了して開き直す |
+| Claude Code（CLI） | `~\.claude.json` の `mcpServers.mxstage`。**Claude Desktop に拡張機能（`.mcpb`）の MX Stage が入っていて有効なら登録しない**（Code タブは拡張機能から MX Stage を受け取るので、両方にあるとツールが二重に出る。前にこの導入が書いた分は外す）。ターミナルの Claude Code でも使うときは `--claude-code` を付ける（次回からも引き継ぐ） | `~\.claude\skills\<名前>\SKILL.md` | Claude Code を終了して開き直す |
+| Claude Desktop の Code タブ | Claude Code と同じ（下のチャットの設定も読む。どちらも同じ `mxstage`）。拡張機能（`.mcpb`）が有効なら拡張機能から受け取る | Claude Code と同じ | Claude Desktop をタスクトレイのアイコンから終了して開き直す |
 | Claude Desktop のチャット | `%APPDATA%\Claude\claude_desktop_config.json` の `mcpServers.mxstage`。Microsoft Store 版は、`%LOCALAPPDATA%\Packages\Claude_<発行元 ID>\LocalCache\Roaming\Claude\` があればそこの `claude_desktop_config.json` にも書く。**拡張機能（`.mcpb`）の MX Stage が入っていて有効なら登録しない**（前にこの導入が書いた分は外す） | ファイルは置かない（下の「Skill」） | タスクトレイのアイコンから終了して開き直す（ウィンドウの × では終わらない） |
 | Antigravity（2.0・IDE・`agy` CLI） | `~\.gemini\config\mcp_config.json` の `mcpServers.mxstage`（3 つとも同じファイル） | `~\.gemini\config\skills\<名前>\SKILL.md`（2.0・IDE が読む。`agy` CLI は別の場所を読むので置かない） | 新しい会話を始める |
 | Codex（ChatGPT デスクトップアプリの Codex・CLI・IDE 拡張） | `~\.codex\config.toml` の `[mcp_servers.mxstage]`（3 つとも同じファイル。`CODEX_HOME` があればそこ） | `~\.agents\skills\<名前>\SKILL.md`（ほかのエージェントも読むことがある） | Codex を終了して開き直す |
@@ -110,7 +110,7 @@ node scripts/setup-local.mjs --uninstall
 | IBM Bob | `~\.bob\settings\mcp.json` の `mcpServers` から `"mxstage"` の項目を消し、IBM Bob を再起動する | `~\.bob\skills\` の下の同じ名前のフォルダを消す |
 
 外したあとに導入をもう一度実行すると、その環境にまた登録する。Claude Desktop・Antigravity・Codex・IBM Bob は、導入に
-`--no-claude-desktop`・`--no-antigravity`・`--no-codex`・`--no-bob` を付けると登録しない（Claude Code は、登録しない引数が無い）。
+`--no-claude-desktop`・`--no-antigravity`・`--no-codex`・`--no-bob` を付けると登録しない（Claude Code は、登録しない引数が無い。ただし Claude Desktop に拡張機能（`.mcpb`）の MX Stage が有効なら、`--claude-code` を付けない限り登録しない）。
 Claude Desktop は、拡張機能（`.mcpb`）の MX Stage を入れて有効にしておけば、導入は設定ファイルに登録しない。
 
 ## 導入手順（Claude Code 向け）

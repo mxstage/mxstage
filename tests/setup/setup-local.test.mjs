@@ -2665,9 +2665,107 @@ test(
   },
 );
 
+test(
+  "Claude Desktop に拡張機能（.mcpb）の MX Stage が有効なら、Claude Code にも登録しない（Code タブで二重になるため）。--claude-code で登録し、次回も引き継ぐ",
+  { timeout: 180_000 },
+  async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-mcpb-code-"));
+    try {
+      const bridge = path.join(dir, "fake-bridge.mjs");
+      writeFileSync(bridge, FAKE_BRIDGE, "utf8");
+      const port = await freePort();
+      const codeConfig = path.join(dir, "claude-code.json");
+      const other = { type: "http", url: "https://example.test/mcp" };
+      writeFileSync(codeConfig, JSON.stringify({ numStartups: 2, mcpServers: { other } }, null, 2), "utf8");
+      const common = [...sandboxArgs(dir), "--no-start", "--no-autostart", "--no-shortcut", "--port", String(port), "--bridge", bridge];
+      const readCode = () => JSON.parse(readFileSync(codeConfig, "utf8"));
+      const expected = { command: process.execPath, args: [bridge, "--port", String(port)] };
+      const statePath = path.join(dir, "state", "setup.json");
+
+      // 拡張機能が無い: これまでどおり登録する
+      const plain = await runJson(common);
+      assert.equal(plain.code, 0, plain.stdout);
+      assert.equal(readCode().mcpServers.mxstage.command, expected.command);
+      assert.deepEqual(readCode().mcpServers.mxstage.args, expected.args);
+      assert.equal(plain.json.result.installed.claudeCode, true);
+
+      // 拡張機能を入れた（有効）: 前にこの導入が書いた登録を外す（控えを取る）
+      const id = putDesktopExtension(dir);
+      const skipped = await runJson(common);
+      assert.equal(skipped.code, 0, skipped.stdout);
+      assert.equal("mxstage" in readCode().mcpServers, false, "Claude Code からは外す");
+      assert.deepEqual(readCode().mcpServers.other, other, "ほかのサーバは残す");
+      assert.equal(readCode().numStartups, 2, "ほかの設定も残す");
+      const s = stepOf(skipped.json, "claude_code");
+      assert.equal(s.length, 1);
+      assert.equal(s[0].level, "ok");
+      assert.match(s[0].message, /Code タブは拡張機能から MX Stage を受け取ります/);
+      assert.match(s[0].message, /ターミナルの Claude Code では MX Stage を使えません/);
+      assert.match(s[0].message, /外しました/);
+      assert.match(s[0].message, new RegExp(id.replace(/\./g, "\\.")));
+      assert.match(s[0].hint, /控え/);
+      assert.match(s[0].hint, /--claude-code/);
+      assert.equal(skipped.json.result.installed.claudeCode, false);
+      assert.ok(JSON.parse(readFileSync(statePath, "utf8")).backups.some((b) => path.basename(b).startsWith("claude-code.json.")), "外す前に控えを取った");
+      assert.equal(stepOf(skipped.json, "skills")[0].level, "ok", "Skill はこれまでどおり写す");
+      assert.match((await runMain(common)).stdout, /Claude Code: 登録していません/);
+
+      // 状態を見る: 登録していないのが正しいと出す
+      const status = await runJson([...common, "--status"]);
+      assert.equal(stepOf(status.json, "claude_code")[0].level, "ok");
+      assert.match(stepOf(status.json, "claude_code")[0].message, /登録していません/);
+
+      // --claude-code: 拡張機能が有効でも登録し、二重になることを知らせる。次回（付けなくても）引き継ぐ
+      const forced = await runJson([...common, "--claude-code"]);
+      assert.equal(forced.code, 0, forced.stdout);
+      assert.deepEqual(readCode().mcpServers.mxstage.args, expected.args, "--claude-code なら登録する");
+      assert.equal(forced.json.result.installed.claudeCode, true);
+      assert.equal(stepOf(forced.json, "claude_code_duplicate")[0].level, "warn");
+      assert.equal(JSON.parse(readFileSync(statePath, "utf8")).claudeCodeForced, true);
+      const keep = await runJson(common);
+      assert.equal(keep.code, 0, keep.stdout);
+      assert.ok(readCode().mcpServers.mxstage, "前回 --claude-code を付けたので、付けなくても外さない");
+      assert.match(stepOf(keep.json, "claude_code_duplicate")[0].message, /前回 --claude-code/);
+      const forcedStatus = await runJson([...common, "--status"]);
+      assert.equal(stepOf(forcedStatus.json, "claude_code")[0].level, "warn");
+      assert.match(stepOf(forcedStatus.json, "claude_code")[0].message, /二重/);
+      assert.match(stepOf(forcedStatus.json, "claude_code")[0].hint, /--claude-code で登録したもの/);
+
+      // 取り消すと引き継ぎも消える（記録ごと消える）。次の導入では登録しない
+      assert.equal(await quietMain([...common, "--uninstall"]), 0);
+      assert.equal("mxstage" in readCode().mcpServers, false);
+      assert.equal(await quietMain(common), 0);
+      assert.equal("mxstage" in readCode().mcpServers, false);
+
+      // 利用者が手で書いた mxstage は残して知らせる（Code タブで二重になる）
+      const userEntry = { type: "http", url: "https://mxstage.example.test/mcp", headers: { Authorization: "Bearer USER-TOKEN" } };
+      writeFileSync(codeConfig, JSON.stringify({ mcpServers: { other, mxstage: userEntry } }, null, 2), "utf8");
+      const user = await runJson(common);
+      assert.equal(user.code, 0, user.stdout);
+      assert.deepEqual(readCode().mcpServers.mxstage, userEntry, "利用者の設定は残す");
+      assert.equal(stepOf(user.json, "claude_code")[0].level, "warn");
+      assert.match(stepOf(user.json, "claude_code")[0].message, /この導入が書いたものではない/);
+      assert.equal(user.stdout.includes("USER-TOKEN"), false, "トークンは出さない");
+      const userStatus = await runJson([...common, "--status"]);
+      assert.equal(stepOf(userStatus.json, "claude_code")[0].level, "warn");
+      assert.match(stepOf(userStatus.json, "claude_code")[0].message, /二重/);
+
+      // --no-claude-desktop なら Claude Desktop を見ないので、これまでどおり Claude Code に登録する
+      writeFileSync(codeConfig, JSON.stringify({ mcpServers: { other } }, null, 2), "utf8");
+      const noDesktop = await runJson([...common, "--no-claude-desktop"]);
+      assert.equal(noDesktop.code, 0, noDesktop.stdout);
+      assert.deepEqual(readCode().mcpServers.mxstage.args, expected.args);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  },
+);
+
 test("--no-claude-desktop: Claude Desktop の設定に触らない（試験の囲いでも --claude-desktop-config が要らない）", { timeout: 120_000 }, async () => {
   assert.equal(parseArgs(["--no-claude-desktop"]).claudeDesktop, false);
   assert.equal(parseArgs([]).claudeDesktop, true);
+  assert.equal(parseArgs([]).claudeCode, false);
+  assert.equal(parseArgs(["--claude-code"]).claudeCode, true);
   const drop = (flag) => (a, i, all) => a !== flag && all[i - 1] !== flag;
   const guardDir = path.join(os.tmpdir(), "mxs-nodesktop-guard");
   const base = ["--port", "19001", "--bridge", path.join(guardDir, "b.mjs")];

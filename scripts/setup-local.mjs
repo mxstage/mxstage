@@ -197,6 +197,8 @@ const USAGE = `MX Stage をこの PC に入れる（1 ステップ導入）
   --no-claude-desktop      Claude Desktop に登録しない・触らない（設定フォルダが無ければ、指定しなくても登録しない。
                            拡張機能（.mcpb）の MX Stage が入っていて有効なら、設定ファイルには登録しない）
   --no-bob                 IBM Bob に登録しない（~/.bob が無ければ、指定しなくても登録しない）
+  --claude-code            Claude Desktop に拡張機能（.mcpb）の MX Stage が入っていて有効でも、Claude Code（~/.claude.json）に登録する
+                           （ふだんは Code タブでツールが二重に出ないよう登録しない。ターミナルの Claude Code で使う人向け。次回からも引き継ぐ）
   --json                   機械可読な JSON で結果を出す
   --help                   この説明を出す
 
@@ -243,6 +245,7 @@ export function parseArgs(argv) {
     codex: true,
     claudeDesktop: true,
     bob: true,
+    claudeCode: false,
     json: false,
     help: false,
     stateDir: null,
@@ -292,6 +295,7 @@ export function parseArgs(argv) {
     else if (arg === "--no-codex") opts.codex = false;
     else if (arg === "--no-claude-desktop") opts.claudeDesktop = false;
     else if (arg === "--no-bob") opts.bob = false;
+    else if (arg === "--claude-code") opts.claudeCode = true;
     else if (arg === "--json") opts.json = true;
     else if (arg === "--help" || arg === "-h") opts.help = true;
     else {
@@ -1925,10 +1929,36 @@ async function install(opts, paths, out) {
     }
   }
 
-  // --- Claude Code ---
+  // --- Claude Code（Claude Desktop に拡張機能（.mcpb）の MX Stage が有効なら、--claude-code が無い限り登録しない）---
   const lastWritten = lastWrittenEntries(state);
   const codeEntry = buildCodeEntry(nodePath, found.entry, port);
-  registerCode(opts, paths, codeEntry, found.entry, lastWritten, result, out);
+  const extension = enabledDesktopExtension(opts, paths);
+  const code = claudeCodeWanted(opts, state, extension);
+  if (code.forced) result.claudeCodeForced = true;
+  if (code.ok) {
+    registerCode(opts, paths, codeEntry, found.entry, lastWritten, result, out);
+    if (code.forced) {
+      out.push(
+        step(
+          "warn",
+          "claude_code_duplicate",
+          `${code.reason}、Claude Desktop に拡張機能（.mcpb）の ${MCP_NAME} が有効でも Claude Code に登録しました（${extension.id}）。Claude Desktop の Code タブではツールが二重に見えます。`,
+          "ターミナルの Claude Code だけで使うためです。やめるときは、--uninstall してから --claude-code を付けずに導入し直してください。",
+        ),
+      );
+    }
+  } else {
+    retireEntryForExtension(
+      opts,
+      paths,
+      { id: "claude_code", label: "Claude Code", configPath: paths.claudeCodeConfig },
+      { why: claudeCodeSkipWhy(extension), okHint: CLAUDE_CODE_FORCE_HINT, duplicateHint: "Claude Desktop の Code タブではツールが二重に見えます。要らなければ claude mcp remove --scope user mxstage で外してください。" },
+      found.entry,
+      lastWritten,
+      result,
+      out,
+    );
+  }
 
   // --- Claude Desktop（入っているときだけ。ふつうの版と Microsoft Store 版。拡張機能（.mcpb）で入っていれば設定ファイルには登録しない）---
   const desktop = claudeDesktopWanted(opts);
@@ -2210,12 +2240,27 @@ function installDesktop(opts, paths, entry, bridgeEntry, lastWritten, result, ou
 
 /**
  * 拡張機能（.mcpb）の MX Stage が有効な Claude Desktop では、claude_desktop_config.json に登録しない（同じ MX Stage が二重に出るため）。
- * 前にこの導入が書いた mcpServers.mxstage があれば外す（この導入が書いたもの＝classifyPrevious が "ours" のものだけ。利用者の設定は残して知らせる）。
- * 書き換えた（書き換えることになった）ときだけ true を返す。
+ * 前にこの導入が書いた mcpServers.mxstage があれば外す（retireEntryForExtension）。書き換えたときだけ true を返す。
  */
 function retireDesktopEntryForExtension(opts, paths, location, extension, bridgeEntry, lastWritten, result, out) {
-  const { id, label, configPath } = location;
-  const why = `${label} には拡張機能（.mcpb）の ${MCP_NAME} が入っていて有効なので（${extension.id}）、設定ファイルには登録しません（二重に登録しないため）。`;
+  return retireEntryForExtension(opts, paths, location, {
+    why: `${location.label} には拡張機能（.mcpb）の ${MCP_NAME} が入っていて有効なので（${extension.id}）、設定ファイルには登録しません（二重に登録しないため）。`,
+    okHint: "拡張機能を外したときは、この導入をもう一度実行すると設定ファイルに登録します。",
+    duplicateHint: "同じ名前のサーバが 2 つ読み込まれます。どちらかを外してください（設定ファイルの mcpServers から消すか、Settings の「Extensions」で拡張機能を無効にする）。",
+  }, bridgeEntry, lastWritten, result, out);
+}
+
+/**
+ * 拡張機能（.mcpb）で入っている MX Stage と同じものが、設定ファイルにも入らないようにする（Claude Desktop のチャットと Claude Code の共通）。
+ * - 設定ファイルに mcpServers.mxstage が無い: ok の行を出すだけ
+ * - この導入が書いたもの（classifyPrevious が "ours"）: 控えを取ってから外す
+ * - 利用者が書いたもの: 残して warn（二重になる）
+ * texts: { why（理由の文）, okHint（無いときの案内）, duplicateHint（利用者の設定を残したときの案内） }。
+ * 書き換えた（書き換えることになった）ときだけ true を返す。
+ */
+function retireEntryForExtension(opts, paths, target, texts, bridgeEntry, lastWritten, result, out) {
+  const { id, label, configPath } = target;
+  const { why, okHint, duplicateHint } = texts;
   const read = readJsonFile(configPath);
   if (read.error) {
     out.push(step("warn", id, `${why}設定ファイルは読めないので触っていません（${read.error}）。`));
@@ -2223,18 +2268,11 @@ function retireDesktopEntryForExtension(opts, paths, location, extension, bridge
   }
   const current = read.json?.mcpServers?.[MCP_NAME];
   if (!current) {
-    out.push(step("ok", id, why, "拡張機能を外したときは、この導入をもう一度実行すると設定ファイルに登録します。"));
+    out.push(step("ok", id, why, okHint));
     return false;
   }
   if (classifyPrevious(current, { bridgeEntry, lastWritten }).kind !== "ours") {
-    out.push(
-      step(
-        "warn",
-        id,
-        `${why}ただし設定ファイル（${configPath}）にも、この導入が書いたものではない ${MCP_NAME} があるので残しました: ${JSON.stringify(redactEntry(current))}`,
-        "同じ名前のサーバが 2 つ読み込まれます。どちらかを外してください（設定ファイルの mcpServers から消すか、Settings の「Extensions」で拡張機能を無効にする）。",
-      ),
-    );
+    out.push(step("warn", id, `${why}ただし設定ファイル（${configPath}）にも、この導入が書いたものではない ${MCP_NAME} があるので残しました: ${JSON.stringify(redactEntry(current))}`, duplicateHint));
     return false;
   }
   if (opts.dryRun) {
@@ -2250,9 +2288,41 @@ function retireDesktopEntryForExtension(opts, paths, location, extension, bridge
     out.push(step("error", id, `${label} の設定を書けませんでした: ${err instanceof Error ? err.message : String(err)}`, backup ? `控え: ${backup}` : undefined));
     return false;
   }
-  out.push(step("ok", id, `${why}前にこの導入が書いた ${MCP_NAME} を設定ファイルから外しました（${configPath}）。`, backup ? `書き換える前の控え: ${backup}` : undefined));
+  out.push(step("ok", id, `${why}前にこの導入が書いた ${MCP_NAME} を設定ファイルから外しました（${configPath}）。`, [backup ? `書き換える前の控え: ${backup}` : null, okHint].filter(Boolean).join(" ")));
   return true;
 }
+
+/**
+ * Claude Desktop のどこかに、拡張機能（.mcpb）の MX Stage が入っていて有効か（有効なもの 1 つを返す。無ければ null）。
+ * --no-claude-desktop のときは Claude Desktop を見ないので null。
+ */
+export function enabledDesktopExtension(opts, paths, find = findDesktopExtension, dirExists = isDir) {
+  if (!opts.claudeDesktop) return null;
+  for (const l of desktopLocations(paths, dirExists)) {
+    if (!l.present) continue;
+    const found = find(path.dirname(l.configPath));
+    if (found?.enabled) return { ...found, label: l.label };
+  }
+  return null;
+}
+
+/**
+ * Claude Code（~/.claude.json）に登録するか。Claude Desktop に拡張機能（.mcpb）の MX Stage が入っていて有効なら、
+ * Claude Desktop の Code タブは拡張機能から MX Stage を受け取るので、~/.claude.json にも書くとツールが二重に出る。
+ * そのときは登録しない（--claude-code を付けたか、前回付けたときは登録する。ターミナルの Claude Code で使う人のため）。
+ */
+export function claudeCodeWanted(opts, state, extension) {
+  if (!extension) return { ok: true, forced: false };
+  if (opts.claudeCode) return { ok: true, forced: true, reason: "--claude-code なので" };
+  if (state?.claudeCodeForced === true) return { ok: true, forced: true, reason: "前回 --claude-code を付けたので" };
+  return { ok: false, forced: false };
+}
+
+/** 拡張機能が有効なので Claude Code に登録しないときの理由の文 */
+function claudeCodeSkipWhy(extension) {
+  return `Claude Desktop に拡張機能（.mcpb）の ${MCP_NAME} が入っていて有効なので（${extension.id}）、Claude Code の設定には登録しません（Claude Desktop の Code タブは拡張機能から MX Stage を受け取ります。両方にあるとツールが二重に出ます）。ターミナルの Claude Code では MX Stage を使えません。`;
+}
+const CLAUDE_CODE_FORCE_HINT = "ターミナルの Claude Code（CLI）でも使うときは、導入に --claude-code を付けて実行してください（Code タブではツールが二重に見えます）。";
 
 /** IBM Bob（~/.bob/settings/mcp.json）に登録する */
 function registerBob(opts, paths, entry, bridgeEntry, lastWritten, result, out) {
@@ -3451,6 +3521,7 @@ async function status(opts, paths, out) {
   const bob = bobWanted(opts, paths);
   const desktop = claudeDesktopWanted(opts);
   const desktopPresent = desktop.ok ? desktopLocations(paths).filter((l) => l.present) : [];
+  const codeExtension = enabledDesktopExtension(opts, paths);
   for (const { id, label, configPath, extension } of [
     { id: "claude_code", label: "Claude Code", configPath: paths.claudeCodeConfig },
     ...desktopPresent.map((l) => ({ ...l, extension: findDesktopExtension(path.dirname(l.configPath)) })),
@@ -3459,6 +3530,24 @@ async function status(opts, paths, out) {
   ]) {
     const read = readJsonFile(configPath);
     const entry = read.exists && !read.error ? read.json?.mcpServers?.[MCP_NAME] : undefined;
+    if (id === "claude_code" && codeExtension) {
+      // Claude Desktop の拡張機能（.mcpb）が有効: Code タブは拡張機能から受け取るので、Claude Code には登録しないのが正しい
+      if (!entry) {
+        out.push(step("ok", id, `Claude Code: 登録していません（Claude Desktop に拡張機能（.mcpb）の ${MCP_NAME} が入っていて有効なので（${codeExtension.id}）。Code タブは拡張機能から MX Stage を受け取ります）。`, CLAUDE_CODE_FORCE_HINT));
+      } else {
+        out.push(
+          step(
+            "warn",
+            id,
+            `Claude Code: ${JSON.stringify(redactEntry(entry))}。Claude Desktop にも拡張機能（.mcpb）の ${MCP_NAME} が入っていて有効なので（${codeExtension.id}）、Claude Desktop の Code タブではツールが二重に出ます。`,
+            state?.claudeCodeForced === true
+              ? "--claude-code で登録したもの（ターミナルの Claude Code 用）なら、このままでかまいません。"
+              : "この導入が書いたものなら、導入をもう一度実行すると外します。手で書いたものなら claude mcp remove --scope user mxstage で外してください（ターミナルの Claude Code でも使うなら --claude-code）。",
+          ),
+        );
+      }
+      continue;
+    }
     if (extension?.enabled) {
       // 拡張機能（.mcpb）で入っている。設定ファイルにも mxstage があれば二重になる
       if (entry) {
@@ -3539,6 +3628,7 @@ function printText(mode, steps, result, paths, dryRun) {
       if (result.appUrl) lines.push(`  作業画面: ${result.appUrl}${result.installed?.desktopShortcut ? "（デスクトップのショートカットからも開けます）" : ""}`);
       if (result.port) lines.push(`  橋渡し: ポート ${result.port} の 1 つだけ（作業画面と Claude Code / Claude Desktop / Antigravity / Codex / IBM Bob で共有します）`);
       if (result.installed?.claudeCode) lines.push("  Claude Code: 起動し直すと MX Stage のツールが使えます。");
+      else if (result.installed?.claudeDesktopExtension) lines.push("  Claude Code: 登録していません（Claude Desktop の Code タブは拡張機能から MX Stage を受け取ります。ターミナルでも使うなら --claude-code）。");
       if (result.installed?.claudeDesktop || result.installed?.claudeDesktopMsix) lines.push("  Claude Desktop: いったん終了して開き直してください（再起動するまで設定を読みません）。");
       else if (result.installed?.claudeDesktopExtension) lines.push("  Claude Desktop: 拡張機能（.mcpb）の MX Stage を使います（設定ファイルには登録していません）。");
       if (result.installed?.antigravity) lines.push("  Antigravity: 新しい会話から MX Stage のツールが使えます（2.0・IDE・agy CLI 共通。出てこなければ開き直してください）。");

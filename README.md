@@ -46,12 +46,12 @@ To update, say "update MX Stage"; to remove it, say "uninstall MX Stage" (see [U
 
 ## Where it is registered
 
-`~` is `%USERPROFILE%`. The installer only touches assistants that are installed (Claude Desktop: its settings folder exists; Antigravity: `~\.gemini`; Codex: `~\.codex`; IBM Bob: `~\.bob`), backs up every file before changing it (to `~\.config\mxstage\backup\`), and never changes other servers' settings. `node scripts/setup-local.mjs --status` shows what is registered without changing anything. To leave an assistant out, add `--no-claude-desktop`, `--no-antigravity`, `--no-codex` or `--no-bob` (`--no-skills` copies no Skills).
+`~` is `%USERPROFILE%`. The installer only touches assistants that are installed (Claude Desktop: its settings folder exists; Antigravity: `~\.gemini`; Codex: `~\.codex`; IBM Bob: `~\.bob`), backs up every file before changing it (to `~\.config\mxstage\backup\`), and never changes other servers' settings. `node scripts/setup-local.mjs --status` shows what is registered without changing anything. To leave an assistant out, add `--no-claude-desktop`, `--no-antigravity`, `--no-codex` or `--no-bob` (`--no-skills` copies no Skills). `--claude-code` registers Claude Code even when the extension is enabled.
 
 | Assistant | MCP server | Skills | After installing or updating |
 |---|---|---|---|
-| Claude Code (CLI) | `mcpServers.mxstage` in `~\.claude.json` | `~\.claude\skills\<name>\SKILL.md` | Restart Claude Code |
-| Claude Desktop (Code tab) | Same as Claude Code | Same as Claude Code | Quit Claude Desktop from the system tray and open it again |
+| Claude Code (CLI) | `mcpServers.mxstage` in `~\.claude.json`. **Not registered** when the MX Stage extension (`.mcpb`) is enabled in Claude Desktop, because the Code tab already gets MX Stage from the extension and would show every tool twice (an entry the installer added earlier is removed). Add `--claude-code` to register anyway for Claude Code in a terminal (remembered for later runs) | `~\.claude\skills\<name>\SKILL.md` | Restart Claude Code |
+| Claude Desktop (Code tab) | Same as Claude Code, or the extension (`.mcpb`) when it is enabled | Same as Claude Code | Quit Claude Desktop from the system tray and open it again |
 | Claude Desktop (chat) | `mcpServers.mxstage` in `%APPDATA%\Claude\claude_desktop_config.json`. Microsoft Store version: also in `%LOCALAPPDATA%\Packages\Claude_<publisher ID>\LocalCache\Roaming\Claude\claude_desktop_config.json` when that folder exists. **Not registered** when the MX Stage extension (`.mcpb`) is installed and enabled in Claude Desktop (an entry the installer added earlier is removed) | Not copied (see [Skills](#skills)) | Quit from the system tray (closing the window is not enough) and open again |
 | Antigravity | `mcpServers.mxstage` in `~\.gemini\config\mcp_config.json` | `~\.gemini\config\skills\<name>\SKILL.md` | Start a new conversation |
 | Codex (ChatGPT desktop, CLI, IDE extension) | `[mcp_servers.mxstage]` in `~\.codex\config.toml` | `~\.agents\skills\<name>\SKILL.md` | Restart Codex |

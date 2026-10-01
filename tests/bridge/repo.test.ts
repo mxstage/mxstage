@@ -26,6 +26,8 @@ const LEGACY_NAME_ALLOWED = new Set([
   "src/app/boot/migrate.ts",
   "src/app/boot/services.ts",
   "src/app/pwa/cacheRules.ts",
+  // 改名の経緯（利用者向けの変更履歴）
+  "CHANGELOG.md",
   // その試験
   "tests/app/migrate.test.ts",
   "tests/app/pwa.test.ts",

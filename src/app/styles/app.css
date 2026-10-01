@@ -374,6 +374,11 @@ button.link:hover {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 }
 
+/* 狭い画面では上下に並べる（AppPage の stacked。行の高さは style で決める） */
+.panes.stacked {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 /* 3 枚のときは、最初（親）を横いっぱいにする（境目の要素があるので型で数える） */
 .panes.count-3 > .pane:first-of-type {
   grid-column: 1 / -1;

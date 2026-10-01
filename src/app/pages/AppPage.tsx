@@ -41,6 +41,9 @@ import { closeSheet, SheetTabs, type SheetTabInfo } from "./SheetTabs";
 import { hostOf, maximoBadge, relayBadge, reopenHint, shouldSuggestReopen } from "./status";
 import { TopBar } from "./TopBar";
 
+/** 狭い画面で上下に並べる表の数（3 枚以上は表が低くなりすぎる） */
+const NARROW_MAX_PANES = 2;
+
 /** どのペインのどの行を選んだか（他のペインをこれに連動させる） */
 interface LinkedSelection {
   paneKey: string;
@@ -162,14 +165,13 @@ export function AppPage({ runtime, vault, toasts, catalog, license, onEndWork, c
   const [sidePanel, setSidePanel] = useState(() => (typeof window === "undefined" ? true : window.innerWidth >= HIDE_SIDE_WIDTH));
   const shownPanes = useMemo(() => {
     if (maximized !== null) return panes.filter((p) => p.key === maximized);
-    // 狭い画面で並べると 1 列しか見えないので、今のシートの表だけを出す（ほかの表はタブで切り替える）
-    if (narrow) {
-      const own = panes.filter((p) => p.sheet === focusSheet);
-      return own.length > 0 ? own.slice(0, 1) : panes.slice(0, 1);
-    }
+    // 狭い画面（チャットと半々に並べたときなど）では、左右に並べると表が細くなりすぎるので、上下に 2 枚まで並べる。
+    // 親と子は同じシートなので、1 枚だけにすると子の表へ切り替える手段が無くなる（表示する表の札で選び直せる）
+    if (narrow) return panes.slice(0, NARROW_MAX_PANES);
     return panes;
-  }, [panes, maximized, narrow, focusSheet]);
-  const gridTemplate = paneGridTemplate(shownPanes.length, split);
+  }, [panes, maximized, narrow]);
+  const stacked = narrow && maximized === null && shownPanes.length > 1;
+  const gridTemplate = stacked ? { rows: `repeat(${shownPanes.length}, minmax(0, 1fr))` } : paneGridTemplate(shownPanes.length, split);
   // シートを切り替えたら連動は解く（別の組の行を指したままにしない）
   useEffect(() => setLinked(null), [current]);
   // 広げていた表が無くなったら元に戻す
@@ -268,10 +270,10 @@ export function AppPage({ runtime, vault, toasts, catalog, license, onEndWork, c
                 />
               )}
               <div
-                className={`panes count-${shownPanes.length}`}
+                className={`panes count-${shownPanes.length}${stacked ? " stacked" : ""}`}
                 style={{ gridTemplateColumns: gridTemplate.columns, gridTemplateRows: gridTemplate.rows }}
               >
-                <PaneSplitters count={shownPanes.length} split={split} onChange={(next) => setSplits((all) => ({ ...all, [groupKey]: next }))} />
+                <PaneSplitters count={stacked ? 1 : shownPanes.length} split={split} onChange={(next) => setSplits((all) => ({ ...all, [groupKey]: next }))} />
                 {shownPanes.length === 0 && <div className="empty">{t.allHidden}</div>}
                 {shownPanes.map((pane) => (
                   <section

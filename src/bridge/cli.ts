@@ -19,6 +19,7 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
+import { BUNDLE } from "./bundle.ts";
 import { BRIDGE_KEY_FILE_ENV, BridgeKeyStore, LEGACY_BRIDGE_KEY_FILE_ENV, defaultBridgeKeyPath } from "./bridgeKey.ts";
 import { BridgeCoordinator, CLIENT_WATCH_INTERVAL_MS } from "./coordinator.ts";
 import { CodeFingerprint, checkUpdates, isDefaultAppDir } from "./freshness.ts";
@@ -30,10 +31,11 @@ import { userSkillsDirOf } from "./skills.ts";
 import { HELP_TEXT, parseArgs } from "./options.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-/** src/bridge から見たリポジトリの根 */
-const ROOT = resolve(HERE, "..", "..");
+/** src/bridge から見たリポジトリの根。同梱（.mcpb）では server/ の 1 つ上（隣に app/ がある） */
+const ROOT = BUNDLE ? resolve(HERE, "..") : resolve(HERE, "..", "..");
 
 export function bridgeVersion(): string {
+  if (BUNDLE) return BUNDLE.version;
   try {
     const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as { version?: unknown };
     return typeof pkg.version === "string" ? pkg.version : "0.0.0";
@@ -91,10 +93,10 @@ export async function main(argv: readonly string[]): Promise<number> {
   };
   process.on("uncaughtException", onFatal("予期しない例外で終了しました"));
   process.on("unhandledRejection", onFatal("処理されなかった拒否で終了しました"));
-  const root = opts.appDir ? resolve(opts.appDir) : join(ROOT, "dist", "app");
+  const root = opts.appDir ? resolve(opts.appDir) : BUNDLE ? join(ROOT, "app") : join(ROOT, "dist", "app");
   // 画面が未ビルドだと、open_grid で案内した URL が 404 の JSON になり原因が分からない。起動時に 1 行知らせる
   if (!existsSync(join(root, "index.html"))) {
-    record(`警告: 作業画面が見つかりません（${root}）。先に npm run build を実行してください。`);
+    record(`Warning: the work screen was not found (${root}).${BUNDLE ? " Reinstall MX Stage." : " Run npm run build first."}`);
   }
   const version = bridgeVersion();
   // 利用者の Skill は橋渡しの状態フォルダ（~/.config/mxstage）の下。リポジトリの外なので更新でも消えない
@@ -102,8 +104,9 @@ export async function main(argv: readonly string[]): Promise<number> {
   // 改名前（~/.config/mxstudio）にだけある利用者の Skill と語の一覧を 1 回だけ写す。状態フォルダを差し替えているとき（試験など）は触らない
   const keyPathOverridden = [BRIDGE_KEY_FILE_ENV, LEGACY_BRIDGE_KEY_FILE_ENV].some((name) => (process.env[name] ?? "").trim() !== "");
   migrateLegacyFiles({ stateDir: dirname(keyPath), enabled: !keyPathOverridden, log: record });
-  // 起動したときのコードを覚えておき、あとでリポジトリが更新されたら知らせる（src/bridge/freshness.ts）
-  const code = new CodeFingerprint(ROOT);
+  // 起動したときのコードを覚えておき、あとでリポジトリが更新されたら知らせる（src/bridge/freshness.ts）。
+  // 同梱では、更新はクライアントが拡張ごと入れ替えるので、リポジトリを前提にした知らせは出さない
+  const code = BUNDLE ? null : new CodeFingerprint(ROOT);
   const coordinator = new BridgeCoordinator({
     port: opts.port,
     root,
@@ -113,13 +116,13 @@ export async function main(argv: readonly string[]): Promise<number> {
     keyStore: new BridgeKeyStore(keyPath),
     version,
     userSkillsDir,
-    codeStale: () => code.changed(),
+    codeStale: () => code?.changed() ?? false,
     // ライセンスキーも状態フォルダに置く。決済の試験用の鍵は MXSTAGE_LICENSE_TEST=1 のときだけ受け付ける
     // --dev-license（開発・試験用）では、試験用の鍵のキーも受け付け、リポジトリの開発用のキーを読む
     license: new LicenseStore({
       dir: dirname(keyPath),
       allowTestKeys: opts.devLicense || licenseTestKeysAllowed(),
-      bundled: opts.devLicense ? readDevLicenses(ROOT, record) : [],
+      bundled: opts.devLicense && !BUNDLE ? readDevLicenses(ROOT, record) : [],
     }),
     // MCP を話さないプロセスは client として残らないので、見張りは MCP を話すときだけ
     watchIntervalMs: opts.mcp ? CLIENT_WATCH_INTERVAL_MS : 0,
@@ -153,16 +156,19 @@ export async function main(argv: readonly string[]): Promise<number> {
   if (opts.insecure) record("警告: --insecure が指定されています。Maximo の証明書を検証しません（このプロセスが primary のときだけ有効です）。");
 
   const checkBuild = isDefaultAppDir(ROOT, root);
-  const updates = () =>
-    checkUpdates({
-      repoRoot: ROOT,
-      stateDir: dirname(keyPath),
-      userSkillsDir,
-      self: code,
-      checkBuild,
-      isPrimary: () => coordinator.role === "primary",
-      primaryStale: () => coordinator.primaryStale(),
-    });
+  const updates =
+    code === null
+      ? undefined
+      : () =>
+          checkUpdates({
+            repoRoot: ROOT,
+            stateDir: dirname(keyPath),
+            userSkillsDir,
+            self: code,
+            checkBuild,
+            isPrimary: () => coordinator.role === "primary",
+            primaryStale: () => coordinator.primaryStale(),
+          });
   const stdio = opts.mcp
     ? serveStdio(
         () => buildBridgeMcpServer({ origin: coordinator.origin, hub: coordinator.hub, tickets: coordinator.tickets, version, userSkillsDir, checkUpdates: updates }),

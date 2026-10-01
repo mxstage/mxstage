@@ -1,0 +1,38 @@
+{
+  "manifest_version": "0.3",
+  "name": "mxstage",
+  "display_name": "MX Stage",
+  "version": "0.0.0",
+  "description": "A local-only AI workbench for correcting IBM Maximo data: every change is staged, diffed and approved by a human before it is written to Maximo.",
+  "long_description": "MX Stage lets your AI assistant load IBM Maximo and Maximo Application Suite (Manage) data into a staging sheet in a browser tab on your PC, analyse it and propose changes with reasons. You review a cell-by-cell diff, undo any batch, and only a person can commit to Maximo. MX Stage writes one record first, checks it, then continues and stops on conflicts. Nothing leaves your PC except calls to your Maximo and your AI assistant; there is no MX Stage cloud and no telemetry. Free for test environments and for reading and editing production data; committing to a production Maximo needs a license (https://mxstage.tsunagi.app/pricing). After installing, open http://127.0.0.1:8788/app and enter your Maximo URL and API key in Settings.",
+  "author": {
+    "name": "Kazuhiro Muto",
+    "email": "mxstage@tsunagi.app",
+    "url": "https://mxstage.tsunagi.app"
+  },
+  "homepage": "https://mxstage.tsunagi.app",
+  "documentation": "https://github.com/mxstage/mxstage#readme",
+  "support": "https://mxstage.tsunagi.app/faq",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mxstage/mxstage"
+  },
+  "icon": "icon.png",
+  "server": {
+    "type": "node",
+    "entry_point": "server/mxstage-bridge.mjs",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/server/mxstage-bridge.mjs", "--app-dir", "${__dirname}/app"]
+    }
+  },
+  "keywords": ["ibm-maximo", "maximo", "mas", "eam", "cmms", "data-quality", "asset-management"],
+  "license": "BUSL-1.1",
+  "privacy_policies": ["https://mxstage.tsunagi.app/privacy"],
+  "compatibility": {
+    "platforms": ["win32", "darwin"],
+    "runtimes": {
+      "node": ">=20.0.0"
+    }
+  }
+}

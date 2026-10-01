@@ -1,188 +1,129 @@
 # MX Stage
 
-Maximo（MAS Manage）のデータ整備を、利用者の LLM クライアント（Claude Code・Claude Desktop・Codex・Antigravity）と
-一緒に行うためのツール。画面（作業画面）と MCP サーバを、利用者の PC の中だけで動かす。
+English | [日本語](README.ja.md)
 
-- **データの正本はブラウザの作業タブだけ。** LLM のツール呼び出しは作業タブに届き、その場でグリッドに
-  反映される。読み込んだ表も Maximo の API キーも、タブの外には保存しない。
-- **Maximo への書き込みは、利用者が作業画面で [Maximo に反映] を押したときだけ。** LLM のツールからは書き込めない。
-- **外部のサーバを使わない。** この PC で動く「橋渡し」（Node のプロセス 1 つ）が、画面の配信・LLM との MCP 接続・
-  Maximo への中継を引き受ける。Maximo は橋渡しが直接呼ぶので、Maximo 側の CORS 設定も要らない。
+**MX Stage is a local-only AI workbench for correcting IBM Maximo data with your own AI assistant (Claude Desktop, ChatGPT, IBM Bob): every change is staged, diffed and approved by a human before it is written to Maximo.**
 
-## 入れ方
+Website: https://mxstage.tsunagi.app · Contact: mxstage@tsunagi.app
 
-**Claude Code（Claude Desktop の Code タブでもよい）に、このリポジトリの URL と「インストールして」とだけ伝える。**
-Claude Code が下の「導入手順（Claude Code 向け）」に沿って入れる。コマンドを実行する前に、Claude Code が確認を求める。
+- **Your AI works on a staging sheet, not on Maximo.** The AI assistant loads Maximo data into a sheet in the *work screen* (a browser tab), analyses it and proposes changes with reasons. You see every changed cell.
+- **Only a person can commit.** The AI's tools cannot write to Maximo. Changes are written only when you press **Commit to Maximo** in the work screen. MX Stage writes one record first, checks it, then continues, and stops on conflicts. Any batch of changes can be undone before you commit.
+- **Nothing leaves your PC except calls to your Maximo and your AI assistant.** There is no MX Stage cloud and no telemetry. A small local process (the *bridge*) serves the work screen, talks MCP to your AI assistant and relays requests to Maximo, so Maximo needs no CORS settings. Your Maximo API key stays in the memory of the browser tab.
+- **Teach it your procedures.** Save a procedure worked out in a conversation as a *Skill*; the AI follows it next time.
 
-手で入れるときは、取得したフォルダ（`%USERPROFILE%\mxstage`）で `node scripts/setup-local.mjs` を実行する。
+## Why not call the Maximo REST API from the AI directly?
 
-**導入は 1 回で、この PC に入っている環境すべてに登録する**（次の「環境ごとの置き場所」）。環境ごとに別の手順は要らない。
-終わったら、使う環境を開き直す。デスクトップの `mxstage`（または `http://127.0.0.1:8788/app`）を開き、
-**設定で Maximo の URL と API キーを入れる。** API キーはチャットに書かない。
+Several Maximo MCP servers let the AI call the REST API. That is fine for reading, but risky for bulk changes: you cannot see what the AI is about to write, and a wrong guess goes straight into production. MX Stage puts a staging sheet, a diff, an undo and a human approval in between.
 
-更新は「MX Stage を更新して」、取り消しは「MX Stage をアンインストールして」と Claude Code に伝える（下の「アンインストール」）。
+## Supported AI assistants
 
-### 必要なもの
+| Assistant | Status |
+|---|---|
+| Claude Desktop (chat and Code tab) | Supported |
+| ChatGPT desktop — **Codex** or **Work** mode (Chat mode cannot use local MCP servers) | Supported |
+| Claude Code, Codex CLI and IDE extension, Antigravity | Work, not officially supported |
+| IBM Bob, LM Studio | Coming |
 
-- Windows（Mac・Linux は試していない）
-- Node.js 22.6 以上、Git（無ければ導入の途中で入れてよいか確認される）
-- Chrome か Edge
-- 次のどれか 1 つ以上。導入を頼むのは Claude Code か Claude Desktop の Code タブを想定している（ほかの環境から頼むのは試していない。手で実行してもよい）
-  - Claude Code（CLI）、Claude Desktop（チャット・Code タブ）
-  - Antigravity（2.0・IDE・`agy` CLI）
-  - Codex（ChatGPT デスクトップアプリの Codex・CLI・IDE 拡張）
+## Requirements
 
-## 環境ごとの置き場所
+- Windows (macOS and Linux are untested)
+- Node.js 22.6 or later and Git (the installer offers to install them)
+- Chrome or Edge
+- IBM Maximo or Maximo Application Suite (Manage) with the JSON API at `/maximo/api` and an API key
 
-`~` は `%USERPROFILE%`（例 `C:\Users\<名前>`）。導入は、入っていない環境には何も作らない
-（Antigravity は `~\.gemini`、Codex は `~\.codex` があるかで見分ける）。
+## Install
 
-| 環境 | MCP（ツール）の設定 | Skill の置き場所 | 導入・更新のあと |
+**Ask Claude Code (or the Code tab of Claude Desktop) to install it:** give it this repository's URL and say "install this". It follows [Installation steps for Claude Code](#installation-steps-for-claude-code) below and asks before running each command.
+
+To install by hand, clone this repository to `%USERPROFILE%\mxstage` and run `node scripts/setup-local.mjs` in it.
+
+**One install registers MX Stage with every supported assistant found on this PC.** Then restart the assistant you use, open `mxstage` on the desktop (or `http://127.0.0.1:8788/app`), and **enter your Maximo URL and API key in Settings.** Never paste the API key into the chat.
+
+In Settings, also choose for each Maximo whether it is **production** or **test**. Committing to production needs a license (see [License](#license)); everything else is free.
+
+To update, say "update MX Stage"; to remove it, say "uninstall MX Stage" (see [Uninstall](#uninstall)).
+
+## Where it is registered
+
+`~` is `%USERPROFILE%`. The installer only touches assistants that are installed, backs up every file before changing it (to `~\.config\mxstage\backup\`), and never changes other servers' settings. `node scripts/setup-local.mjs --status` shows what is registered without changing anything.
+
+| Assistant | MCP server | Skills | After installing or updating |
 |---|---|---|---|
-| Claude Code（CLI） | `~\.claude.json` の `mcpServers.mxstage` | `~\.claude\skills\<名前>\SKILL.md` | Claude Code を終了して開き直す |
-| Claude Desktop の Code タブ | Claude Code と同じ（下のチャットの設定も読む。どちらも同じ `mxstage`） | Claude Code と同じ | Claude Desktop をタスクトレイのアイコンから終了して開き直す |
-| Claude Desktop のチャット | `%APPDATA%\Claude\claude_desktop_config.json` の `mcpServers.mxstage` | ファイルは置かない（下の「Skill」） | タスクトレイのアイコンから終了して開き直す（ウィンドウの × では終わらない） |
-| Antigravity（2.0・IDE・`agy` CLI） | `~\.gemini\config\mcp_config.json` の `mcpServers.mxstage`（3 つとも同じファイル） | `~\.gemini\config\skills\<名前>\SKILL.md`（2.0・IDE が読む。`agy` CLI は別の場所を読むので置かない） | 新しい会話を始める |
-| Codex（ChatGPT デスクトップアプリの Codex・CLI・IDE 拡張） | `~\.codex\config.toml` の `[mcp_servers.mxstage]`（3 つとも同じファイル。`CODEX_HOME` があればそこ） | `~\.agents\skills\<名前>\SKILL.md`（ほかのエージェントも読むことがある） | Codex を終了して開き直す |
+| Claude Code (CLI) | `mcpServers.mxstage` in `~\.claude.json` | `~\.claude\skills\<name>\SKILL.md` | Restart Claude Code |
+| Claude Desktop (Code tab) | Same as Claude Code | Same as Claude Code | Quit Claude Desktop from the system tray and open it again |
+| Claude Desktop (chat) | `mcpServers.mxstage` in `%APPDATA%\Claude\claude_desktop_config.json` | Not copied (see [Skills](#skills)) | Quit from the system tray (closing the window is not enough) and open again |
+| Antigravity | `mcpServers.mxstage` in `~\.gemini\config\mcp_config.json` | `~\.gemini\config\skills\<name>\SKILL.md` | Start a new conversation |
+| Codex (ChatGPT desktop, CLI, IDE extension) | `[mcp_servers.mxstage]` in `~\.codex\config.toml` | `~\.agents\skills\<name>\SKILL.md` | Restart Codex |
 
-入る Skill は、アプリ既定の `mxstage-workbench` と、利用者の Skill（`~\.config\mxstage\skills\` にあるもの）。
-Skill のファイルを置かない環境（Claude Desktop のチャット・`agy` CLI）にも、基本手順はツールの結果で届く（下の「Skill」）。
-どの環境の設定も、書き換える前に控え（`~\.config\mxstage\backup\`）を取り、`mxstage` 以外の設定には触らない。
-今どの環境に入っているかは `node scripts/setup-local.mjs --status` で見られる（何も書き換えない）。
+## Uninstall
 
-### 画面での確かめ方
-
-画面の名前は、各製品の資料（2026-09 時点・英語の表示）のもの。
-
-| 環境 | MCP（`mxstage` とそのツール） | Skill（`mxstage-workbench` など） |
-|---|---|---|
-| Claude Code（CLI） | 会話で `/mcp`（一覧と接続の状態）。シェルでは `claude mcp list`・`claude mcp get mxstage` | 会話で `/skills`。`/` を打つと `/mxstage-workbench` として出る |
-| Claude Desktop の Code タブ | 入力欄の **+** →「Connectors」 | 入力欄で `/` を打つか、**+** →「Slash commands」 |
-| Claude Desktop のチャット | 入力欄の **+** →「Connectors」→「Manage connectors」でツールが見える。接続の状態とログは Settings の「Developer」（ログは `%APPDATA%\Claude\logs\mcp-server-mxstage.log`） | 出ない（ファイルを置かないため）。「MX Stage の Skill の一覧を見せて」と頼むと、ツールで一覧を返す |
-| Antigravity 2.0 | 左下の Settings（`Ctrl+,`）→「Customizations」→「Installed MCP Servers」（更新ボタンで読み直す） | 同じ「Customizations」。会話では `/<名前>` で呼べる |
-| Antigravity IDE | エージェントのパネル上部の「…」→「MCP Servers」→「Manage MCP Servers」（「View raw config」で設定ファイル） | エージェントのパネルの「Customizations」 |
-| `agy` CLI | 会話で `/mcp` | 出ない（置かないため） |
-| Codex（ChatGPT デスクトップアプリ） | Settings →「MCP servers」。入力欄で `/mcp` | 左の「Skills」。入力欄で `@` を打って選ぶ |
-| Codex CLI | `codex mcp list`。会話で `/mcp` | 会話で `/skills`、または `$mxstage-workbench` |
-| Codex IDE 拡張 | 歯車のメニュー →「MCP servers」 | `/skills`、または `$` を打って選ぶ |
-
-## アンインストール
-
-### 全部外す
-
-Claude Code に「MX Stage をアンインストールして」と伝えるか、`%USERPROFILE%\mxstage` で次を実行する。
+Say "uninstall MX Stage" to Claude Code, or run in `%USERPROFILE%\mxstage`:
 
 ```bash
 node scripts/setup-local.mjs --uninstall
 ```
 
-| 外すもの | 残すもの |
-|---|---|
-| 上の表の全環境の MCP 設定の `mxstage`（導入が置き換えた利用者の設定があれば、控えから元に戻す） | ほかの MCP サーバとほかの設定 |
-| 導入が写した Skill（`~\.claude\skills`・`~\.gemini\config\skills`・`~\.agents\skills` の下） | 写したあとに書き換えられた Skill |
-| ログイン時の自動起動（スタートアップの `mxstage-bridge.lnk`）とデスクトップの `mxstage` | 利用者の Skill の元（`~\.config\mxstage\skills\`） |
-| 導入が起動した橋渡し | LLM が起動した橋渡し（その LLM を終了すると止まる） |
-| 導入の記録（`~\.config\mxstage\setup.json`） | 控え（`~\.config\mxstage\backup\`） |
+This removes the `mxstage` entries from every assistant (restoring any setting the installer replaced), the Skills it copied (unless you edited them), the sign-in shortcut and desktop shortcut, and the bridge it started. It keeps your own Skills (`~\.config\mxstage\skills\`) and the backups. To remove everything, also delete `%USERPROFILE%\mxstage` and `~\.config\mxstage` (the backups are full copies of the original settings files, including any tokens in them), and clear the site data for `127.0.0.1:8788` in your browser.
 
-終わったら、使っていた環境を開き直す。この PC から跡形なく消すときは、続けて次も消す。
+## Installation steps for Claude Code
 
-- リポジトリのフォルダ（`%USERPROFILE%\mxstage`）
-- `~\.config\mxstage`（利用者の Skill・控え・橋渡しの鍵とログ）。**控えは元の設定ファイルのまるごとの写しなので、そこに入っていたトークンも含む。**
-  利用者の Skill を残したいときは、先に `skills\` を別の場所へ写す
-- ブラウザに残る作業画面の設定（接続先の URL・オブジェクト構造の定義）: Chrome・Edge の設定の「サイトのデータ」で `127.0.0.1:8788` を消す
+When the user asks to install MX Stage, follow these steps and get the user's approval before each command.
 
-### 一部の環境だけ外す
+1. **Check prerequisites**: `node --version` (22.6 or later) and `git --version`. If missing, with the user's agreement install them with `winget install OpenJS.NodeJS.LTS` / `winget install Git.Git`, then confirm `node` and `git` work in a new shell.
+2. **Get the code** into `%USERPROFILE%\mxstage` (`~/mxstage` on macOS and Linux):
+   - if it does not exist: `git clone <this repository URL> "%USERPROFILE%\mxstage"`
+   - if it exists: `git pull --ff-only` in it (if local changes block it, stop and tell the user)
+3. **Install**: in that folder run `node scripts/setup-local.mjs --json`. This also runs `npm install` and builds the work screen. Do not use `mxstage.cmd` (it waits for a key press at the end).
+4. **Read the result**: success if no item in `steps` has `"level": "error"`. For `error` or `warn`, tell the user its `message` and `hint` and follow the `hint`. Do not edit settings files by guesswork.
+5. **Tell the user** to restart the assistant they use, to enter the Maximo URL and API key in the work screen settings (`http://127.0.0.1:8788/app`), and never to paste the API key into the chat.
 
-導入には環境ごとに外す引数が無いので、その環境の設定から `mxstage` だけを消す。ほかのサーバの設定は残す。
+**Update**: steps 2 to 4. Ask the user to restart their assistant afterwards so the new bridge is used. **Uninstall**: `node scripts/setup-local.mjs --uninstall --json`. **Status**: `node scripts/setup-local.mjs --status --json` (changes nothing).
 
-| 環境 | MCP を外す | Skill を外す |
-|---|---|---|
-| Claude Code（CLI） | `claude mcp remove --scope user mxstage` | `~\.claude\skills\` の下の、MX Stage が入れたフォルダ（`mxstage-workbench` と利用者の Skill の名前）を消す |
-| Claude Desktop（チャット・Code タブ） | Settings の「Developer」→「Edit Config」で開く `claude_desktop_config.json` の `mcpServers` から `"mxstage"` の項目を消し、Claude Desktop を開き直す。Code タブからも外すなら、Claude Code の分も外す | チャットには置いていない。Code タブは Claude Code と同じ |
-| Antigravity | `~\.gemini\config\mcp_config.json` の `mcpServers` から `"mxstage"` の項目を消す（IDE では「View raw config」で開ける） | `~\.gemini\config\skills\` の下の同じ名前のフォルダを消す |
-| Codex | `~\.codex\config.toml` から `[mcp_servers.mxstage]` の表（次の `[` の行の手前まで）を消し、Codex を開き直す | `~\.agents\skills\` の下の同じ名前のフォルダを消す |
+## Skills
 
-外したあとに導入をもう一度実行すると、その環境にまた登録する。Antigravity と Codex は、導入に `--no-antigravity`・`--no-codex` を付けると登録しない
-（Claude Code と Claude Desktop は、登録しない引数が無い）。
+A Skill is a procedure the AI assistant follows.
 
-## 導入手順（Claude Code 向け）
-
-利用者に「インストールして」と頼まれたときは、次のとおりに進める。各コマンドは実行前に利用者の承認を得る。
-
-1. **前提を確かめる**: `node --version`（22.6 以上）と `git --version`。
-   足りなければ、利用者の了承を得て `winget install OpenJS.NodeJS.LTS` / `winget install Git.Git` で入れる。
-   入れた直後は新しいシェルで `node` と `git` が見えることを確かめる。
-2. **取得する**: 置き場所は `%USERPROFILE%\mxstage`（Mac・Linux は `~/mxstage`）。
-   - 無ければ `git clone <このリポジトリの URL> "%USERPROFILE%\mxstage"`
-   - 既にあれば、その中で `git pull --ff-only`（手元の変更があって進めないときは、何もせずに利用者に伝える）
-3. **導入する**: そのフォルダで `node scripts/setup-local.mjs --json`。
-   依存の取得（`npm install`）と画面のビルドもこの中で行う。`mxstage.cmd` は最後に入力待ちで止まるので使わない。
-4. **結果を読む**: 出力の `steps` に `"level": "error"` が無ければ成功。`error` や `warn` があれば、その `message` と
-   `hint` をそのまま利用者に伝え、`hint` の手順に従う。推測で設定ファイルを直さない。
-5. **利用者に伝える**:
-   - 使う環境を開き直すこと（「環境ごとの置き場所」の「導入・更新のあと」。新しいセッションからツールと Skill が使える）
-   - 作業画面（`http://127.0.0.1:8788/app`）の設定で、Maximo の URL と API キーを入れること
-   - API キーをチャットに書かないこと（受け取らない）
-
-**更新**は 2〜4 と同じ（`git pull --ff-only` のあと `node scripts/setup-local.mjs --json`）。
-橋渡しが古いまま動いていると新しいコードにならないので、終わったら使っている環境を終了して開き直してもらう。
-**取り消し**は `node scripts/setup-local.mjs --uninstall --json`。**状態の確認**は `node scripts/setup-local.mjs --status --json`（何も書き換えない）。
-
-## 導入で何が起きるか
-
-| 対象 | 内容 |
-|---|---|
-| 橋渡し | ポート `8788`（固定。ずらさない）で起動する。PC に 1 つだけで、LLM クライアントが起動した分はここへ中継する |
-| MCP と Skill | 上の「環境ごとの置き場所」の表のとおりに登録する。登録しないときは `--no-antigravity`・`--no-codex`・`--no-skills` |
-| 自動起動・ショートカット | ログイン時に橋渡しを起動するショートカットと、デスクトップの `mxstage` を作る |
-
-何度実行しても壊れない。詳しくは [docs/local.md](docs/local.md)。
-
-## Skill（作業手順書）
-
-LLM に MX Stage の使い方を教えるファイル。**アプリ既定**と**利用者の Skill** の 2 か所に分けている。
-
-| | 置き場所 | 中身 | 更新 |
+| | Location | Contents | Updates |
 |---|---|---|---|
-| アプリ既定 | このリポジトリの `skills/`（今は `mxstage-workbench` の 1 本） | どの業務にも共通の基本手順と禁止事項 | MX Stage と一緒に置き換わる。書き換えない |
-| 利用者の Skill | `~/.config/mxstage/skills/<名前>/SKILL.md` | 業務や客先ごとの手順 | 利用者が置く。MX Stage を更新しても消えず、このリポジトリにも入らない |
+| Built-in | `skills/` in this repository (`mxstage-workbench`) | The basic procedure and rules for every task | Replaced with MX Stage updates; do not edit |
+| Yours | `~/.config/mxstage/skills/<name>/SKILL.md` | Procedures for your tasks or customers | Yours; kept across updates and never sent anywhere |
 
-- **どの環境でも届く。** MX Stage をつないだ会話では、最初にツールを使ったときの結果に、基本手順と利用者の Skill の一覧が添えられる。
-  Skill のファイルを置かない Claude Desktop のチャットや `agy` CLI でも、これで同じ手順になる（利用者の Skill の本文は、LLM がツールで読む）。
-- **チャットから作れる。** 作業の途中で「この手順を Skill として残して」と頼むと、LLM が名前・説明・本文を示して確かめたうえで
-  `~/.config/mxstage/skills/` に保存する。
-- 各環境の Skill の置き場所へは、導入のたびに写す。利用者の Skill を足したり直したりしたら、導入をもう一度実行する
-  （「MX Stage の Skill を入れ直して」と頼めばよい）。
-- アプリ既定と同じ名前は使えない。どちらが入っているかは作業画面の設定の「Skill」に出る。
-- 書き方はアプリ既定の `skills/mxstage-workbench/SKILL.md` と同じ（frontmatter に `name`・`description`・`metadata.version`）。
+- **Every assistant gets the basic procedure**: it is attached to the result of the first tool call in each conversation, so assistants that cannot load Skill files (Claude Desktop chat, for example) follow the same rules.
+- **Create Skills from the chat**: say "save this procedure as a Skill". The AI shows the name, description and body, and saves it after you agree.
+- Run the installer again to copy new or changed Skills to each assistant.
 
-## 文書
+## Documentation
 
-- [docs/local.md](docs/local.md) — 毎日の使い方・更新・取り消し・うまくいかないとき・どこに何を書くか
-- [docs/status.md](docs/status.md) — 今どこまでできているか
-- [docs/publish.md](docs/publish.md) — GitHub へ送る前の検査（客先の情報を送らない）
+The detailed guides are in Japanese for now:
 
-## 開発
+- [docs/local.md](docs/local.md) — daily use, updates, troubleshooting
+- [docs/status.md](docs/status.md) — what works today
+- [docs/publish.md](docs/publish.md) — checks before publishing
+
+## Development
 
 ```bash
-npm run typecheck      # tsc（app / bridge）
-npx vitest run         # 試験（app / bridge）
-npm run test:setup     # 導入スクリプトの試験（一時フォルダだけに書き、本物の claude コマンドは呼ばない）
-npm run build          # アプリ既定の Skill の生成と画面のビルド（dist/app）
-npm run dev:app        # 画面の開発サーバ（http://localhost:5173/app?demo=1 で架空のサンプルを表示）
-node scripts/check-publish.mjs --worktree   # 送る前の検査（docs/publish.md）
+npm run typecheck      # tsc (app and bridge)
+npx vitest run         # tests (app and bridge)
+npm run test:setup     # installer tests (write only to temporary folders)
+npm run build          # build the built-in Skill and the work screen (dist/app)
+npm run dev:app        # dev server for the work screen (http://localhost:5173/app?demo=1 shows sample data)
+npm run dev:fake-maximo  # a fake Maximo at https://127.0.0.1:9797 (API key: test-api-key)
+npm run dev:bridge     # a bridge on port 8790 that accepts the development license for the fake Maximo
 ```
 
-依存を入れるときは、IBM のテレメトリ（`@carbon/react` などが入れるときに動く `@ibm/telemetry-js`）を止める（PowerShell なら `$env:IBM_TELEMETRY_DISABLED='true'; npm install`）。導入スクリプト（`scripts/setup-local.mjs`）は自分で止める。画面の見た目の約束は [docs/design.md](docs/design.md)。
+Disable IBM telemetry when installing dependencies (`$env:IBM_TELEMETRY_DISABLED='true'; npm install` in PowerShell); the installer does this itself. See [dev/README.md](dev/README.md) for developing and testing license checks.
 
-**Maximo への反映は、開発環境の Maximo とダミーデータでだけ試すこと。** 書き込みを自動で元に戻す仕組みは無い。
+**Only test commits against a development Maximo with dummy data.** There is no automatic rollback of changes written to Maximo.
 
-## ライセンス
+## License
 
-[Business Source License 1.1](LICENSE)（BSL）。ソースは読めるが、オープンソースではない。正式な条件は英語の [LICENSE](LICENSE) で、ここはその要約。
+MX Stage is licensed under the [Business Source License 1.1](LICENSE). The source is available, but it is not open source. The [LICENSE](LICENSE) file is authoritative; this is a summary.
 
-- **無償で使える**: 本番の Maximo への「Maximo に反映」（データを作る・変える・消す）以外のすべて。テスト環境への反映も、本番のデータの読み込み・集計・Skill づくり・作業画面での編集と差分の確認も無償。ソースを読む・直す・配ることもできる（直したものにも同じ条件が付く）。
-- **商用ライセンスが要る**: MX Stage で本番の Maximo に反映すること。本番の Maximo 1 環境につき年 4,800 ドル。キーにはその環境の接続先（別名を 3 つまで）が書いてあり、接続先が合えば何人・何台の PC でも使える。
-- **本番環境**: 組織が日々の業務の記録に使っている Maximo と、それに置き換わる準備中の環境（本番の切り替え前の移行先など）。**テスト環境**: それ以外のすべて（開発・検証・研修・デモ・移行のリハーサル）。本番のデータの写しを入れていてもテスト環境。
-- **各版は、公開から 4 年たつと Apache License 2.0 になる。** その版は、それ以後は Apache 2.0 の条件で本番への書き込みにも使える。
-- npm で入れるパッケージとフォント（IBM Carbon Design System・IBM Plex など）は、それぞれのライセンスに従う（[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)）。
+- **Free**: everything except committing to a production Maximo — loading, analysing and editing production data, building Skills, and committing to test environments. You may read, modify and redistribute the source under the same license.
+- **License needed**: using MX Stage to create, change or delete data in a **production Maximo environment** — US$4,800 per production environment per year, for any number of users and PCs. The license key names the environment's URLs (up to three aliases). [Pricing](https://mxstage.tsunagi.app/pricing).
+- **Production environment**: the Maximo your organization uses to record day-to-day operations, and an environment being prepared to replace it (for example, a migration target before go-live). **Test environment**: everything else (development, test, training, demonstration, migration rehearsal), even if it holds a copy of production data.
+- **Each version becomes Apache License 2.0 four years after its release.**
+- Third-party packages and fonts (IBM Carbon Design System, IBM Plex and others) keep their own licenses ([THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)).
+
+IBM and Maximo are trademarks of International Business Machines Corporation. MX Stage is an independent product and is not affiliated with or endorsed by IBM.

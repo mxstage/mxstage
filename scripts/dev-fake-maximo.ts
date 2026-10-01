@@ -2,6 +2,8 @@
 // 作業画面から通しで確かめたり、画面を撮影したりするのに使う。本物の Maximo には一切つながない。
 //
 //   npm run dev:fake-maximo              偽の Maximo（https://127.0.0.1:9797、API キーは画面に出す）
+//   npm run dev:fake-maximo -- --dataset plants
+//                                        ごみ焼却施設 3 か所の大きなデータ（dev/datasets/plants。中身は dev/README.md）
 //   npm run dev:bridge                   開発用の橋渡し（http://127.0.0.1:8790/app。自己署名を受け入れる）
 //
 // 橋渡しの Maximo への中継は https だけを受けるので、自己署名の証明書をその場で作る（openssl を使う）。
@@ -13,7 +15,8 @@ import { createServer } from "node:https";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createFakeMaximo, sampleSeed, withDefinitions } from "../tests/fakes/fake-maximo.ts";
+import { countsTable, plantsSeed } from "../dev/datasets/plants/index.ts";
+import { createFakeMaximo, sampleSeed, withDefinitions, type FakeMaximo } from "../tests/fakes/fake-maximo.ts";
 
 const DEFAULT_PORT = 9797;
 
@@ -22,6 +25,28 @@ function parsePort(argv: readonly string[]): number {
   const port = at >= 0 ? Number(argv[at + 1]) : DEFAULT_PORT;
   if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new Error("--port には 1〜65535 の整数を指定してください。");
   return port;
+}
+
+function parseDataset(argv: readonly string[]): "sample" | "plants" {
+  const at = argv.indexOf("--dataset");
+  if (at < 0) return "sample";
+  const v = argv[at + 1];
+  if (v === "plants" || v === "sample") return v;
+  throw new Error("--dataset には plants か sample を指定してください。");
+}
+
+/** 既定の小さなデータ（試験の偽物と同じ。日付・真偽値の編集を試せるよう値を足す） */
+function sampleFake(baseUrl: string): FakeMaximo {
+  const fake = createFakeMaximo(withDefinitions(sampleSeed({ baseUrl })));
+  // 日付・日時・真偽値の編集を画面で試せるよう、作業指示に値を入れておく（試験の偽物の既定の値は変えない）
+  fake.records("MXAPIWO").forEach((rec, i) => {
+    fake.update("MXAPIWO", rec.uid, (r) => {
+      r.attrs.reportdate = `2026-09-${String(10 + i).padStart(2, "0")}T${String((i % 3) + 8).padStart(2, "0")}:30:00+09:00`;
+      r.attrs.targstartdate = `2026-10-${String(1 + i * 3).padStart(2, "0")}T00:00:00+09:00`;
+      r.attrs.ext_flag = i % 2 === 0;
+    });
+  });
+  return fake;
 }
 
 /** 127.0.0.1 の自己署名の証明書（無ければ openssl で作る） */
@@ -47,19 +72,30 @@ async function readBody(req: IncomingMessage): Promise<Buffer> {
 }
 
 function main(): void {
-  const port = parsePort(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  const port = parsePort(argv);
+  const dataset = parseDataset(argv);
   const baseUrl = `https://127.0.0.1:${port}`;
-  const fake = createFakeMaximo(withDefinitions(sampleSeed({ baseUrl })));
-  // 日付・日時・真偽値の編集を画面で試せるよう、作業指示に値を入れておく（試験の偽物の既定の値は変えない）
-  fake.records("MXAPIWO").forEach((rec, i) => {
-    fake.update("MXAPIWO", rec.uid, (r) => {
-      r.attrs.reportdate = `2026-09-${String(10 + i).padStart(2, "0")}T${String((i % 3) + 8).padStart(2, "0")}:30:00+09:00`;
-      r.attrs.targstartdate = `2026-10-${String(1 + i * 3).padStart(2, "0")}T00:00:00+09:00`;
-      r.attrs.ext_flag = i % 2 === 0;
-    });
-  });
+  let fake: FakeMaximo;
+  let summary = "";
+  if (dataset === "plants") {
+    const t0 = performance.now();
+    const { seed, data } = plantsSeed({ baseUrl });
+    const t1 = performance.now();
+    summary = [
+      `  データ: ごみ焼却施設 3 か所（ORGID KANKYO、基準日 ${data.asOf}）。生成 ${((t1 - t0) / 1000).toFixed(1)} 秒`,
+      "  件数（オブジェクト構造ごと。MXAPIWO は MXAPIWODETAIL と同じ行）:",
+      countsTable(seed),
+      `  仕込んだデータ品質の問題: ${data.problems.length} 種類（dev/README.md）`,
+    ].join("\n");
+    fake = createFakeMaximo(seed);
+    summary += `\n  メモリ ${Math.round(process.memoryUsage().rss / 1e6)} MB、起動まで ${((performance.now() - t0) / 1000).toFixed(1)} 秒`;
+  } else {
+    fake = sampleFake(baseUrl);
+  }
 
   const handle = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+    const started = performance.now();
     const method = (req.method ?? "GET").toUpperCase();
     const headers = new Headers();
     for (const [name, value] of Object.entries(req.headers)) {
@@ -75,7 +111,7 @@ function main(): void {
     });
     res.writeHead(response.status, { ...outHeaders, "content-length": String(out.length) });
     res.end(out);
-    process.stdout.write(`${new Date().toISOString()} ${method} ${(req.url ?? "/").split("?")[0]} → ${response.status}\n`);
+    process.stdout.write(`${new Date().toISOString()} ${method} ${(req.url ?? "/").split("?")[0]} → ${response.status} ${Math.round(performance.now() - started)}ms\n`);
   };
 
   const server = createServer(certificate(), (req, res) => {
@@ -89,7 +125,8 @@ function main(): void {
       [
         `偽の Maximo: ${baseUrl}`,
         `  API キー: ${fake.apiKey}`,
-        `  オブジェクト構造: ${Object.keys(fake.state.os).join(", ")}`,
+        `  オブジェクト構造: ${Object.keys(fake.state.os).map((s) => s.toUpperCase()).join(", ")}`,
+        ...(summary ? [summary] : []),
         "  作業画面（npm run dev:bridge のあと http://127.0.0.1:8790/app）の接続先にこの URL と API キーを入れてください。",
         "  止めるときは Ctrl+C。",
         "",

@@ -13,6 +13,10 @@ export default defineConfig({
         // bridge: ローカルの橋渡し（Node の素のランタイムで動かす）
         test: { name: "bridge", include: ["tests/bridge/**/*.test.ts"], environment: "node" },
       },
+      {
+        // dev: 開発用の道具（偽の Maximo に載せる大きなデータの整合）
+        test: { name: "dev", include: ["tests/dev/**/*.test.ts"], environment: "node" },
+      },
     ],
   },
 });

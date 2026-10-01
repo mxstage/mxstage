@@ -15,6 +15,7 @@ import type { CommitController, CommitPanelState } from "../../src/app/runtime/c
 import { Workspace } from "../../src/app/store";
 import { Root } from "../../src/app/ui/Root";
 import { navigate } from "../../src/app/ui/routes";
+import { getLocale } from "../../src/shared/i18n";
 import { ToastStore } from "../../src/app/ui/toast";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -252,4 +253,49 @@ describe("画面のルート", () => {
     // 作業キーは変えない（開き直しや再取得の導線は出さない）
     expectNoLoginWording();
   }
+});
+
+describe("設定画面のタブと URL", () => {
+  function visiblePanels(): string[] {
+    return Array.from(container.querySelectorAll<HTMLElement>('[role="tabpanel"]'))
+      .filter((p) => !p.hidden)
+      .map((p) => p.dataset.tab ?? "");
+  }
+
+  afterEach(() => {
+    window.localStorage.removeItem("mxstage.locale");
+  });
+
+  it("上部バーの「設定で接続」は接続のタブを、/settings#license はライセンスのタブを開く", async () => {
+    await render("/app", makeServices(counters()));
+    const link = container.querySelector<HTMLAnchorElement>("a.topbar-link")!;
+    expect(link.getAttribute("href")).toBe("/settings#connection");
+    await act(async () => {
+      link.click();
+    });
+    expect(window.location.pathname).toBe("/settings");
+    expect(window.location.hash).toBe("#connection");
+    expect(visiblePanels()).toEqual(["connection"]);
+
+    // 設定画面のままハッシュだけ変わっても（リンク）、そのタブにする
+    await act(async () => {
+      navigate("/settings#license");
+    });
+    expect(visiblePanels()).toEqual(["license"]);
+  });
+
+  it("言語を切り替えて画面を作り直しても、言語のタブのまま", async () => {
+    await render("/settings", makeServices(counters()));
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[role="tab"][data-tab="language"]')!.click();
+    });
+    expect(window.location.hash).toBe("#language");
+    await act(async () => {
+      container.querySelector<HTMLInputElement>("#ui-language-en")!.click();
+    });
+    expect(getLocale()).toBe("en");
+    expect(visiblePanels()).toEqual(["language"]);
+    expect(container.querySelector('[role="tab"][data-tab="language"]')?.textContent).toBe("Language");
+    expect(container.querySelector<HTMLInputElement>("#ui-language-en")?.checked).toBe(true);
+  });
 });

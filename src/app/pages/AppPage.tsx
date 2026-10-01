@@ -318,6 +318,7 @@ export function AppPage({ runtime, vault, toasts, catalog, license, onEndWork, c
                         />
                       )}
                       workspace={workspace}
+                      valueLists={runtime.valueLists}
                       sheetName={pane.sheet}
                       view={view}
                       version={version}

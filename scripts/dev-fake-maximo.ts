@@ -50,6 +50,14 @@ function main(): void {
   const port = parsePort(process.argv.slice(2));
   const baseUrl = `https://127.0.0.1:${port}`;
   const fake = createFakeMaximo(withDefinitions(sampleSeed({ baseUrl })));
+  // 日付・日時・真偽値の編集を画面で試せるよう、作業指示に値を入れておく（試験の偽物の既定の値は変えない）
+  fake.records("MXAPIWO").forEach((rec, i) => {
+    fake.update("MXAPIWO", rec.uid, (r) => {
+      r.attrs.reportdate = `2026-09-${String(10 + i).padStart(2, "0")}T${String((i % 3) + 8).padStart(2, "0")}:30:00+09:00`;
+      r.attrs.targstartdate = `2026-10-${String(1 + i * 3).padStart(2, "0")}T00:00:00+09:00`;
+      r.attrs.ext_flag = i % 2 === 0;
+    });
+  });
 
   const handle = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const method = (req.method ?? "GET").toUpperCase();

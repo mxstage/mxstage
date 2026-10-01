@@ -26,6 +26,11 @@ export interface ColumnSchema {
   readOnly?: boolean;
   /** 子オブジェクトの列ならその名前（例 "EXT_WOPERMIT"） */
   child?: string;
+  /**
+   * Maximo のスキーマ（jsonschemas）がこの属性に値の一覧（ドメイン・参照先の表）があると示した（hasList）。
+   * スキーマに印が無かった（古い定義・Excel のシート）ときは省略する
+   */
+  hasList?: boolean;
 }
 
 export type SheetSource =

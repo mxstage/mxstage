@@ -2,8 +2,11 @@
 // - 直接編集は workspace.applyEdits（author:"user"）。貼り付けは Glide が 1 回の onCellsEdited にまとめるので 1 バッチになる。
 // - エディタを開いた・閉じたことを workspace.setEditingCell に知らせる（LLM の変更がそのセルを上書きしないように）。
 // - エディタを開いた時点の行キーを覚え、確定時にはその行へ書く（開いている間に LLM が行を増減しても別の行に書かないため）。
+// - 日付・日時の列は読みやすい形で出し、カレンダー付きの入力で直す。値の一覧がある列は一覧から選ぶ（editors.tsx・valueLists.ts）。
+//   真偽値の列はチェックボックス（押す・空白で切り替え、1/0・y/n で入れる）。どれもストアの applyEdits（author:"user"）を通る。
 
 import {
+  BooleanEmpty,
   CompactSelection,
   DataEditor,
   GridCellKind,
@@ -13,6 +16,7 @@ import {
   type EditListItem,
   type GridCell,
   type GridColumn,
+  type GridKeyEventArgs,
   type GridMouseEventArgs,
   type GridSelection,
   type Highlight,
@@ -21,10 +25,13 @@ import {
 } from "@glideapps/glide-data-grid";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import type { BatchAuthor, CellEdit, ColumnSchema } from "../../shared/model";
+import type { BatchAuthor, CellEdit, CellValue, ColumnSchema } from "../../shared/model";
+import type { ValueListService } from "../maximo/valueList";
 import type { ViewKind, Workspace } from "../store";
 import type { RowState } from "../store/sheet";
-import { TONE_STYLE, cellTone, formatCellValue, hoverLines, isCellEditable, parseEditedText } from "./cellStyle";
+import { TONE_STYLE, cellTone, formatCellValue, formatColumnValue, hoverLines, isCellEditable, parseEditedText } from "./cellStyle";
+import { CellEditorContext, DATE_EDITOR, LIST_EDITOR, booleanFromKey, booleanFromText, type CellEditorTarget, type CellListSource } from "./editors";
+import { masterListFor, maximoListTarget, mayHaveMaximoList } from "./valueLists";
 import { ColumnFilterBar, ColumnFilterMenu, useColumnOptions } from "./ColumnFilterBar";
 import { headerLines } from "../../shared/columnLabel";
 import { conflictSummary, storeErrorMessage } from "./edits";
@@ -53,6 +60,8 @@ export interface SheetGridProps {
   onSelectRow?: (row: RowState | null) => void;
   /** ペインの見出し（行数と行の詳細の開閉はこのグリッドの中の状態なので、ここから渡す） */
   renderHeader?: (h: GridHeaderInfo) => ReactNode;
+  /** Maximo の値の一覧（getlist）。無ければ一覧は引いて読み込んだマスタのシートからだけ出す */
+  valueLists?: ValueListService;
 }
 
 export interface GridHeaderInfo {
@@ -183,7 +192,14 @@ function batchReason(workspace: Workspace, sheet: string, batchId: string): stri
   return workspace.listBatches(sheet).find((b) => b.batchId === batchId)?.reason ?? null;
 }
 
-export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessage, scope, linkFilter, onSelectRow, renderHeader }: SheetGridProps) {
+/** 真偽値の列のセルの値。読めない値は undefined（そのときは文字のセルで出す） */
+function booleanCellData(v: CellValue): boolean | null | undefined {
+  if (v === true || v === false) return v;
+  if (v === null || v === "") return null;
+  return booleanFromText(String(v));
+}
+
+export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessage, scope, linkFilter, onSelectRow, renderHeader, valueLists }: SheetGridProps) {
   const sheet = workspace.sheets.get(sheetName);
   const [widths, setWidths] = useState<Record<string, number>>({});
   const [selection, setSelection] = useState<GridSelection>(EMPTY_SELECTION);
@@ -215,7 +231,10 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
   // 利用者が選んだ固定の列（null は自動: キー列のうち行を見分ける列）
   const [pinned, setPinned] = useState<string[] | null>(null);
   const paneScope: PaneScope = scope ?? { kind: "all" };
-  const displayValue = useCallback((row: RowState, col: string) => (sheet ? formatCellValue(sheet.viewValue(row, col, view)) : ""), [sheet, view]);
+  // 画面に出す文字（日付は読みやすい形）。絞り込み・行の詳細もこれを使う
+  const displayValue = useCallback((row: RowState, col: string) => (sheet ? formatColumnValue(sheet.column(col), sheet.viewValue(row, col, view)) : ""), [sheet, view]);
+  // 連動は値そのもので比べる（AppPage は選んだ行の値を formatCellValue で渡す）
+  const rawValue = useCallback((row: RowState, col: string) => (sheet ? formatCellValue(sheet.viewValue(row, col, view)) : ""), [sheet, view]);
   const scopedRows = useMemo(() => (sheet ? scopeRows(sheet.viewRows(view), paneScope) : EMPTY_ROWS), [sheet, view, version, paneScope.kind, (paneScope as { name?: string }).name]);
   // シートの並びのままの列（行の詳細はこの順で出す）
   const scopedColumns = useMemo(
@@ -232,8 +251,8 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
   const allRows = useMemo(() => {
     if (!linkFilter) return scopedRows;
     if (linkFilter.kind === "parent") return scopedRows.filter((r) => r.parentKey === linkFilter.parentKey);
-    return scopedRows.filter((r) => displayValue(r, linkFilter.col) === linkFilter.value);
-  }, [scopedRows, linkFilter, displayValue]);
+    return scopedRows.filter((r) => rawValue(r, linkFilter.col) === linkFilter.value);
+  }, [scopedRows, linkFilter, rawValue]);
   // セルの変更の状態（色分けと同じ区分）。元の値ビューでも、絞り込みは変更の有無で行う
   const changeOf = useCallback(
     (row: RowState, col: string): ChangeKind => {
@@ -265,6 +284,8 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
   const selectionRef = useRef(safeSelection);
   selectionRef.current = safeSelection;
   const editingRef = useRef<EditingTarget | null>(null);
+  // 開いている編集部品に渡す情報（列・開いたときの表示・値の一覧）
+  const editorTargetRef = useRef<CellEditorTarget | null>(null);
   // 押す前に 1 マスだけ選んでいたセル（同じセルをもう一度押したら選択を外すため）
   const pressedOnRef = useRef<readonly [number, number] | null>(null);
   const deselectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -441,8 +462,23 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
       const protectedColumn = sheet.isProtectedColumn(name);
       const tone = cellTone({ view, rowStatus: status, changed, author: cellAuthor(row, name), protectedColumn });
       const editable = isCellEditable({ view, rowStatus: status, protectedColumn, busy });
-      const text = formatCellValue(sheet.viewValue(row, name, view));
+      const value = sheet.viewValue(row, name, view);
       const style = TONE_STYLE[tone];
+      if (col.type === "boolean") {
+        // チェックボックス（押す・空白で切り替え）。読めない値は文字のまま出す
+        const b = booleanCellData(value);
+        if (b !== undefined) {
+          return {
+            kind: GridCellKind.Boolean,
+            data: b ?? BooleanEmpty,
+            allowOverlay: false,
+            readonly: !editable,
+            contentAlign: "left",
+            themeOverride: { bgCell: style.bg, textDark: style.fg },
+          };
+        }
+      }
+      const text = formatColumnValue(col, value);
       return {
         kind: GridCellKind.Text,
         data: text,
@@ -468,7 +504,10 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
       const editing = editingRef.current;
       const edits: CellEdit[] = [];
       for (const it of items) {
-        if (it.value.kind !== GridCellKind.Text) continue;
+        let value: CellValue;
+        if (it.value.kind === GridCellKind.Text) value = parseEditedText(it.value.data);
+        else if (it.value.kind === GridCellKind.Boolean) value = it.value.data === true ? true : it.value.data === false ? false : null;
+        else continue;
         const [c, r] = it.location;
         let rowKey: string | undefined;
         let col: string | undefined;
@@ -480,7 +519,7 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
           col = columnsRef.current[c]?.name;
         }
         if (rowKey === undefined || col === undefined) continue;
-        edits.push({ rowKey, col, value: parseEditedText(it.value.data) });
+        edits.push({ rowKey, col, value });
       }
       if (edits.length === 0) return true;
       try {
@@ -495,7 +534,24 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
     [sheet, sheetName, workspace, isBusy, onMessage],
   );
 
-  // Glide はエディタを開くときにこれを呼ぶ（既定のエディタを使うので undefined を返す）。開く対象は選択中のセル
+  // 値の一覧の出どころ（引いて読み込んだマスタのシート → Maximo の getlist）。一覧が無いと分かっている列は null
+  const listSourceFor = useCallback(
+    (row: RowState, col: ColumnSchema): CellListSource | null => {
+      if (!sheet) return null;
+      const master = masterListFor(workspace, sheetName, col.name);
+      if (master !== null && master.items.length > 0) return { kind: "master", sheet: master.sheet, items: master.items };
+      if (!valueLists || !mayHaveMaximoList(col, sheet.meta.columns)) return null;
+      const target = maximoListTarget(sheet, row, col);
+      if (target === null) return null;
+      const known = valueLists.peek(target.os, target.col);
+      if (known?.status === "none") return null;
+      return { kind: "maximo", initial: known, load: () => valueLists.load(target) };
+    },
+    [sheet, sheetName, workspace, valueLists],
+  );
+
+  // Glide はエディタを開くときにこれを呼ぶ。開く対象は選択中のセル。
+  // 日付・日時の列はカレンダー付きの入力、値の一覧がある列は一覧から選ぶ入力、それ以外は Glide の既定の入力（undefined）
   const provideEditor = useCallback(
     (cell: GridCell) => {
       const cur = selectionRef.current.current?.cell;
@@ -505,12 +561,48 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
         if (row && col) {
           editingRef.current = { index: [cur[0], cur[1]], rowKey: row.rowKey, col: col.name };
           workspace.setEditingCell(sheetName, row.rowKey, col.name);
+          const originalText = formatColumnValue(col, sheet.finalValue(row, col.name));
+          if (col.type === "date" || col.type === "datetime") {
+            editorTargetRef.current = { col, originalText };
+            return DATE_EDITOR;
+          }
+          const list = listSourceFor(row, col);
+          if (list !== null) {
+            editorTargetRef.current = { col, originalText, list };
+            return LIST_EDITOR;
+          }
         }
       }
+      editorTargetRef.current = null;
       return undefined;
     },
-    [sheet, sheetName, workspace, isBusy],
+    [sheet, sheetName, workspace, isBusy, listSourceFor],
   );
+
+  // 真偽値の列: 1/t/y で入、0/f/n で切にする（空白は Glide が切り替える）。ほかの文字では切り替えない
+  const onKeyDown = useCallback(
+    (e: GridKeyEventArgs) => {
+      if (e.ctrlKey || e.metaKey || e.altKey || e.key.length !== 1 || e.key === " ") return;
+      const cur = selectionRef.current.current?.cell;
+      const col = cur ? columnsRef.current[cur[0]] : undefined;
+      if (!cur || col?.type !== "boolean") return;
+      const cell = getCellContent(cur);
+      if (cell.kind !== GridCellKind.Boolean) return;
+      e.cancel();
+      if (cell.readonly) return;
+      const b = booleanFromKey(e.key);
+      if (b === null) return;
+      onCellsEdited([{ location: cur, value: { ...cell, data: b } }]);
+    },
+    [getCellContent, onCellsEdited],
+  );
+
+  // 真偽値の列に貼り付けた文字（true/false・1/0・Y/N）を値にする。読めない文字では変えない
+  const coercePasteValue = useCallback((text: string, cell: GridCell): GridCell | undefined => {
+    if (cell.kind !== GridCellKind.Boolean) return undefined;
+    const b = booleanFromText(text);
+    return { ...cell, data: b === undefined ? cell.data : (b ?? BooleanEmpty) };
+  }, []);
 
   const onFinishedEditing = useCallback(() => {
     const finished = editingRef.current;
@@ -614,6 +706,7 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
           pressedOnRef.current = singleSelectedCell(selectionRef.current);
         }}
       >
+      <CellEditorContext.Provider value={editorTargetRef}>
       <DataEditor
         columns={gridColumns}
         rows={rows.length}
@@ -640,6 +733,8 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
         cellActivationBehavior="double-click"
         onCellsEdited={onCellsEdited}
         onPaste={true}
+        coercePasteValue={coercePasteValue}
+        onKeyDown={onKeyDown}
         provideEditor={provideEditor}
         onFinishedEditing={onFinishedEditing}
         onItemHovered={onItemHovered}
@@ -659,6 +754,7 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
         width="100%"
         height="100%"
       />
+      </CellEditorContext.Provider>
       </div>
       {showDetail &&
         (selectedRow === null ? (

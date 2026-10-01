@@ -8,6 +8,7 @@ import type {
   BatchInfo,
   CellEdit,
   CellValue,
+  ColumnSchema,
   ConflictInfo,
   DiffEntry,
   LookupStats,
@@ -26,7 +27,7 @@ import { JobRegistry } from "./jobs";
 import { normalizeCompositeKey } from "./normalize";
 import { checkLimit, paginate } from "./paging";
 import { Sheet, type CellInfo, type CellOverlay, type RowMark, type RowState, type RowStatus, type SheetJSON, type ViewKind } from "./sheet";
-import { coerceValue, isBlank, sameCellValue } from "./values";
+import { coerceValue, isBlank, offsetOfValue, sameCellValue, type CoerceOptions, type DateOffsetHint } from "./values";
 
 // ---------------------------------------------------------------------------
 // 公開型
@@ -334,6 +335,8 @@ export class Workspace {
   private sheetSeq = 0;
   private batchSeq = 0;
   private readonly now: () => number;
+  /** シートごと・列ごとの、オフセットの無い時刻に付けるオフセット（シートの元の値は変わらないので覚えておく） */
+  private readonly columnOffsets = new WeakMap<Sheet, Map<string, DateOffsetHint>>();
 
   constructor(name: string, opts: WorkspaceOptions = {}) {
     this._name = name;
@@ -550,7 +553,7 @@ export class Workspace {
     if (rule.kind === "const" || !schema || !sheet.isParentColumn(rule.col)) return values;
     // 列の型に合わせてから比べる（"1" と 1、null と空文字は同じ値）
     const comparable = (v: CellValue): CellValue => {
-      const c = coerceValue(schema, v);
+      const c = coerceValue(schema, v, this.coerceOptions(sheet, schema));
       const out = c.ok ? c.value : v;
       return isBlank(out) ? null : out;
     };
@@ -700,6 +703,34 @@ export class Workspace {
   }
 
   /**
+   * 値を列の型に合わせるときの指定。日時の列では、オフセットの書かれていない時刻に付けるオフセットを決める:
+   *   1. そのセルの元の値（Maximo から読んだ値。Maximo はサーバのタイムゾーンのオフセットで返す）のオフセット
+   *   2. 同じ列の元の値で、最初に見つかった時刻付きの値のオフセット（オフセットの無い値なら付けない）
+   *   3. どちらも無ければ、Maximo のシートはブラウザのタイムゾーンのその日時のオフセット、Excel のシートは付けない
+   */
+  private coerceOptions(sheet: Sheet, schema: ColumnSchema, row?: RowState): CoerceOptions {
+    if (schema.type !== "date" && schema.type !== "datetime") return {};
+    if (row) {
+      const own = offsetOfValue(row.base[schema.name]);
+      if (own !== undefined) return { dateOffset: own };
+    }
+    let byCol = this.columnOffsets.get(sheet);
+    if (!byCol) this.columnOffsets.set(sheet, (byCol = new Map()));
+    if (byCol.has(schema.name)) return { dateOffset: byCol.get(schema.name) };
+    let found: DateOffsetHint = sheet.meta.source.kind === "maximo" ? undefined : null;
+    for (const r of sheet.orderedRows()) {
+      if (r.added) continue;
+      const o = offsetOfValue(r.base[schema.name]);
+      if (o !== undefined) {
+        found = o;
+        break;
+      }
+    }
+    byCol.set(schema.name, found);
+    return { dateOffset: found };
+  }
+
+  /**
    * セル変更を検査して set 操作にする（まだ適用しない）。
    * 親の列は同じ親の全行（削除の印が付いた行を含む）に同じ値を入れる。applied はこの展開後の件数になる。
    */
@@ -728,7 +759,7 @@ export class Workspace {
         conflicts.push({ rowKey: e.rowKey, col: e.col, reason: "read_only_column" });
         continue;
       }
-      const coerced = coerceValue(schema, e.value);
+      const coerced = coerceValue(schema, e.value, this.coerceOptions(sheet, schema, row));
       if (!coerced.ok) {
         conflicts.push({ rowKey: e.rowKey, col: e.col, reason: "invalid_value" });
         continue;
@@ -826,7 +857,7 @@ export class Workspace {
     for (const [col, v] of Object.entries(values)) {
       const schema = sheet.column(col);
       if (!schema) return { conflict: { rowKey: where, col, reason: "column_not_found" } };
-      const c = coerceValue(schema, v);
+      const c = coerceValue(schema, v, this.coerceOptions(sheet, schema));
       // 親の行に子の列の値は入れられない（子の行として追加する）
       if (!c.ok || (schema.child && !isBlank(c.value))) return { conflict: { rowKey: where, col, reason: "invalid_value" } };
       // 読み取り専用の列（キー列を除く）は新しい行でも Maximo が決めるので値を入れさせない
@@ -879,7 +910,7 @@ export class Workspace {
     for (const [col, v] of Object.entries(values)) {
       const schema = sheet.column(col);
       if (!schema) return { conflict: { rowKey: where, col, reason: "column_not_found" } };
-      const c = coerceValue(schema, v);
+      const c = coerceValue(schema, v, this.coerceOptions(sheet, schema, schema.child ? undefined : parent));
       if (!c.ok) return { conflict: { rowKey: where, col, reason: "invalid_value" } };
       if (!schema.child) {
         // 親の列は親の現在の値と同じでなければならない（null と空文字は同じ）

@@ -283,7 +283,7 @@ describe("applyEdits: compare-and-set と検査", () => {
       ["QTY", true],
       ["CNT", 1.5],
       ["FLAG", "yes"],
-      ["DUE", "2024/04/01"],
+      ["DUE", "2024.04.01"],
       ["DUE", "2024-02-30"],
       [APPR, "yesterday"],
       ["DESCRIPTION", "123456789012345678901"],

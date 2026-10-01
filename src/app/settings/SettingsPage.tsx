@@ -1,9 +1,11 @@
 // API 設定画面 /settings（トップレベルのページ。iframe に入れない）。
 // Maximo への接続は、パスワードマネージャーが保存を検知できる標準のログインフォームの形にする。
 // API キーの入力欄は React の state に持たない（非制御の入力欄から読んで Web Worker に渡し、すぐ空にする）。
+// 節はタブに分ける（接続・ライセンス・AI アシスタント・Skill・言語）。選んだタブは URL のハッシュ（/settings#license）に出す。
+// タブを切り替えても各節は描いたまま（隠すだけ）にして、入力途中の値を失わない。
 
-import { Button, Form, Layer, RadioButton, RadioButtonGroup, Select, SelectItem, TextInput } from "@carbon/react";
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
+import { Button, Form, Layer, RadioButton, RadioButtonGroup, Select, SelectItem, Tab, TabList, TabPanel, TabPanels, Tabs, TextInput } from "@carbon/react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from "react";
 import { LOCALES, getLocale, isLocale, subscribeLocale } from "../../shared/i18n";
 import type { ConnectInput, VaultView } from "../keyvault/client";
 import type { Environment, LicenseClient } from "../license/client";
@@ -14,7 +16,7 @@ import type { MaximoConnectionInfo } from "../runtime/contracts";
 import { spaClick } from "../ui/Link";
 import { chooseLocale } from "../ui/locale";
 import { Notice } from "../ui/Notice";
-import { APP_PATH } from "../ui/routes";
+import { APP_PATH, NAVIGATE_EVENT, settingsTabOf, type SettingsTab } from "../ui/routes";
 import { LicenseSection } from "./LicenseSection";
 import { LANGUAGE_NAMES, settingsMessages as m } from "./messages";
 import {
@@ -105,6 +107,50 @@ function browserClipboard(): ClipboardLike | null {
   }
 }
 
+/** 今の URL のハッシュが指す設定のタブ（無ければ null） */
+function tabFromLocation(): SettingsTab | null {
+  try {
+    return settingsTabOf(window.location.hash);
+  } catch {
+    return null;
+  }
+}
+
+/** 選んだタブを URL のハッシュに出す。履歴は積まない（戻るで作業画面に戻れるように） */
+function writeTabToLocation(tab: SettingsTab): void {
+  try {
+    const { pathname, search, hash } = window.location;
+    if (hash === `#${tab}`) return;
+    window.history.replaceState(window.history.state, "", `${pathname}${search}#${tab}`);
+  } catch {
+    // URL を書けなくてもタブは切り替わる
+  }
+}
+
+/**
+ * 選んでいるタブ。初めは URL のハッシュ、無ければ「接続」。
+ * ハッシュが外から変わったとき（リンク・戻る・手で書き換え）も追う。
+ */
+function useSelectedTab(): [SettingsTab | null, (tab: SettingsTab) => void] {
+  const [tab, setTab] = useState<SettingsTab | null>(tabFromLocation);
+  useEffect(() => {
+    const sync = () => setTab(tabFromLocation());
+    window.addEventListener("hashchange", sync);
+    window.addEventListener("popstate", sync);
+    window.addEventListener(NAVIGATE_EVENT, sync);
+    return () => {
+      window.removeEventListener("hashchange", sync);
+      window.removeEventListener("popstate", sync);
+      window.removeEventListener(NAVIGATE_EVENT, sync);
+    };
+  }, []);
+  const select = useCallback((next: SettingsTab) => {
+    setTab(next);
+    writeTabToLocation(next);
+  }, []);
+  return [tab, select];
+}
+
 function errorText(e: unknown): string {
   return e instanceof Error && e.message ? e.message : m().page.failed;
 }
@@ -122,7 +168,35 @@ export function SettingsPage(props: SettingsPageProps) {
   // 描画のたびに作り直すと、一覧の読み込みが繰り返されるので固定する
   const loadSkills = useMemo(() => props.loadSkills ?? (() => fetchSkillList()), [props.loadSkills]);
 
+  const [requested, selectTab] = useSelectedTab();
+
   const t = m().page;
+  const tabs = m().tabs;
+  // ライセンスの節は license を渡したときだけ（null を挟むと Carbon のタブの番号がずれるので、配列から外す）
+  const sections: { id: SettingsTab; label: string; content: ReactNode }[] = [
+    {
+      id: "connection",
+      label: tabs.connection,
+      content: (
+        <MaximoSection
+          vault={vault}
+          view={view}
+          storage={storage}
+          passwordCredential={passwordCredential}
+          replaceUrl={replaceUrl}
+          license={props.license ?? null}
+        />
+      ),
+    },
+    ...(props.license ? [{ id: "license" as const, label: licenseMessages().section.title, content: <LicenseSection license={props.license} /> }] : []),
+    { id: "assistants", label: tabs.assistants, content: <LlmSection clipboard={clipboard} /> },
+    { id: "skills", label: tabs.skills, content: <SkillsSection load={loadSkills} /> },
+    { id: "language", label: m().language.title, content: <LanguageSection storage={storage} /> },
+  ];
+  // URL が指すタブが無ければ（知らない名前・ライセンスの節が無い）、初めの「接続」
+  const found = sections.findIndex((s) => s.id === requested);
+  const selectedIndex = found >= 0 ? found : 0;
+
   return (
     <main className="page settings">
       <header className="page-head">
@@ -131,18 +205,29 @@ export function SettingsPage(props: SettingsPageProps) {
           {t.backToApp}
         </Button>
       </header>
-      <MaximoSection
-        vault={vault}
-        view={view}
-        storage={storage}
-        passwordCredential={passwordCredential}
-        replaceUrl={replaceUrl}
-        license={props.license ?? null}
-      />
-      {props.license && <LicenseSection license={props.license} />}
-      <LlmSection clipboard={clipboard} />
-      <SkillsSection load={loadSkills} />
-      <LanguageSection storage={storage} />
+      <Tabs
+        selectedIndex={selectedIndex}
+        onChange={({ selectedIndex: i }) => {
+          const next = sections[i];
+          if (next) selectTab(next.id);
+        }}
+      >
+        <TabList aria-label={tabs.label} className="settings-tabs">
+          {sections.map((s) => (
+            <Tab key={s.id} data-tab={s.id}>
+              {s.label}
+            </Tab>
+          ))}
+        </TabList>
+        <TabPanels>
+          {/* 各パネルの名前はタブ（aria-labelledby）。中の節にも見出し（h2）がある */}
+          {sections.map((s) => (
+            <TabPanel key={s.id} data-tab={s.id} className="settings-panel">
+              {s.content}
+            </TabPanel>
+          ))}
+        </TabPanels>
+      </Tabs>
     </main>
   );
 }

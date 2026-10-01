@@ -8,6 +8,7 @@ import { toMaximoError } from "../../src/app/maximo/client";
 import type { MaximoConnectionInfo } from "../../src/app/runtime/contracts";
 import { CONNECTED_URL, SettingsPage, type SettingsPageProps, type SettingsVault } from "../../src/app/settings/SettingsPage";
 import { STORAGE_KEYS, type SkillList } from "../../src/app/settings/logic";
+import { NAVIGATE_EVENT, SETTINGS_TABS, navigate, type SettingsTab } from "../../src/app/ui/routes";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -50,6 +51,8 @@ let container: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
+  // 前の試験で選んだタブ（URL のハッシュ）を持ち越さない
+  window.history.replaceState(null, "", "/settings");
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -83,6 +86,28 @@ function q<T extends Element>(selector: string): T | null {
   return container.querySelector<T>(selector);
 }
 
+function tabButton(id: SettingsTab): HTMLButtonElement {
+  return q<HTMLButtonElement>(`[role="tab"][data-tab="${id}"]`)!;
+}
+
+function panel(id: SettingsTab): HTMLElement {
+  return q<HTMLElement>(`[role="tabpanel"][data-tab="${id}"]`)!;
+}
+
+/** 見えているタブのパネル（ちょうど 1 つ） */
+function visiblePanels(): string[] {
+  return Array.from(container.querySelectorAll<HTMLElement>('[role="tabpanel"]'))
+    .filter((p) => !p.hidden)
+    .map((p) => p.dataset.tab ?? "");
+}
+
+async function selectTab(id: SettingsTab): Promise<void> {
+  await act(async () => {
+    tabButton(id).click();
+  });
+  expect(visiblePanels()).toEqual([id]);
+}
+
 function setValue(input: HTMLInputElement, value: string): void {
   const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input) as object, "value")?.set;
   setter?.call(input, value);
@@ -114,6 +139,9 @@ describe("設定画面のフォーム", () => {
     await render({ vault: new FakeVault() });
     const form = q<HTMLFormElement>("form.connect-form");
     expect(form).not.toBeNull();
+    // 初めは「接続」のタブが見えている
+    expect(visiblePanels()).toEqual(["connection"]);
+    expect(panel("connection").contains(form)).toBe(true);
     expect(container.querySelector("iframe")).toBeNull();
 
     const url = q<HTMLInputElement>('input[name="maximo-url"]')!;
@@ -199,8 +227,11 @@ describe("設定画面のフォーム", () => {
 
   it("LLM クライアントの接続は登録済みの表示だけ（URL もトークンも出さない）", async () => {
     await render({ vault: new FakeVault() });
-    expect(container.textContent).toContain("Claude Code に登録済みです。");
-    expect(container.textContent).toContain("claude mcp list");
+    await selectTab("assistants");
+    const text = panel("assistants").textContent ?? "";
+    expect(text).toContain("LLM クライアントの接続");
+    expect(text).toContain("Claude Code に登録済みです。");
+    expect(text).toContain("claude mcp list");
     expect(container.textContent).not.toContain("/mcp");
     expect(container.textContent).not.toContain("個人トークン");
     expect(container.textContent).not.toContain("Cloudflare");
@@ -222,7 +253,8 @@ describe("設定画面のフォーム", () => {
     await act(async () => {
       await Promise.resolve();
     });
-    const section = q<HTMLElement>(".skills");
+    await selectTab("skills");
+    const section = panel("skills").querySelector<HTMLElement>(".skills");
     const text = section?.textContent ?? "";
     expect(text).toContain("アプリ既定");
     expect(text).toContain("利用者の Skill");
@@ -242,7 +274,8 @@ describe("設定画面のフォーム", () => {
     await act(async () => {
       await Promise.resolve();
     });
-    expect(q(".skills")?.textContent).toContain("まだありません");
+    await selectTab("skills");
+    expect(panel("skills").querySelector(".skills")?.textContent).toContain("まだありません");
   });
 
   it("接続方式の proxy は橋渡し経由と書く", async () => {
@@ -250,5 +283,82 @@ describe("設定画面のフォーム", () => {
     const proxy = Array.from(container.querySelectorAll("option")).find((o) => o.getAttribute("value") === "proxy");
     expect(proxy?.textContent).toContain("橋渡し");
     expect(proxy?.textContent).not.toContain("Cloudflare");
+  });
+});
+
+describe("設定画面のタブ", () => {
+  it("接続・AI アシスタント・Skill・言語のタブがあり（ライセンスを渡さなければライセンスのタブは無い）、各パネルはタブの名前を持つ", async () => {
+    await render({ vault: new FakeVault() });
+    const tablist = q<HTMLElement>('[role="tablist"]')!;
+    expect(tablist.getAttribute("aria-label")).toBe("設定の項目");
+    const tabs = Array.from(container.querySelectorAll<HTMLElement>('[role="tab"]'));
+    expect(tabs.map((t) => t.dataset.tab)).toEqual(["connection", "assistants", "skills", "language"]);
+    expect(tabs.map((t) => t.textContent)).toEqual(["接続", "AI アシスタント", "Skill", "言語"]);
+    for (const tab of tabs) {
+      const p = container.querySelector<HTMLElement>(`[role="tabpanel"][data-tab="${tab.dataset.tab}"]`)!;
+      // パネルの名前はタブ、中にも見出しがある
+      expect(p.getAttribute("aria-labelledby")).toBe(tab.id);
+      expect(tab.getAttribute("aria-controls")).toBe(p.id);
+      expect(p.querySelector("h2")?.textContent).toBeTruthy();
+    }
+    expect(tabButton("connection").getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("URL のハッシュでタブを開く（/settings#skills）", async () => {
+    window.history.replaceState(null, "", "/settings#skills");
+    await render({ vault: new FakeVault() });
+    expect(visiblePanels()).toEqual(["skills"]);
+    expect(tabButton("skills").getAttribute("aria-selected")).toBe("true");
+    // ほかのパネルも描いたまま（隠すだけ）なので、接続のフォームは残っている
+    expect(panel("connection").hidden).toBe(true);
+    expect(q("form.connect-form")).not.toBeNull();
+  });
+
+  it("知らないハッシュと、無いタブ（ライセンス無しの #license）は「接続」を開く", async () => {
+    window.history.replaceState(null, "", "/settings#nope");
+    await render({ vault: new FakeVault() });
+    expect(visiblePanels()).toEqual(["connection"]);
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    window.history.replaceState(null, "", "/settings#license");
+    await render({ vault: new FakeVault() });
+    expect(visiblePanels()).toEqual(["connection"]);
+  });
+
+  it("タブを切り替えるとハッシュが変わる（履歴は積まない）。入力途中の値は失わない", async () => {
+    await render({ vault: new FakeVault() });
+    await act(async () => {
+      setValue(q<HTMLInputElement>('input[name="maximo-url"]')!, "https://typed.test");
+    });
+    const before = window.history.length;
+    for (const id of ["assistants", "skills", "language", "connection"] as const) {
+      await selectTab(id);
+      expect(window.location.hash).toBe(`#${id}`);
+      expect(window.location.pathname).toBe("/settings");
+    }
+    expect(window.history.length).toBe(before);
+    expect(q<HTMLInputElement>('input[name="maximo-url"]')?.value).toBe("https://typed.test");
+  });
+
+  it("ハッシュが外から変わったら（リンク・戻る・手で書き換え）そのタブにする", async () => {
+    await render({ vault: new FakeVault() });
+    await act(async () => {
+      navigate("/settings#language");
+    });
+    expect(visiblePanels()).toEqual(["language"]);
+    await act(async () => {
+      window.history.replaceState(null, "", "/settings#skills");
+      window.dispatchEvent(new Event("hashchange"));
+    });
+    expect(visiblePanels()).toEqual(["skills"]);
+    await act(async () => {
+      window.history.replaceState(null, "", "/settings");
+      window.dispatchEvent(new Event(NAVIGATE_EVENT));
+    });
+    expect(visiblePanels()).toEqual(["connection"]);
+  });
+
+  it("タブの名前は 5 つ（URL に出す名前）", () => {
+    expect([...SETTINGS_TABS]).toEqual(["connection", "license", "assistants", "skills", "language"]);
   });
 });

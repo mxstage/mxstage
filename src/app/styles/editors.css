@@ -1,0 +1,197 @@
+/* グリッドのセルの編集部品（src/app/grid/editors.tsx）。Glide のオーバーレイ（#portal）の中に出る。
+   色は Carbon の White テーマの変数（carbon.scss が :root に出す）を使う。 */
+
+.mx-cell-editor {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-sizing: border-box;
+  min-width: 260px;
+  padding: 4px;
+  font-family: var(--mx-font-sans);
+  font-size: 14px;
+  color: var(--cds-text-primary);
+  background: var(--cds-background, #ffffff);
+}
+
+.mx-cell-editor__row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.mx-cell-editor__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 32px;
+  box-sizing: border-box;
+  padding: 0 8px;
+  border: none;
+  border-bottom: 1px solid var(--cds-border-strong-01, #8d8d8d);
+  border-radius: 0;
+  background: var(--cds-field-01, #f4f4f4);
+  color: var(--cds-text-primary);
+  font: inherit;
+  outline: 2px solid transparent;
+  outline-offset: -2px;
+}
+
+.mx-cell-editor__input:focus {
+  outline-color: var(--cds-focus, #0f62fe);
+}
+
+.mx-cell-editor__input--invalid,
+.mx-cell-editor__input--invalid:focus {
+  outline-color: var(--cds-support-error, #da1e28);
+}
+
+.mx-cell-editor__input--warning {
+  border-bottom-color: var(--cds-support-warning, #f1c21b);
+  box-shadow: inset 0 -2px 0 var(--cds-support-warning, #f1c21b);
+}
+
+.mx-cell-editor__icon,
+.mx-cell-editor__text-button {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  border: none;
+  background: transparent;
+  color: var(--cds-icon-primary, #161616);
+  font: inherit;
+  cursor: pointer;
+}
+
+.mx-cell-editor__icon {
+  width: 32px;
+}
+
+.mx-cell-editor__text-button {
+  padding: 0 8px;
+  color: var(--cds-link-primary, #0f62fe);
+  white-space: nowrap;
+}
+
+.mx-cell-editor__icon:hover,
+.mx-cell-editor__text-button:hover {
+  background: var(--cds-layer-hover-01, #e8e8e8);
+}
+
+.mx-cell-editor__icon:focus-visible,
+.mx-cell-editor__text-button:focus-visible {
+  outline: 2px solid var(--cds-focus, #0f62fe);
+  outline-offset: -2px;
+}
+
+/* ブラウザのカレンダーを開くための入力。ふだんは見せない（showPicker が使えないブラウザでは見せる） */
+.mx-cell-editor__picker {
+  position: absolute;
+  top: 36px;
+  right: 4px;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.mx-cell-editor__picker--shown {
+  position: static;
+  width: auto;
+  height: 32px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--cds-border-strong-01, #8d8d8d);
+  background: var(--cds-field-01, #f4f4f4);
+  font: inherit;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.mx-cell-editor__helper {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 0 2px;
+  font-size: 12px;
+  line-height: 16px;
+  letter-spacing: 0.32px;
+  color: var(--cds-text-helper, #6f6f6f);
+  white-space: normal;
+}
+
+.mx-cell-editor__helper--preview {
+  color: var(--cds-text-secondary, #525252);
+}
+
+.mx-cell-editor__helper--error {
+  color: var(--cds-text-error, #da1e28);
+}
+
+.mx-cell-editor__helper--warning {
+  color: var(--cds-text-primary, #161616);
+}
+
+.mx-cell-editor__helper svg {
+  flex: 0 0 auto;
+  margin-top: 0;
+}
+
+.mx-cell-editor__helper--warning svg {
+  fill: var(--cds-support-warning, #f1c21b);
+}
+
+.mx-cell-editor__helper--warning svg path[data-icon-path="inner-path"] {
+  fill: #000000;
+  opacity: 1;
+}
+
+.mx-cell-editor__list {
+  max-height: 240px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  border-top: 1px solid var(--cds-border-subtle-01, #e0e0e0);
+}
+
+.mx-cell-editor__option,
+.mx-cell-editor__empty {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-height: 32px;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  line-height: 20px;
+}
+
+.mx-cell-editor__option {
+  cursor: pointer;
+}
+
+.mx-cell-editor__option--active {
+  background: var(--cds-layer-selected-01, #e0e0e0);
+}
+
+.mx-cell-editor__empty {
+  color: var(--cds-text-helper, #6f6f6f);
+  font-size: 12px;
+}
+
+.mx-cell-editor__value {
+  flex: 0 0 auto;
+  font-weight: 600;
+}
+
+.mx-cell-editor__desc {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cds-text-secondary, #525252);
+}

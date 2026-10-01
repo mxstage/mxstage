@@ -239,6 +239,8 @@ function columnOf(name: string, prop: Record<string, unknown>, required: boolean
   if (typeof prop.maxLength === "number" && Number.isFinite(prop.maxLength)) col.maxLength = prop.maxLength;
   if (required) col.required = true;
   if ([prop.readOnly, prop.readonly, prop["x-readonly"], prop["x-readOnly"]].some(truthy)) col.readOnly = true;
+  // 値の一覧（ドメイン・参照先の表）がある属性。MAS Manage の jsonschemas は hasList:true を付ける
+  if (truthy(prop.hasList)) col.hasList = true;
   if (child) col.child = child;
   return col;
 }

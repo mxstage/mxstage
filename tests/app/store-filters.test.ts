@@ -282,7 +282,8 @@ describe("paging and values", () => {
     expect(coerceValue({ name: "B", type: "boolean" }, "yes").ok).toBe(false);
     expect(coerceValue({ name: "D", type: "date" }, "2024-02-29")).toEqual({ ok: true, value: "2024-02-29" });
     expect(coerceValue({ name: "D", type: "date" }, "2023-02-29").ok).toBe(false);
-    expect(coerceValue({ name: "D", type: "date" }, "2024/04/01").ok).toBe(false);
+    expect(coerceValue({ name: "D", type: "date" }, "2024/04/01")).toEqual({ ok: true, value: "2024-04-01" });
+    expect(coerceValue({ name: "D", type: "date" }, "2024.04.01").ok).toBe(false);
     expect(coerceValue({ name: "D", type: "datetime" }, "2024-04-01T10:20:30.123+09:00").ok).toBe(true);
     expect(coerceValue({ name: "D", type: "datetime" }, 20240401).ok).toBe(false);
     expect(coerceValue({ name: "D", type: "datetime" }, "")).toEqual({ ok: true, value: null });

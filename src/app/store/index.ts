@@ -6,7 +6,22 @@ export { JobRegistry, type JobKind, type JobRegistryOptions } from "./jobs";
 export { NORMALIZE_ORDER, normalizeCompositeKey, normalizeKey, normalizeText, type CompositeKey } from "./normalize";
 export { decodeCursor, encodeCursor } from "./paging";
 export { Sheet, type CellInfo, type CellOverlay, type RowMark, type RowStatus, type SheetCounts, type SheetJSON, type ViewKind } from "./sheet";
-export { coerceValue, isBlank, parseIsoDate, sameCellValue, toNumber, type CoerceResult, type ParsedDate } from "./values";
+export {
+  coerceValue,
+  formatDateForDisplay,
+  isBlank,
+  normalizeDateInput,
+  offsetOfValue,
+  parseDateInput,
+  parseIsoDate,
+  sameCellValue,
+  toNumber,
+  type CoerceOptions,
+  type CoerceResult,
+  type DateOffsetHint,
+  type DateParts,
+  type ParsedDate,
+} from "./values";
 export {
   WORKSPACE_FORMAT,
   Workspace,

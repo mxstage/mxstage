@@ -1,7 +1,7 @@
 // グリッドのセルの色分け・編集可否・ホバーの文言（純関数）。
 
-import type { BatchAuthor, CellValue } from "../../shared/model";
-import type { RowStatus, ViewKind } from "../store";
+import type { BatchAuthor, CellValue, ColumnSchema } from "../../shared/model";
+import { formatDateForDisplay, type RowStatus, type ViewKind } from "../store";
 import { gridMessages } from "./messages";
 
 export type CellTone = "normal" | "readonly" | "llm" | "user" | "added" | "deleted";
@@ -70,6 +70,15 @@ export function isCellEditable(i: EditableInput): boolean {
 
 export function formatCellValue(v: CellValue): string {
   return v === null ? "" : String(v);
+}
+
+/**
+ * 列の型に合わせた表示。日付・日時は読みやすい形（2026-10-01 / 2026-10-01 09:00。オフセットは出さない）にそろえる。
+ * 表示だけで、値（Maximo に送る ISO 8601）は変えない
+ */
+export function formatColumnValue(col: Pick<ColumnSchema, "type"> | undefined, v: CellValue): string {
+  if (col && (col.type === "date" || col.type === "datetime")) return formatDateForDisplay(col.type, v);
+  return formatCellValue(v);
 }
 
 /** グリッドで入力した文字列を値にする。空は null。列の型への変換と検査はストア（coerceValue）が行う */

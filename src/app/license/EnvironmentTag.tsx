@@ -4,7 +4,7 @@
 import { Tag } from "@carbon/react";
 import { useCallback, useSyncExternalStore } from "react";
 import { Link } from "../ui/Link";
-import { SETTINGS_PATH } from "../ui/routes";
+import { settingsPath } from "../ui/routes";
 import type { LicenseClient } from "./client";
 import { environmentBadge } from "./gate";
 import { licenseMessages as m } from "./messages";
@@ -18,9 +18,11 @@ export function EnvironmentTag({ license, baseUrl, now = Date.now }: { license: 
     useCallback(() => license.snapshot().version, [license]),
   );
   const badge = environmentBadge(license, baseUrl, now());
+  // 環境が未設定なら、環境を選ぶ「接続」のタブへ。それ以外はライセンスのタブへ
+  const to = settingsPath(badge.kind === "undeclared" ? "connection" : "license");
   return (
     <span className="env-tags" data-version={version}>
-      <Link to={SETTINGS_PATH} className="env-tag-link" title={m().environment.help}>
+      <Link to={to} className="env-tag-link" title={m().environment.help}>
         <Tag type={TAG_TYPE[badge.kind]} size="sm" className={`env-tag env-${badge.kind}`}>
           {badge.text}
         </Tag>

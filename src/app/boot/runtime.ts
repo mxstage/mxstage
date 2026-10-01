@@ -2,6 +2,7 @@
 
 import type { ObjectStructureCatalog } from "../catalog/catalog";
 import type { LicenseGate } from "../license/client";
+import { ValueListService } from "../maximo/valueList";
 import type { ImportStore } from "../imports";
 import { RelaySocket, type RelaySocketOptions, type RelayStatus } from "../relay";
 import type { ImportErrorReason, ImportedFile } from "../relay";
@@ -53,6 +54,8 @@ export interface Runtime {
   readonly workspace: Workspace;
   readonly jobs: JobRegistry;
   readonly commits: CommitController;
+  /** 属性の値の一覧（Maximo の getlist）。作業の間だけ覚える。グリッドの一覧から選ぶ入力が使う */
+  readonly valueLists?: ValueListService;
   /** hello で Hub に知らせるツール名 */
   readonly tools: readonly string[];
   readonly tabId: string;
@@ -125,10 +128,13 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
   const initial = relay.getStatus();
   let disposed = false;
 
+  const valueLists = new ValueListService({ connection: opts.connection });
+
   return {
     workspace,
     jobs,
     commits,
+    valueLists,
     tools: [...registry.tools],
     tabId: relay.tabId,
     relayStatus: () => status ?? initial,

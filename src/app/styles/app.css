@@ -985,6 +985,15 @@ body.resizing-row * {
   line-height: var(--cds-heading-05-line-height, 1.25);
 }
 
+/* 設定画面のタブ（Carbon の Tabs。settings/SettingsPage.tsx）。パネルの中はカードを並べる */
+.settings-tabs {
+  margin-bottom: var(--cds-spacing-06);
+}
+
+.settings-panel.cds--tab-content {
+  padding: 0;
+}
+
 /* カード（layer-01 の面。中の入力欄は Layer で一段上の面の色になる） */
 .card {
   margin-bottom: var(--cds-spacing-06);

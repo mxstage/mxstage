@@ -967,3 +967,42 @@ describe("補助関数", () => {
     expect(suggestNames("まったく違う名前", cols)).toEqual([]);
   });
 });
+
+describe("日付の書き方と値の一覧の印（LLM のツールも同じ検査を通る）", () => {
+  it("patch_cells・apply_rule は 2027/3/31 のような日付を受け取り、ISO 8601 にそろえる。読めない日付は invalid_value", async () => {
+    const h = harness();
+    await loadPermits(h);
+    const res = await h.call("patch_cells", {
+      sheet: PERMIT_SHEET,
+      baseRevision: h.workspace.revision,
+      reason: "日付の書き方",
+      edits: [
+        { rowKey: ck("WO2001", 1002), col: "EXT_WOPERMIT.EXT_PERMITDATE", value: "2027/3/31" },
+        { rowKey: ck("WO2001", 1001), col: "EXT_WOPERMIT.EXT_PERMITDATE", value: "2027年3月31日" },
+      ],
+    });
+    expect(res.applied).toBe(1);
+    expect(res.conflicts).toEqual([{ rowKey: ck("WO2001", 1001), col: "EXT_WOPERMIT.EXT_PERMITDATE", reason: "invalid_value" }]);
+    expect(h.workspace.cell(PERMIT_SHEET, ck("WO2001", 1002), "EXT_WOPERMIT.EXT_PERMITDATE")?.value).toBe("2027-03-31");
+
+    const rule = await h.call("apply_rule", {
+      sheet: PERMIT_SHEET,
+      filter: [{ attr: "WONUM", op: "eq", value: "WO2002" }],
+      set: { "EXT_WOPERMIT.EXT_PERMITDATE": { const: "2027/04/01" } },
+      baseRevision: h.workspace.revision,
+      reason: "日付の書き方",
+    });
+    expect(rule.applied).toBe(1);
+    const diff = await h.call("get_diff", { sheet: PERMIT_SHEET });
+    expect(diff.rows.map((r: { after: unknown }) => r.after).sort()).toEqual(["2027-03-31", "2027-04-01"]);
+  });
+
+  it("describe_object_structure は値の一覧のある属性に hasList を付ける", async () => {
+    const h = harness();
+    const desc = await h.call("describe_object_structure", { os: "MXAPIWO", query: "STATUS" });
+    const status = (desc.columns as Array<Record<string, unknown>>).find((c) => c.name === "STATUS");
+    expect(status).toMatchObject({ name: "STATUS", hasList: true });
+    const wonum = await h.call("describe_object_structure", { os: "MXAPIWO", query: "WONUM" });
+    expect((wonum.columns as Array<Record<string, unknown>>).find((c) => c.name === "WONUM")?.hasList).toBeUndefined();
+  });
+});

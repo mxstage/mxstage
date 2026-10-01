@@ -201,6 +201,7 @@ function columnView(c: ColumnSchema): Record<string, unknown> {
   if (c.maxLength !== undefined) v.maxLength = c.maxLength;
   if (c.required === true) v.required = true;
   if (c.readOnly === true) v.readOnly = true;
+  if (c.hasList === true) v.hasList = true;
   return v;
 }
 

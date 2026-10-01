@@ -8,7 +8,7 @@ import { LEGEND_TONES, TONE_STYLE, toneLabel } from "../grid/cellStyle";
 import type { LicenseClient } from "../license/client";
 import { EnvironmentTag } from "../license/EnvironmentTag";
 import { Link, spaClick } from "../ui/Link";
-import { SETTINGS_PATH, STRUCTURES_PATH } from "../ui/routes";
+import { SETTINGS_PATH, STRUCTURES_PATH, settingsPath } from "../ui/routes";
 import { pagesMessages } from "./messages";
 import { connectionIndicator, type MaximoBadge, type RelayBadge, type ReopenHint } from "./status";
 
@@ -95,7 +95,7 @@ export function TopBar(p: TopBarProps) {
         </span>
       )}
       {p.maximo.settingsLink && (
-        <Link to={SETTINGS_PATH} className="topbar-link">
+        <Link to={settingsPath("connection")} className="topbar-link">
           {p.maximo.settingsLink}
         </Link>
       )}

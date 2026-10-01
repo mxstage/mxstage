@@ -29,6 +29,13 @@ export const settingsMessages = defineMessages(
       backToApp: "Back to work screen",
       failed: "Something went wrong.",
     },
+    // 設定画面のタブ（短く。各タブの中の見出しは各節の title）
+    tabs: {
+      label: "Settings sections",
+      connection: "Connection",
+      assistants: "AI assistants",
+      skills: "Skills",
+    },
     language: {
       title: "Language",
       label: "Language",
@@ -135,6 +142,12 @@ export const settingsMessages = defineMessages(
       title: "設定",
       backToApp: "作業画面に戻る",
       failed: "処理に失敗しました。",
+    },
+    tabs: {
+      label: "設定の項目",
+      connection: "接続",
+      assistants: "AI アシスタント",
+      skills: "Skill",
     },
     language: {
       title: "言語",

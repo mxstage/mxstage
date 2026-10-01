@@ -13,6 +13,14 @@ export interface FakeAttrDef {
   required?: boolean;
   readOnly?: boolean;
   title?: string;
+  /** 値の一覧（ドメイン）がある。jsonschemas に hasList:true を付け、getlist~<属性> で lists の値を返す */
+  hasList?: boolean;
+}
+
+/** getlist~<属性> が返す値の一覧の 1 件（ALN・SYNONYM ドメインの形: value と description） */
+export interface FakeListItem {
+  value: string;
+  description?: string;
 }
 
 export interface FakeChildDef {
@@ -36,6 +44,8 @@ export interface FakeOsSeed {
   attrs: Record<string, FakeAttrDef>;
   children?: Record<string, FakeChildDef>;
   records?: FakeRecordSeed[];
+  /** 属性（小文字。子は "子.属性"）→ getlist の値の一覧 */
+  lists?: Record<string, FakeListItem[]>;
 }
 
 export interface FakeSeed {
@@ -274,6 +284,21 @@ export function createFakeMaximo(seed: FakeSeed): FakeMaximo {
     }
     if (segs[0] === "jsonschemas" && segs.length === 2 && method === "GET") return json(200, schemaOf(osOf(segs[1]!)));
     if (segs[0] === "os" && segs.length === 2 && method === "GET") return collection(osOf(segs[1]!), params);
+    // 値の一覧: /os/<os>/<ID>/getlist~<属性>、子は /os/<os>/<ID>/<子>/<子の ID>/getlist~<属性>
+    if (segs[0] === "os" && (segs.length === 4 || segs.length === 6) && method === "GET" && segs[segs.length - 1]!.toLowerCase().startsWith("getlist~")) {
+      const os = osOf(segs[1]!);
+      const rec = os.records.find((r) => r.uid === segs[2]);
+      if (!rec) throw new FakeHttpError(404, "BMXAA_FAKE_RECORD_NOT_FOUND", "record not found");
+      const attr = segs[segs.length - 1]!.slice("getlist~".length).toLowerCase();
+      let key = attr;
+      if (segs.length === 6) {
+        const kind = segs[3]!.toLowerCase();
+        const cdef = os.def.children?.[kind];
+        if (!cdef || !(rec.children[kind] ?? []).some((c) => String(c.attrs[cdef.idAttr]) === segs[4])) throw new FakeHttpError(404, "BMXAA_FAKE_RECORD_NOT_FOUND", "child not found");
+        key = `${kind}.${attr}`;
+      }
+      return valueList(os, key, segs.slice(0, -1).join("/"), segs[segs.length - 1]!, params);
+    }
     if (segs[0] === "os" && segs.length === 3) {
       const os = osOf(segs[1]!);
       const rec = os.records.find((r) => r.uid === segs[2]);
@@ -297,6 +322,23 @@ export function createFakeMaximo(seed: FakeSeed): FakeMaximo {
       }
     }
     throw new FakeHttpError(404, "BMXAA_FAKE_NOT_FOUND", "not found");
+  }
+
+  function valueList(os: FakeOsState, key: string, recordPath: string, last: string, params: URLSearchParams): Response {
+    const list = os.def.lists?.[key];
+    // 一覧の無い属性。実機の応答（コード・文言）は未確認
+    if (!list) throw new FakeHttpError(400, "BMXAA_FAKE_NO_LIST", `attribute ${key} has no value list`);
+    const pageSize = Math.max(1, Number(params.get("oslc.pageSize") ?? "1000") || 1000);
+    const pageno = Math.max(1, Number(params.get("pageno") ?? "1") || 1);
+    const slice = list.slice((pageno - 1) * pageSize, pageno * pageSize);
+    const base = `${hrefOrigin}/maximo/api/${recordPath}/${last}`;
+    const responseInfo: Record<string, unknown> = { pagenum: pageno, href: base, totalCount: list.length };
+    if (pageno * pageSize < list.length) {
+      const next = new URLSearchParams(params);
+      next.set("pageno", String(pageno + 1));
+      responseInfo.nextPage = { href: `${base}?${[...next.entries()].map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&")}` };
+    }
+    return json(200, { member: slice.map((i) => ({ value: i.value, ...(i.description !== undefined ? { description: i.description } : {}) })), responseInfo });
   }
 
   function requireLean(params: URLSearchParams): void {
@@ -485,6 +527,7 @@ export function createFakeMaximo(seed: FakeSeed): FakeMaximo {
       if (d.maxLength !== undefined) p.maxLength = d.maxLength;
       if (d.title) p.title = d.title;
       if (d.readOnly) p.readOnly = true;
+      if (d.hasList) p.hasList = true;
       return p;
     };
     const properties: Record<string, unknown> = { _rowstamp: { type: "string" }, href: { type: "string" } };
@@ -566,7 +609,7 @@ function normalizeDef(def: FakeOsSeed): FakeOsSeed {
   const attrs = lowerKeys(def.attrs);
   const children: Record<string, FakeChildDef> = {};
   for (const [k, c] of Object.entries(def.children ?? {})) children[k.toLowerCase()] = { idAttr: c.idAttr.toLowerCase(), attrs: lowerKeys(c.attrs) };
-  return { ...def, keyAttrs: def.keyAttrs.map((k) => k.toLowerCase()), attrs, children };
+  return { ...def, keyAttrs: def.keyAttrs.map((k) => k.toLowerCase()), attrs, children, ...(def.lists ? { lists: lowerKeys(def.lists) } : {}) };
 }
 
 function lowerKeys<V>(obj: Record<string, V>): Record<string, V> {
@@ -733,7 +776,7 @@ export function sampleSeed(opts: { woRecords?: FakeRecordSeed[]; hrefOrigin?: st
           siteid: { type: "string", maxLength: 8, required: true, title: "Site" },
           wonum: { type: "string", maxLength: 12, required: true, title: "Work Order" },
           description: { type: "string", maxLength: 100 },
-          status: { type: "string", maxLength: 16 },
+          status: { type: "string", maxLength: 16, hasList: true },
           estdur: { type: "number" },
           wopriority: { type: "integer" },
           reportdate: { type: "datetime" },
@@ -757,11 +800,25 @@ export function sampleSeed(opts: { woRecords?: FakeRecordSeed[]; hrefOrigin?: st
             attrs: {
               ext_wopermitid: { type: "integer", readOnly: true },
               ext_authority: { type: "string", maxLength: 40 },
-              ext_permittype: { type: "string", maxLength: 40 },
+              ext_permittype: { type: "string", maxLength: 40, hasList: true },
               ext_permitdate: { type: "date" },
               ext_memo: { type: "string", maxLength: 200 },
             },
           },
+        },
+        lists: {
+          status: [
+            { value: "WAPPR", description: "承認待ち" },
+            { value: "APPR", description: "承認済み" },
+            { value: "INPRG", description: "作業中" },
+            { value: "COMP", description: "完了" },
+            { value: "CLOSE", description: "クローズ" },
+            { value: "CAN", description: "キャンセル" },
+          ],
+          "ext_wopermit.ext_permittype": [
+            { value: "届出", description: "届出（事前に届け出る）" },
+            { value: "許可", description: "許可（許可を得る）" },
+          ],
         },
         records: opts.woRecords ?? [
           {

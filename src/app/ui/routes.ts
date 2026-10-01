@@ -6,6 +6,23 @@ export type Route = { kind: "app" } | { kind: "settings" } | { kind: "structures
 
 export const APP_PATH = "/app";
 export const SETTINGS_PATH = "/settings";
+/**
+ * 設定画面のタブ。URL のハッシュで選ぶ（/settings#license）。
+ * ハッシュはルート解決（pathname だけを見る）に影響しない。
+ */
+export const SETTINGS_TABS = ["connection", "license", "assistants", "skills", "language"] as const;
+export type SettingsTab = (typeof SETTINGS_TABS)[number];
+
+/** 設定画面の、そのタブを開く URL */
+export function settingsPath(tab: SettingsTab): string {
+  return `${SETTINGS_PATH}#${tab}`;
+}
+
+/** URL のハッシュ（"#license" や "license"）から設定のタブを読む。知らないものは null */
+export function settingsTabOf(hash: string): SettingsTab | null {
+  const id = hash.replace(/^#/, "");
+  return (SETTINGS_TABS as readonly string[]).includes(id) ? (id as SettingsTab) : null;
+}
 /** 読み込んだオブジェクト構造を見る画面 */
 export const STRUCTURES_PATH = "/structures";
 /** history.pushState は popstate を出さないので、自前のイベントで画面に知らせる */

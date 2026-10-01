@@ -10,6 +10,7 @@ import type { MaximoConnectionInfo } from "../../src/app/runtime/contracts";
 import { SettingsPage, type SettingsVault } from "../../src/app/settings/SettingsPage";
 import type { SkillList } from "../../src/app/settings/logic";
 import { licenseStatusView } from "../../src/app/tools/registry";
+import type { SettingsTab } from "../../src/app/ui/routes";
 import type { LicenseEntry } from "../../src/shared/license";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -73,6 +74,8 @@ let container: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
+  // 前の試験で選んだタブ（URL のハッシュ）を持ち越さない
+  window.history.replaceState(null, "", "/settings");
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -100,6 +103,14 @@ async function renderSettings(vault: FakeVault, license: LicenseClient) {
   });
 }
 
+/** 設定のタブを選び、そのパネルだけが見えていることを確かめて返す */
+async function selectTab(id: SettingsTab): Promise<HTMLElement> {
+  await act(async () => container.querySelector<HTMLButtonElement>(`[role="tab"][data-tab="${id}"]`)!.click());
+  const visible = Array.from(container.querySelectorAll<HTMLElement>('[role="tabpanel"]')).filter((p) => !p.hidden);
+  expect(visible.map((p) => p.dataset.tab)).toEqual([id]);
+  return visible[0]!;
+}
+
 async function fillAndSubmit(url: string) {
   await act(async () => {
     setValue(q<HTMLInputElement>('input[name="maximo-url"]')!, url);
@@ -116,7 +127,9 @@ describe("接続の環境（本番／テスト）", () => {
     const vault = new FakeVault();
     const { client, storage } = licenseClient([]);
     await renderSettings(vault, client);
-    expect(q("#mx-env-test")).not.toBeNull();
+    // 環境の選択は「接続」のタブ（初めに開くタブ）にある
+    expect(q('[role="tabpanel"][data-tab="connection"]')?.hasAttribute("hidden")).toBe(false);
+    expect(q('[role="tabpanel"][data-tab="connection"] #mx-env-test')).not.toBeNull();
     expect(q("#mx-env-production")).not.toBeNull();
     await fillAndSubmit("https://dev.test");
     expect(vault.calls).toHaveLength(0);
@@ -150,34 +163,50 @@ describe("設定の「ライセンス」", () => {
   it("キーを一覧に出し（キーそのものは出さない）、貼って追加・外す。受け付けなかった理由も出す", async () => {
     const { client, posts } = licenseClient([]);
     await renderSettings(new FakeVault(), client);
-    expect(container.textContent).toContain("この PC にライセンスキーはありません");
-    expect(q('a[href="https://mxstage.tsunagi.app/pricing"]')).not.toBeNull();
+    const panel = await selectTab("license");
+    expect(window.location.hash).toBe("#license");
+    expect(panel.querySelector("h2")?.textContent).toBe("ライセンス");
+    expect(panel.textContent).toContain("この PC にライセンスキーはありません");
+    expect(panel.querySelector('a[href="https://mxstage.tsunagi.app/pricing"]')).not.toBeNull();
 
-    const area = q<HTMLTextAreaElement>("#license-key")!;
+    const area = panel.querySelector<HTMLTextAreaElement>("#license-key")!;
     await act(async () => setValue(area, "MXS1.bad"));
-    const add = Array.from(container.querySelectorAll("button")).find((b) => b.textContent === "キーを追加")!;
+    const add = Array.from(panel.querySelectorAll("button")).find((b) => b.textContent === "キーを追加")!;
     await act(async () => add.click());
     expect(container.textContent).toContain("キーが書き換えられているか");
 
     await act(async () => setValue(area, "MXS1.good"));
     await act(async () => add.click());
-    expect(container.textContent).toContain("ACME Corp のライセンスを追加しました");
-    expect(container.textContent).toContain("https://maximo.acme.test");
-    expect(container.textContent).toContain("2027-10-31");
+    expect(panel.textContent).toContain("ACME Corp のライセンスを追加しました");
+    expect(panel.textContent).toContain("https://maximo.acme.test");
+    expect(panel.textContent).toContain("2027-10-31");
     expect(posts.map((p) => p.path)).toEqual(["/_mxstage/license", "/_mxstage/license"]);
 
     window.confirm = vi.fn(() => true);
-    const remove = Array.from(container.querySelectorAll("button")).find((b) => b.textContent === "外す")!;
+    const remove = Array.from(panel.querySelectorAll("button")).find((b) => b.textContent === "外す")!;
     await act(async () => remove.click());
     expect(posts.at(-1)).toEqual({ path: "/_mxstage/license/remove", body: { licenseId: "lic_acme" } });
-    expect(container.textContent).toContain("キーを外しました");
+    expect(panel.textContent).toContain("キーを外しました");
   });
 
   it("開発用のキー（橋渡しが読んだもの）は外すボタンを出さない", async () => {
     const { client } = licenseClient([{ ...ACME, test: true, bundled: true }]);
     await renderSettings(new FakeVault(), client);
-    expect(container.textContent).toContain("開発用のキー");
+    const panel = await selectTab("license");
+    expect(panel.textContent).toContain("開発用のキー");
     expect(Array.from(container.querySelectorAll("button")).some((b) => b.textContent === "外す")).toBe(false);
+  });
+
+  it("/settings#license で開くとライセンスのタブが見えている（タブの並びは 接続・ライセンス・AI アシスタント・Skill・言語）", async () => {
+    window.history.replaceState(null, "", "/settings#license");
+    const { client } = licenseClient([]);
+    await renderSettings(new FakeVault(), client);
+    const tabs = Array.from(container.querySelectorAll<HTMLElement>('[role="tab"]'));
+    expect(tabs.map((t) => t.textContent)).toEqual(["接続", "ライセンス", "AI アシスタント", "Skill", "言語"]);
+    expect(q('[role="tab"][data-tab="license"]')?.getAttribute("aria-selected")).toBe("true");
+    const visible = Array.from(container.querySelectorAll<HTMLElement>('[role="tabpanel"]')).filter((p) => !p.hidden);
+    expect(visible.map((p) => p.dataset.tab)).toEqual(["license"]);
+    expect(visible[0]?.querySelector("#license-key")).not.toBeNull();
   });
 });
 
@@ -192,10 +221,15 @@ describe("上部バーの環境の札と get_status", () => {
 
   it("テスト / 本番（ライセンスあり）/ 本番（読むだけ）/ 未設定 を出し分け、期限が近ければ知らせる", async () => {
     const { client } = licenseClient([ACME]);
+    const href = () => q("a.env-tag-link")?.getAttribute("href");
     expect(await tag(client, "https://maximo.acme.test/maximo")).toBe("本番 · ACME Corp");
+    // 札は設定のライセンスのタブを開く。環境が未設定なら、環境を選ぶ接続のタブを開く
+    expect(href()).toBe("/settings#license");
     expect(await tag(client, "https://other.test/maximo")).toBe("環境が未設定");
+    expect(href()).toBe("/settings#connection");
     client.declare("https://other.test/maximo", "production");
     expect(await tag(client, "https://other.test/maximo")).toBe("本番 · 読むだけ（ライセンス無し）");
+    expect(href()).toBe("/settings#license");
     client.declare("https://other.test/maximo", "test");
     expect(await tag(client, "https://other.test/maximo")).toBe("テスト");
     const soon = licenseClient([{ ...ACME, expiresAt: "2026-10-11T00:00:00.000Z" }]).client;

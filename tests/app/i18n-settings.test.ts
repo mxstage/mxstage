@@ -18,6 +18,7 @@ import {
   vaultMessages,
 } from "../../src/app/settings/messages";
 import { VaultRequestError } from "../../src/app/keyvault/client";
+import type { SettingsTab } from "../../src/app/ui/routes";
 import { LOCALE_STORAGE_KEY, getLocale, setLocale } from "../../src/shared/i18n";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -58,6 +59,8 @@ let container: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
+  // 前の試験で選んだタブ（URL のハッシュ）を持ち越さない
+  window.history.replaceState(null, "", "/settings");
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -69,6 +72,14 @@ afterEach(async () => {
   });
   container.remove();
 });
+
+/** 設定のタブを選び、そのパネルだけが見えていることを確かめて返す */
+async function selectTab(id: SettingsTab): Promise<HTMLElement> {
+  await act(async () => container.querySelector<HTMLButtonElement>(`[role="tab"][data-tab="${id}"]`)!.click());
+  const visible = Array.from(container.querySelectorAll<HTMLElement>('[role="tabpanel"]')).filter((p) => !p.hidden);
+  expect(visible.map((p) => p.dataset.tab)).toEqual([id]);
+  return visible[0]!;
+}
 
 async function render(storage = memoryStorage(), vault: SettingsVault = new FakeVault()) {
   await act(async () => {
@@ -93,13 +104,18 @@ describe("設定画面の英語", () => {
     const text = container.textContent ?? "";
     expect(container.querySelector("h1")?.textContent).toBe("Settings");
     expect(text).toContain("Back to work screen");
-    expect(text).toContain("Maximo connection");
-    expect(text).toContain("Connection name");
-    expect(text).toContain("API key");
-    expect(text).toContain("Skills (work procedures)");
-    expect(text).toContain("LLM client connection");
-    expect(text).toContain("Used for the work screen. The AI replies in the language you write in.");
-    expect(container.querySelector('form.connect-form button[type="submit"]')?.textContent).toBe("Connect");
+    // タブ（ライセンスを渡していないのでライセンスのタブは無い）
+    expect(container.querySelector('[role="tablist"]')?.getAttribute("aria-label")).toBe("Settings sections");
+    expect(Array.from(container.querySelectorAll('[role="tab"]')).map((t) => t.textContent)).toEqual(["Connection", "AI assistants", "Skills", "Language"]);
+    const connection = container.querySelector<HTMLElement>('[role="tabpanel"][data-tab="connection"]')!;
+    expect(connection.hidden).toBe(false);
+    expect(connection.textContent).toContain("Maximo connection");
+    expect(connection.textContent).toContain("Connection name");
+    expect(connection.textContent).toContain("API key");
+    expect(connection.querySelector('form.connect-form button[type="submit"]')?.textContent).toBe("Connect");
+    expect((await selectTab("skills")).textContent).toContain("Skills (work procedures)");
+    expect((await selectTab("assistants")).textContent).toContain("LLM client connection");
+    expect((await selectTab("language")).textContent).toContain("Used for the work screen. The AI replies in the language you write in.");
     expect(JAPANESE.test(text.replaceAll("日本語", ""))).toBe(false);
     // 言語の名前は、どちらの言語でもその言語自身の書き方
     const labels = Array.from(container.querySelectorAll('input[name="ui-language"]')).map((i) => container.querySelector(`label[for="${i.id}"]`)?.textContent);
@@ -142,7 +158,8 @@ describe("設定の「言語」", () => {
   it("選ぶと言語を切り替え、mxstage.locale に覚える", async () => {
     const storage = await render();
     expect(getLocale()).toBe("ja");
-    expect(container.textContent).toContain("言語");
+    const panel = await selectTab("language");
+    expect(panel.querySelector("h2")?.textContent).toBe("言語");
     const ja = container.querySelector<HTMLInputElement>("#ui-language-ja")!;
     const en = container.querySelector<HTMLInputElement>("#ui-language-en")!;
     expect(ja.checked).toBe(true);

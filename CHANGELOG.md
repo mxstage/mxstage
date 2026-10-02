@@ -2,7 +2,7 @@
 
 All notable changes to MX Stage are listed here. Versions follow [Semantic Versioning](https://semver.org/). Each version becomes available under the Apache License 2.0 four years after its release (see [LICENSE](LICENSE)).
 
-## Unreleased
+## 0.2.3 — 2026-10-02
 
 ### Added
 

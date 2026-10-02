@@ -20,6 +20,8 @@ import { chooseLocale } from "../ui/locale";
 import { Notice } from "../ui/Notice";
 import { APP_PATH, NAVIGATE_EVENT, settingsTabOf, type SettingsTab } from "../ui/routes";
 import { LicenseSection } from "./LicenseSection";
+import { UpdatesSection } from "./UpdatesSection";
+import type { UpdatesApi } from "./updates";
 import { LANGUAGE_NAMES, settingsMessages as m } from "./messages";
 import {
   connectErrorMessage,
@@ -70,6 +72,8 @@ export interface SettingsPageProps {
   connections?: SavedConnectionsClient | null;
   /** 保存した接続先への接続（connections と一緒に渡す） */
   autoConnect?: AutoConnector | null;
+  /** 更新の窓口（省くと橋渡しの /_mxstage/updates） */
+  updates?: UpdatesApi;
 }
 
 /** 接続に成功したら、この URL に replaceState する（パスワードマネージャーの保存検知のため URL を変える） */
@@ -198,6 +202,7 @@ export function SettingsPage(props: SettingsPageProps) {
     ...(props.license ? [{ id: "license" as const, label: licenseMessages().section.title, content: <LicenseSection license={props.license} /> }] : []),
     { id: "assistants", label: tabs.assistants, content: <LlmSection clipboard={clipboard} /> },
     { id: "skills", label: tabs.skills, content: <SkillsSection load={loadSkills} /> },
+    { id: "updates", label: tabs.updates, content: <UpdatesSection {...(props.updates ? { api: props.updates } : {})} /> },
     { id: "language", label: m().language.title, content: <LanguageSection storage={storage} /> },
   ];
   // URL が指すタブが無ければ（知らない名前・ライセンスの節が無い）、初めの「接続」

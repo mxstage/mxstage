@@ -106,7 +106,7 @@ describe("設定画面の英語", () => {
     expect(text).toContain("Back to work screen");
     // タブ（ライセンスを渡していないのでライセンスのタブは無い）
     expect(container.querySelector('[role="tablist"]')?.getAttribute("aria-label")).toBe("Settings sections");
-    expect(Array.from(container.querySelectorAll('[role="tab"]')).map((t) => t.textContent)).toEqual(["Connection", "AI assistants", "Skills", "Language"]);
+    expect(Array.from(container.querySelectorAll('[role="tab"]')).map((t) => t.textContent)).toEqual(["Connection", "AI assistants", "Skills", "Updates", "Language"]);
     const connection = container.querySelector<HTMLElement>('[role="tabpanel"][data-tab="connection"]')!;
     expect(connection.hidden).toBe(false);
     expect(connection.textContent).toContain("Maximo connection");

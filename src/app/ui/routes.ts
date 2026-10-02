@@ -10,7 +10,7 @@ export const SETTINGS_PATH = "/settings";
  * 設定画面のタブ。URL のハッシュで選ぶ（/settings#license）。
  * ハッシュはルート解決（pathname だけを見る）に影響しない。
  */
-export const SETTINGS_TABS = ["connection", "license", "assistants", "skills", "language"] as const;
+export const SETTINGS_TABS = ["connection", "license", "assistants", "skills", "updates", "language"] as const;
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
 
 /** 設定画面の、そのタブを開く URL */

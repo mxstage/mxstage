@@ -18,6 +18,7 @@ export const uiMessages = defineMessages(
       importFailed: (reason: string) => `Could not receive the file (${reason}).`,
     },
     updateReady: "A new version is ready. Close this tab and open it again to switch to it.",
+    updateAvailable: (version: string) => `MX Stage ${version} is available. See Settings → Updates.`,
     handoff: {
       elsewhere: (n: number) => `The work (${n} ${n === 1 ? "sheet" : "sheets"}) is open in another window. Your AI assistant's tools work in that window too.`,
       move: "Move it to this window",
@@ -48,6 +49,7 @@ export const uiMessages = defineMessages(
       importFailed: (reason) => `ファイルを受け取れませんでした（${reason}）`,
     },
     updateReady: "新しい版を用意しました。このタブを閉じて開き直すと入れ替わります。",
+    updateAvailable: (version) => `MX Stage の新しい版 ${version} があります。設定の「更新」で入れられます。`,
     handoff: {
       elsewhere: (n) => `作業（シート ${n} 枚）は別の窓で開いています。AI アシスタントのツールもその窓で動いています。`,
       move: "この窓に移す",

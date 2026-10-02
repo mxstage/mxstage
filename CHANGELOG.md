@@ -2,6 +2,13 @@
 
 All notable changes to MX Stage are listed here. Versions follow [Semantic Versioning](https://semver.org/). Each version becomes available under the Apache License 2.0 four years after its release (see [LICENSE](LICENSE)).
 
+## Unreleased
+
+### Added
+
+- **Settings → Updates.** Shows your version and lets you check for a new one. **Update automatically** is off by default; while it is off, MX Stage never contacts GitHub. When it is on, the bridge asks GitHub once a day for the latest version number (nothing about you is sent). Installs made with the setup script then update themselves while no work is open (no window has sheets and the AI is not running a tool) and restart the bridge; copies on another branch or with local changes are left alone. The Claude Desktop extension downloads the new .mcpb, checks its SHA-256 and opens its folder for you to install.
+- The work screen tells you when a new version is known.
+
 ## 0.2.2 — 2026-10-02
 
 ### Added

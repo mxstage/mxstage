@@ -24,6 +24,7 @@ import type { HealthBody, TicketIssuer } from "./peer.ts";
 import { isPortInUseError, startBridgeServer } from "./server.ts";
 import type { LicenseStore } from "./license.ts";
 import type { ConnectionStore } from "./connections.ts";
+import type { UpdateManager } from "./updates.ts";
 import type { BridgeServer } from "./server.ts";
 
 /** CLI の client が primary の終了を確かめる間隔 */
@@ -68,6 +69,8 @@ export interface BridgeCoordinatorOptions {
   license?: LicenseStore | null;
   /** 保存した接続先（primary のとき /_mxstage/connections と /mx で使う） */
   connections?: ConnectionStore | null;
+  /** 新しい版の確認と入れ替え（primary のとき /_mxstage/updates で作業画面に出す） */
+  updates?: UpdateManager | null;
 }
 
 export class BridgeCoordinator {
@@ -101,6 +104,11 @@ export class BridgeCoordinator {
       pushImport: (msg) => this.pushImport(msg),
     };
     this.tickets = { create: () => this.createTicket() };
+  }
+
+  /** 作業中か（primary の Hub に、シートのある窓か実行中のツール呼び出しがある）。primary でなければ false */
+  isBusy(): boolean {
+    return this.roleValue === "primary" && this.bridge !== null ? this.bridge.hub.isBusy() : false;
   }
 
   get role(): BridgeRole {
@@ -235,6 +243,7 @@ export class BridgeCoordinator {
       ...(this.opts.codeStale !== undefined ? { codeStale: this.opts.codeStale } : {}),
       license: this.opts.license ?? null,
       connections: this.opts.connections ?? null,
+      updates: this.opts.updates ?? null,
     });
   }
 

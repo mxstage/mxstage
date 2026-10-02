@@ -197,12 +197,12 @@ describe("設定の「ライセンス」", () => {
     expect(Array.from(container.querySelectorAll("button")).some((b) => b.textContent === "外す")).toBe(false);
   });
 
-  it("/settings#license で開くとライセンスのタブが見えている（タブの並びは 接続・ライセンス・AI アシスタント・Skill・言語）", async () => {
+  it("/settings#license で開くとライセンスのタブが見えている（タブの並びは 接続・ライセンス・AI アシスタント・Skill・更新・言語）", async () => {
     window.history.replaceState(null, "", "/settings#license");
     const { client } = licenseClient([]);
     await renderSettings(new FakeVault(), client);
     const tabs = Array.from(container.querySelectorAll<HTMLElement>('[role="tab"]'));
-    expect(tabs.map((t) => t.textContent)).toEqual(["接続", "ライセンス", "AI アシスタント", "Skill", "言語"]);
+    expect(tabs.map((t) => t.textContent)).toEqual(["接続", "ライセンス", "AI アシスタント", "Skill", "更新", "言語"]);
     expect(q('[role="tab"][data-tab="license"]')?.getAttribute("aria-selected")).toBe("true");
     const visible = Array.from(container.querySelectorAll<HTMLElement>('[role="tabpanel"]')).filter((p) => !p.hidden);
     expect(visible.map((p) => p.dataset.tab)).toEqual(["license"]);

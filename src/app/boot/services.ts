@@ -10,6 +10,7 @@ import { KeyVault, createWorkerTransport } from "../keyvault/client";
 import { LicenseClient } from "../license/client";
 import { relayUrl, type ImportErrorReason } from "../relay";
 import { importErrorMessages } from "../settings/messages";
+import { createUpdatesApi } from "../settings/updates";
 import { uiMessages } from "../ui/messages";
 import { ToastStore } from "../ui/toast";
 import { factories } from "./factories";
@@ -49,6 +50,14 @@ export function createServices(): AppServices {
   const autoConnect = new AutoConnector({ saved: connections, vault, license, win: typeof window === "undefined" ? null : window });
   void autoConnect.start();
   const toasts = new ToastStore();
+  // 新しい版が分かっていれば知らせる（問い合わせるのは橋渡しで、自動の更新がオフなら問い合わせていない）
+  if (typeof window !== "undefined" && window.location.pathname.startsWith("/app")) {
+    void createUpdatesApi()
+      .status()
+      .then((s) => {
+        if (s?.available && s.latest && s.phase !== "applying") toasts.show(uiMessages().updateAvailable(s.latest.version));
+      });
+  }
   // オブジェクト構造は設定としてブラウザに保存し、作業終了でも消さない。
   // Maximo に接続したら、LLM の操作を待たずにすべての定義を機械的に読み込む
   const catalog = new ObjectStructureCatalog({ storage: createDefaultCatalogStorage() });

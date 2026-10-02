@@ -22,6 +22,38 @@ const EN_RELOAD_HINT =
 const JA_UNREACHABLE = `${JA_PROXY} から Maximo に到達できませんでした。URL を確認してください。Maximo の証明書が私設 CA の場合などは、接続方式を「直結（direct）」にしてください（Maximo 側でこのツールのオリジンと apikey ヘッダを CORS で許可する必要があります）。`;
 const EN_UNREACHABLE = `${EN_PROXY_START} could not reach Maximo. Check the URL. If Maximo uses a certificate from a private CA, for example, set the connection method to Direct (Maximo must allow this tool's origin and the apikey header in its CORS settings).`;
 
+/** 更新の失敗の理由（橋渡しの src/bridge/updates.ts が返す短いコード） */
+const UPDATE_ERRORS_EN = {
+        busy: "Not updated now because work is open (a window has sheets, or the AI is running a tool). It updates when the work is finished.",
+        not_main: "Not updated automatically because this copy is not on the main branch.",
+        local_changes: "Not updated automatically because this copy has local changes.",
+        other_origin: "Not updated automatically because this copy does not come from github.com/mxstage/mxstage.",
+        not_git: "This copy was not installed with git, so it cannot update itself.",
+        git_failed: "Could not get the new version with git. Check your network, or update by hand.",
+        setup_failed: "Got the new version, but the setup failed. Run the setup again by hand.",
+        no_asset: "The release has no extension file (.mcpb).",
+        no_checksum: "Could not read the checksum of the extension file.",
+        checksum_mismatch: "The downloaded file did not match its checksum, so it was discarded.",
+        download_failed: "Could not download the extension file.",
+        too_large: "The extension file is unexpectedly large, so it was not downloaded.",
+        no_release: "No release was found on GitHub.",
+      };
+const UPDATE_ERRORS_JA: Record<keyof typeof UPDATE_ERRORS_EN, string> = {
+        busy: "作業中（シートのある窓があるか、AI がツールを実行中）なので、今は入れ替えていません。作業が終わったら入れ替えます。",
+        not_main: "この写しは main ではないので、自動では更新しません。",
+        local_changes: "この写しに手元の変更があるので、自動では更新しません。",
+        other_origin: "この写しの取得元が github.com/mxstage/mxstage ではないので、自動では更新しません。",
+        not_git: "git で入れたものではないので、自分では更新できません。",
+        git_failed: "git で新しい版を取れませんでした。ネットワークを確かめるか、手で更新してください。",
+        setup_failed: "新しい版は取れましたが、導入に失敗しました。手で導入をやり直してください。",
+        no_asset: "リリースに拡張機能のファイル（.mcpb）がありません。",
+        no_checksum: "拡張機能のファイルの SHA-256 を読めませんでした。",
+        checksum_mismatch: "ダウンロードしたファイルが SHA-256 と合わなかったので、捨てました。",
+        download_failed: "拡張機能のファイルをダウンロードできませんでした。",
+        too_large: "拡張機能のファイルが大きすぎるので、ダウンロードしませんでした。",
+        no_release: "GitHub にリリースが見つかりませんでした。",
+      };
+
 export const settingsMessages = defineMessages(
   {
     page: {
@@ -35,6 +67,38 @@ export const settingsMessages = defineMessages(
       connection: "Connection",
       assistants: "AI assistants",
       skills: "Skills",
+      updates: "Updates",
+    },
+    updates: {
+      title: "Updates",
+      loading: "Loading…",
+      unavailable: "This bridge cannot check for updates. It may be an older version.",
+      current: (version: string, kind: string) => `Version ${version} (${kind})`,
+      kindGit: "installed with the setup script",
+      kindBundle: "Claude Desktop extension",
+      autoLabel: "Update automatically",
+      on: "On",
+      off: "Off",
+      autoHelpGit:
+        "Once a day, asks GitHub whether a new version exists. When one does, it is installed automatically while no work is open (no window has sheets and the AI is not running a tool), and the bridge restarts.",
+      autoHelpBundle:
+        "Once a day, asks GitHub whether a new version exists, and tells you here when one does. Claude Desktop manages the extension, so you install the new file with one click.",
+      privacy: "Only the latest version number is fetched; nothing about you or your data is sent. While this is off, MX Stage does not contact GitHub (except when you press “Check now”).",
+      neverChecked: "Not checked yet.",
+      lastChecked: (when: string) => `Last checked: ${when}`,
+      checkNow: "Check now",
+      checking: "Checking…",
+      upToDate: "You have the latest version.",
+      available: (version: string) => `Version ${version} is available.`,
+      whatsNew: "What's new",
+      installGit: "Update now",
+      installBundle: "Download and install",
+      applying: "Updating… This can take a few minutes. The bridge restarts when it is done; then reopen this screen.",
+      downloading: "Downloading…",
+      restartNeeded: "Updated. Restart your AI assistant to use the new version.",
+      downloaded: "Downloaded and checked the new extension file:",
+      installSteps: "In Claude Desktop, open Settings → Extensions → Advanced settings → Install Extension… and choose this file.",
+      error: (code: string) => (UPDATE_ERRORS_EN as Record<string, string>)[code] ?? `Could not update (${code}).`,
     },
     language: {
       title: "Language",
@@ -189,6 +253,38 @@ export const settingsMessages = defineMessages(
       connection: "接続",
       assistants: "AI アシスタント",
       skills: "Skill",
+      updates: "更新",
+    },
+    updates: {
+      title: "更新",
+      loading: "読み込んでいます…",
+      unavailable: "この橋渡しは更新を確かめられません。古い版かもしれません。",
+      current: (version, kind) => `版 ${version}（${kind}）`,
+      kindGit: "導入スクリプトで入れたもの",
+      kindBundle: "Claude Desktop の拡張機能",
+      autoLabel: "自動で更新する",
+      on: "オン",
+      off: "オフ",
+      autoHelpGit:
+        "1 日 1 回、GitHub に新しい版があるかを問い合わせます。あれば、作業中でないとき（シートのある窓が無く、AI がツールを実行していないとき）に自動で入れ替え、橋渡しを起動し直します。",
+      autoHelpBundle:
+        "1 日 1 回、GitHub に新しい版があるかを問い合わせ、あればここでお知らせします。拡張機能は Claude Desktop が管理しているので、新しいファイルはボタン 1 つで入れられるようにします。",
+      privacy: "問い合わせるのは最新の版の番号だけで、あなたや作業のデータは送りません。オフの間は GitHub に問い合わせません（「今すぐ確かめる」を押したときだけ）。",
+      neverChecked: "まだ確かめていません。",
+      lastChecked: (when) => `最後に確かめた日時: ${when}`,
+      checkNow: "今すぐ確かめる",
+      checking: "確かめています…",
+      upToDate: "最新の版です。",
+      available: (version) => `新しい版 ${version} があります。`,
+      whatsNew: "変更点",
+      installGit: "今すぐ更新する",
+      installBundle: "ダウンロードして入れる",
+      applying: "更新しています…（数分かかります）。終わると橋渡しが起動し直すので、この画面を開き直してください。",
+      downloading: "ダウンロードしています…",
+      restartNeeded: "入れ替えました。AI アシスタントを開き直すと新しい版になります。",
+      downloaded: "新しい拡張機能のファイルをダウンロードし、確かめました:",
+      installSteps: "Claude Desktop の「Settings → Extensions」で「Advanced settings → Install Extension…」を押し、このファイルを選んでください。",
+      error: (code) => (UPDATE_ERRORS_JA as Record<string, string>)[code] ?? `更新できませんでした（${code}）。`,
     },
     language: {
       title: "言語",

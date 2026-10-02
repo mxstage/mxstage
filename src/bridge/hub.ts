@@ -388,6 +388,14 @@ export class LocalHub implements HubRpc {
     return sendJson(source.ws, msg);
   }
 
+  /**
+   * 作業中か（シートのある窓、シートの数が分からない古い画面、実行中のツール呼び出しがある）。
+   * 自動の更新はこの間は橋渡しを入れ替えない
+   */
+  isBusy(): boolean {
+    return this.pending.size > 0 || this.tabs().some((t) => (t.sheets ?? 1) > 0);
+  }
+
   /** いまの primary のタブ ID（試験・状態の確認用） */
   primaryTabId(): string | null {
     return this.primaryTab()?.tabId ?? null;

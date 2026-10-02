@@ -22,6 +22,7 @@ import { PEER_PREFIX, handlePeerRequest, readBody } from "./peer.ts";
 import type { LicenseStore } from "./license.ts";
 import type { ConnectionStore } from "./connections.ts";
 import { HANDOFF_PATHS, Handoffs } from "./handoff.ts";
+import type { UpdateManager } from "./updates.ts";
 import type { BridgeKeyStore } from "./bridgeKey.ts";
 import { readSkillCatalog } from "./skills.ts";
 import { serveStatic } from "./staticFiles.ts";
@@ -60,6 +61,8 @@ export interface BridgeServerOptions {
   license?: LicenseStore | null;
   /** 保存した接続先（API キーを預かる）。省くと /_mxstage/connections は 503、/mx は毎回キーを受け取る方式だけ */
   connections?: ConnectionStore | null;
+  /** 新しい版の確認と入れ替え（設定の「更新」）。省くと /_mxstage/updates は 503 */
+  updates?: UpdateManager | null;
 }
 
 /** 作業画面の設定が読む Skill の一覧（本文は含めない） */
@@ -78,6 +81,13 @@ export const CONNECTIONS_REMOVE_PATH = "/_mxstage/connections/remove";
 /** 最後に使った接続先にする（POST） */
 export const CONNECTIONS_USE_PATH = "/_mxstage/connections/use";
 const CONNECTIONS_PATHS: readonly string[] = [CONNECTIONS_PATH, CONNECTIONS_REMOVE_PATH, CONNECTIONS_USE_PATH];
+/** 更新の状態（GET）と自動の更新の切り替え（POST { autoUpdate }） */
+export const UPDATES_PATH = "/_mxstage/updates";
+/** 今すぐ確かめる（POST） */
+export const UPDATES_CHECK_PATH = "/_mxstage/updates/check";
+/** 入れる（POST。git は入れ替え、.mcpb はダウンロード） */
+export const UPDATES_INSTALL_PATH = "/_mxstage/updates/install";
+const UPDATES_PATHS: readonly string[] = [UPDATES_PATH, UPDATES_CHECK_PATH, UPDATES_INSTALL_PATH];
 /** 接続先の入口が受ける本文の上限 */
 export const CONNECTIONS_BODY_LIMIT = 16 * 1024;
 /** /mx で保存した接続先を指すヘッダ（小文字） */
@@ -261,6 +271,42 @@ async function handleConnectionsRequest(req: IncomingMessage, res: ServerRespons
   else sendJson(res, 404, { ok: false, error: "connection_not_found", message: "The saved connection was not found." });
 }
 
+/**
+ * 更新の入口（作業画面の設定の「更新」）。外へ問い合わせるのは、自動の更新がオンのときと「今すぐ確かめる」を押したときだけ。
+ *   GET  /_mxstage/updates          今の版・最新の版・自動の更新のオン／オフ
+ *   POST /_mxstage/updates          { autoUpdate } を切り替える（オンにしたらすぐ確かめる）
+ *   POST /_mxstage/updates/check    今すぐ確かめる
+ *   POST /_mxstage/updates/install  入れる（git は入れ替え、.mcpb はダウンロードして置き場所を開く）
+ */
+async function handleUpdatesRequest(req: IncomingMessage, res: ServerResponse, pathname: string, updates: UpdateManager | null): Promise<void> {
+  const method = (req.method ?? "GET").toUpperCase();
+  const allowed = pathname === UPDATES_PATH ? ["GET", "POST"] : ["POST"];
+  if (!allowed.includes(method)) {
+    sendJson(res, 405, { ok: false, error: "method_not_allowed", message: `Only ${allowed.join(", ")} is accepted.` }, { Allow: allowed.join(", ") });
+    return;
+  }
+  if (updates === null) {
+    sendJson(res, 503, { ok: false, error: "updates_unavailable", message: "This bridge cannot check for updates." });
+    return;
+  }
+  if (method === "GET") {
+    sendJson(res, 200, { ok: true, ...updates.status() });
+    return;
+  }
+  if (pathname === UPDATES_PATH) {
+    const body = await readJsonBody(req, 1024);
+    if (body === null || body === "too_large" || typeof body.autoUpdate !== "boolean") {
+      sendJson(res, 400, { ok: false, error: "invalid_request", message: "Send autoUpdate as a boolean." });
+      return;
+    }
+    sendJson(res, 200, { ok: true, ...(await updates.setAutoUpdate(body.autoUpdate)) });
+    return;
+  }
+  req.resume();
+  const status = pathname === UPDATES_CHECK_PATH ? await updates.check() : await updates.install();
+  sendJson(res, 200, { ok: true, ...status });
+}
+
 /** ブラウザの同一オリジンの要求か（保存した接続先で Maximo へ送るときに求める） */
 function isSameOriginBrowserRequest(req: IncomingMessage, port: number): boolean {
   const origin = header(req, "origin");
@@ -289,7 +335,7 @@ export async function startBridgeServer(opts: BridgeServerOptions): Promise<Brid
       const pathname = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
       // ライセンスの入口は作業画面（同一オリジン）からだけ受ける
       // ライセンスと保存した接続先の入口は作業画面（同一オリジン）からだけ受ける
-      isTicketPath = pathname.startsWith("/import/") || (pathname.startsWith(PEER_PREFIX) && !LICENSE_PATHS.includes(pathname) && !CONNECTIONS_PATHS.includes(pathname) && !HANDOFF_PATHS.includes(pathname));
+      isTicketPath = pathname.startsWith("/import/") || (pathname.startsWith(PEER_PREFIX) && !LICENSE_PATHS.includes(pathname) && !CONNECTIONS_PATHS.includes(pathname) && !HANDOFF_PATHS.includes(pathname) && !UPDATES_PATHS.includes(pathname));
     } catch {
       isTicketPath = false;
     }
@@ -331,6 +377,11 @@ export async function startBridgeServer(opts: BridgeServerOptions): Promise<Brid
 
     if (LICENSE_PATHS.includes(url.pathname)) {
       await handleLicenseRequest(req, res, url.pathname, opts.license ?? null);
+      return;
+    }
+
+    if (UPDATES_PATHS.includes(url.pathname)) {
+      await handleUpdatesRequest(req, res, url.pathname, opts.updates ?? null);
       return;
     }
 

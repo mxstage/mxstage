@@ -26,6 +26,7 @@ import { CodeFingerprint, checkUpdates, isDefaultAppDir } from "./freshness.ts";
 import { migrateLegacyFiles } from "./legacy.ts";
 import { LicenseStore, licenseTestKeysAllowed, readDevLicenses } from "./license.ts";
 import { ConnectionStore } from "./connections.ts";
+import { UpdateManager, revealInFolder } from "./updates.ts";
 import { createBridgeLogger } from "./logFile.ts";
 import { buildBridgeMcpServer } from "./mcp.ts";
 import { userSkillsDirOf } from "./skills.ts";
@@ -108,6 +109,20 @@ export async function main(argv: readonly string[]): Promise<number> {
   // 起動したときのコードを覚えておき、あとでリポジトリが更新されたら知らせる（src/bridge/freshness.ts）。
   // 同梱では、更新はクライアントが拡張ごと入れ替えるので、リポジトリを前提にした知らせは出さない
   const code = BUNDLE ? null : new CodeFingerprint(ROOT);
+  // 新しい版の確認と入れ替え（既定はオフ。src/bridge/updates.ts）。橋渡しの状態は下で作る coordinator から読む
+  let coordinatorRef: BridgeCoordinator | null = null;
+  const updater = new UpdateManager({
+    dir: dirname(keyPath),
+    current: version,
+    kind: BUNDLE ? "bundle" : "git",
+    ...(BUNDLE ? {} : { repoRoot: ROOT }),
+    isBusy: () => coordinatorRef?.isBusy() ?? true,
+    isPrimary: () => coordinatorRef?.role === "primary",
+    // 自動起動・導入で起動した橋渡し（MCP を話さない）だけ、自分で起動し直せる
+    restart: opts.mcp ? null : () => void restartSelf(),
+    log: record,
+    reveal: revealInFolder,
+  });
   const coordinator = new BridgeCoordinator({
     port: opts.port,
     root,
@@ -127,6 +142,7 @@ export async function main(argv: readonly string[]): Promise<number> {
     }),
     // 保存した Maximo の接続先（API キーは OS の保護付きで暗号化する。src/bridge/connections.ts）
     connections: new ConnectionStore({ dir: dirname(keyPath) }),
+    updates: updater,
     // MCP を話さないプロセスは client として残らないので、見張りは MCP を話すときだけ
     watchIntervalMs: opts.mcp ? CLIENT_WATCH_INTERVAL_MS : 0,
     log: record,
@@ -182,12 +198,29 @@ export async function main(argv: readonly string[]): Promise<number> {
     : null;
 
   if (opts.open) openInBrowser(`${coordinator.origin}/app`);
+  coordinatorRef = coordinator;
+  updater.start();
+
+  /** 新しい版に入れ替えたあと、同じ引数で起動し直す（ポートを空けてから新しいプロセスを起こす） */
+  async function restartSelf(): Promise<void> {
+    record("mxstage bridge restarting for an update");
+    updater.stop();
+    await coordinator.close().catch(() => undefined);
+    try {
+      const child = spawn(process.execPath, [...process.execArgv, ...process.argv.slice(1)], { cwd: process.cwd(), env: process.env, detached: true, stdio: "ignore", windowsHide: true });
+      child.unref();
+    } catch (e) {
+      record(`起動し直せませんでした: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    process.exit(0);
+  }
 
   let stopping = false;
   const stop = (): void => {
     if (stopping) return;
     stopping = true;
     record("mxstage bridge stopping");
+    updater.stop();
     void stdio?.close().catch(() => undefined);
     void coordinator.close().finally(() => process.exit(0));
   };

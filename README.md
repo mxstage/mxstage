@@ -1,5 +1,16 @@
 # MX Stage
 
+[![MCP Registry](https://img.shields.io/badge/MCP_Registry-io.github.mxstage%2Fmxstage-0a7bbb)](https://registry.modelcontextprotocol.io/v0/servers?search=io.github.mxstage/mxstage)
+[![Latest release](https://img.shields.io/github/v/release/mxstage/mxstage?label=release)](https://github.com/mxstage/mxstage/releases/latest)
+[![Claude Desktop extension](https://img.shields.io/badge/Claude_Desktop-.mcpb_extension-d97757)](https://github.com/mxstage/mxstage/releases/latest)
+[![ChatGPT desktop](https://img.shields.io/badge/ChatGPT_desktop-Codex_%7C_Work-10a37f)](#supported-ai-assistants)
+[![IBM Maximo / MAS Manage](https://img.shields.io/badge/IBM_Maximo-MAS_Manage-0f62fe)](#requirements)
+[![EAM / CMMS](https://img.shields.io/badge/category-EAM_%7C_CMMS-6f42c1)](#requirements)
+[![MCP server](https://img.shields.io/badge/MCP-server-555555)](https://modelcontextprotocol.io)
+[![Free for test environments](https://img.shields.io/badge/free-test_environments-2ea44f)](https://mxstage.tsunagi.app/pricing)
+[![License: BSL 1.1](https://img.shields.io/badge/license-BSL_1.1_%E2%86%92_Apache_2.0-blue)](LICENSE)
+[![Windows](https://img.shields.io/badge/platform-Windows-0078d4)](#requirements)
+
 English | [日本語](README.ja.md)
 
 **MX Stage is a local-only AI workbench for correcting IBM Maximo data with your own AI assistant (Claude Desktop, ChatGPT, IBM Bob): every change is staged, diffed and approved by a human before it is written to Maximo.**

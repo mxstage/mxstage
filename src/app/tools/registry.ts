@@ -54,7 +54,7 @@ import {
   type ErrorContext,
 } from "./errors";
 import { columnTitleMap } from "../../shared/columnLabel";
-import { CHILD_ID_NOTE, planSheetLoad, resolveKeyColumns, type LoadSheetArgs, type SheetLoadPlan } from "./loadSheet";
+import { CHILD_ID_NOTE, planSheetLoad, resolveKeyColumns, specificationNote, type LoadSheetArgs, type SheetLoadPlan } from "./loadSheet";
 import { clipCell, clipString, clipValues, DATA_NOTICE, fitCount, isoTime, jsonBytes, RESULT_BUDGET_BYTES, SIZE_NOTE, toolResult, TRUNCATED_NOTE } from "./results";
 
 /** タブで実行するツール（hello で Hub に知らせる） */
@@ -530,6 +530,9 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
     if (res.truncated) value.maxRowsNote = `Stopped at maxRows (${args.maxRows}). Narrow the conditions or raise maxRows.`;
     if (plan.keys.note !== undefined) value.keyColumnsNote = plan.keys.note;
     if (Object.keys(plan.childIdAttrs).length > 0) value.childIdNote = CHILD_ID_NOTE;
+    // 仕様の表なら、分類の階層パスと欠けを画面に出すのに足りないもの（分類 ID・分類のシート）を知らせる
+    const specNote = specificationNote(plan.meta, Array.from(workspace.sheets.values()).filter((s) => s.name !== summary.name));
+    if (specNote !== null) value.specificationNote = specNote;
     if (plan.addedColumns.length > 0) value.addedColumns = plan.addedColumns;
     if (res.postFilters.length > 0) {
       // 子の属性の条件は Maximo へ送れない。maxRows は「絞る前に取る親の数」なので、打ち切ると子を持つ行を取りこぼす

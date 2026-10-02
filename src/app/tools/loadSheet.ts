@@ -6,10 +6,30 @@ import type { ToolArgs } from "../../shared/toolDefs";
 import type { ObjectStructureInfo } from "../maximo/meta";
 import { buildOrderBy, buildSelect, buildWhere, QueryBuildError, splitColumnName } from "../maximo/query";
 import { compileFilters } from "../store";
+import { findClassDefs, findClassLabels, parentClassColumn, pivotSpecFor, type DefinitionSheet } from "../grid/pivot";
 import { invalidArgs, messageOf, withSuggestions } from "./errors";
 
 export const CHILD_ID_NOTE =
   "The ID attributes of child objects are inferred from naming rules (such as <child object name>ID) and need checking against the real Maximo. Children whose idAttr is null cannot be changed or deleted, only added.";
+
+/**
+ * 仕様の表（ASSETSPEC など、項目名と値の組の子）を読み込んだとき、作業画面が分類の階層パスと欠けを出すのに足りないものを LLM に知らせる。
+ * 分類 ID が無い・分類のシート（HIERARCHYPATH と CLASSSPEC）が無いときだけ文を返す
+ */
+export function specificationNote(meta: Pick<SheetMeta, "columns" | "childIdAttrs">, others: Iterable<DefinitionSheet>): string | null {
+  const specChild = Object.keys(meta.childIdAttrs).find((child) => pivotSpecFor(meta, child) !== null);
+  if (specChild === undefined) return null;
+  if (parentClassColumn(meta) === null) {
+    return `The ${specChild} rows are shown one row per record in the work screen. Add CLASSSTRUCTUREID to select so the work screen can show each record's classification (hierarchy path) and mark missing specification items.`;
+  }
+  const list = [...others];
+  const hasPaths = [...findClassLabels(list).values()].some((l) => l.path !== null);
+  if (findClassDefs(list) !== null && hasPaths) return null;
+  return (
+    "To show each record's classification hierarchy path and mark missing specification items in the work screen, also load the classifications as a sheet: " +
+    "the object structure for classifications (find it with find_object_structures), with CLASSSTRUCTUREID, HIERARCHYPATH, DESCRIPTION and the CLASSSPEC child (ASSETATTRID, MEASUREUNITID). Ask the user first."
+  );
+}
 
 export interface KeyResolution {
   keyColumns: string[];

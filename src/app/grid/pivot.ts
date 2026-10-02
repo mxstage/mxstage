@@ -344,3 +344,43 @@ export function newSpecRow(
   if (childClass !== undefined) out[childClass.name] = cls;
   return out;
 }
+
+/** 分類の見出し（階層パスと説明） */
+export interface ClassLabel {
+  path: string | null;
+  description: string | null;
+}
+
+/**
+ * 読み込んだ分類のシートから、分類 ID → 階層パス・説明 を作る。分類のシートは、親の列に CLASSSTRUCTUREID と
+ * HIERARCHYPATH があるもの、または子に CLASSSPEC があるもの（資産のシートの DESCRIPTION は機器の説明なので使わない）
+ */
+export function findClassLabels(sheets: Iterable<DefinitionSheet>): Map<string, ClassLabel> {
+  const out = new Map<string, ClassLabel>();
+  for (const sheet of sheets) {
+    const cols = sheet.meta.columns;
+    const parent = (name: string) => cols.find((c) => c.child === undefined && upper(c.name) === name)?.name ?? null;
+    const classCol = parent(CLASS_COL);
+    if (classCol === null) continue;
+    const pathCol = parent("HIERARCHYPATH");
+    const isClassSheet = pathCol !== null || cols.some((c) => c.child !== undefined && upper(c.child) === "CLASSSPEC");
+    if (!isClassSheet) continue;
+    const descCol = parent("DESCRIPTION");
+    for (const row of sheet.viewRows("final")) {
+      const id = sheet.finalValue(row, classCol);
+      if (isEmpty(id) || out.has(String(id))) continue;
+      const path = pathCol === null ? null : sheet.finalValue(row, pathCol);
+      const desc = descCol === null ? null : sheet.finalValue(row, descCol);
+      out.set(String(id), { path: isEmpty(path) ? null : String(path), description: isEmpty(desc) ? null : String(desc) });
+    }
+  }
+  return out;
+}
+
+/** 分類の列に出す文字。階層パス（分類コードをつないだもの）に説明を添える（例 MECH  ROT  PUMP（ポンプ））。無ければ説明、それも無ければ分類 ID */
+export function classLabelText(id: CellValue, labels: ReadonlyMap<string, ClassLabel>): string {
+  if (isEmpty(id)) return "";
+  const label = labels.get(String(id));
+  if (label?.path && label.description && !label.path.endsWith(label.description)) return `${label.path}（${label.description}）`;
+  return label?.path ?? label?.description ?? String(id);
+}

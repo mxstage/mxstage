@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   addClassColumns,
   buildPivot,
+  classLabelText,
   findAttrTypes,
   findClassDefs,
+  findClassLabels,
   newSpecRow,
   parentClassColumn,
   pivotCell,
@@ -14,6 +16,7 @@ import {
   type PivotClassInfo,
 } from "../../src/app/grid/pivot";
 import { loadOrientations, orientationKey, saveOrientations } from "../../src/app/pages/orientation";
+import { specificationNote } from "../../src/app/tools/loadSheet";
 import { Workspace } from "../../src/app/store/workspace";
 import type { ColumnSchema } from "../../src/shared/model";
 import { makeChildRowKey, makeParentKey, type SheetMeta, type SheetRow } from "../../src/shared/sheet";
@@ -330,5 +333,73 @@ describe("分類による区別", () => {
     const cell = pivotCell(after.rows[1]!, after.columns.find((c) => c.attr === "FLOW")!, spec, v);
     expect(cell.row !== null && v(cell.row, "ASSETSPEC.NUMVALUE")).toBe(95);
     expect(s.rowStatus(cell.row!)).toBe("added");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 分類の階層パス（横持ちの先頭の「分類」の列）と、読み込みの結果で LLM に知らせる文
+// ---------------------------------------------------------------------------
+
+describe("分類の階層パス", () => {
+  /** 分類のシート（HIERARCHYPATH・DESCRIPTION・CLASSSPEC） */
+  function classSheetWith(path: boolean): Workspace {
+    const ws = new Workspace("test");
+    const rows: SheetRow[] = [
+      ["1003", "設備 \\ 回転機械 \\ ポンプ", "ポンプ"],
+      ["1016", "設備 \\ 熱設備 \\ ボイラ", "ボイラ"],
+    ].map(([id, p, d]) => ({
+      rowKey: makeChildRowKey(makeParentKey([id as string]), "CLASSSPEC", `${id}-0`),
+      parentKey: makeParentKey([id as string]),
+      childName: "CLASSSPEC",
+      values: { CLASSSTRUCTUREID: id as string, ...(path ? { HIERARCHYPATH: p as string } : {}), DESCRIPTION: d as string, "CLASSSPEC.CLASSSPECID": `${id}-0`, "CLASSSPEC.ASSETATTRID": "MODEL" },
+    }));
+    ws.createSheet(
+      {
+        name: "分類",
+        source: { kind: "maximo", os: "MXAPICLASSSTRUCTURE", select: [], where: [] },
+        columns: [
+          { name: "CLASSSTRUCTUREID", type: "string" },
+          ...(path ? [{ name: "HIERARCHYPATH", type: "string" as const }] : []),
+          { name: "DESCRIPTION", type: "string" },
+          { name: "CLASSSPEC.CLASSSPECID", type: "string", child: "CLASSSPEC" },
+          { name: "CLASSSPEC.ASSETATTRID", type: "string", child: "CLASSSPEC" },
+        ],
+        keyColumns: ["CLASSSTRUCTUREID"],
+        childIdAttrs: { CLASSSPEC: "CLASSSPECID" },
+      },
+      rows,
+    );
+    return ws;
+  }
+
+  it("分類のシートから階層パスを取り、無ければ説明、それも無ければ分類 ID を出す", () => {
+    const labels = findClassLabels([classSheetWith(true).getSheet("分類")]);
+    // 階層パスの終わりが説明と同じなら添えない。分類コードの階層パスには説明を添える
+    expect(classLabelText("1003", labels)).toBe("設備 \\ 回転機械 \\ ポンプ");
+    const coded = new Map([["1003", { path: "MECH \\ ROT \\ PUMP", description: "ポンプ" }]]);
+    expect(classLabelText("1003", coded)).toBe("MECH \\ ROT \\ PUMP（ポンプ）");
+    expect(classLabelText("9999", labels)).toBe("9999");
+    expect(classLabelText(null, labels)).toBe("");
+    const noPath = findClassLabels([classSheetWith(false).getSheet("分類")]);
+    expect(classLabelText("1016", noPath)).toBe("ボイラ");
+  });
+
+  it("資産のシートの説明は分類の見出しに使わない", () => {
+    const ws = classifiedWorkspace();
+    expect(findClassLabels([ws.getSheet("資産")]).size).toBe(0);
+  });
+
+  it("仕様の表を読み込んだとき、分類 ID・分類のシートが足りなければ LLM に知らせる", () => {
+    const ws = classifiedWorkspace();
+    const assets = ws.getSheet("資産").meta;
+    // 分類 ID はあるが、分類のシートに階層パスが無い
+    expect(specificationNote(assets, [ws.getSheet("分類の仕様")])).toMatch(/HIERARCHYPATH/);
+    // 階層パスつきの分類のシートがあれば何も言わない
+    expect(specificationNote(assets, [classSheetWith(true).getSheet("分類")])).toBeNull();
+    // 分類 ID を読み込んでいない
+    const noClass = { ...assets, columns: assets.columns.filter((c) => c.name !== "CLASSSTRUCTUREID") };
+    expect(specificationNote(noClass, [])).toMatch(/Add CLASSSTRUCTUREID/);
+    // 仕様の表でなければ何も言わない
+    expect(specificationNote({ columns: [{ name: "WONUM", type: "string" }], childIdAttrs: {} }, [])).toBeNull();
   });
 });

@@ -5,7 +5,8 @@
 //   欠け（その機器の分類にある項目なのに行が無い。黄色）は値を入れると仕様の行を足す（workspace.addRows、author:"user"）。
 //   分類に無い項目は灰色で直せない。分類の仕様が無ければ、行の無いセルはすべて灰色で直せない。
 // - 同じ項目の行が 2 つ以上あるセルは、どれを直すか決められないので横持ちでは直さない（縦持ちで直す）。
-// - 先頭の列は親のキー列と説明（読むだけ。親の値は親のペインで直す）。
+// - 先頭の列は親のキー列・説明・分類（読むだけ。親の値は親のペインで直す）。分類は、読み込んだ分類のシートの
+//   階層パス（HIERARCHYPATH。無ければ説明、それも無ければ分類 ID）で出す（grid/pivot.ts の findClassLabels）。
 // - 列の見出しから縦持ちと同じ絞り込みができる（grid/filters.ts）。欠け・値が空のセルは「空」、分類に無い項目のセルは
 //   「（分類に無い）」という値として扱うので、「この項目が欠けている機器だけ」を出せる。
 
@@ -24,6 +25,8 @@ import { gridMessages } from "./messages";
 import {
   addClassColumns,
   buildPivot,
+  classLabelText,
+  findClassLabels,
   findAttrTypes,
   findClassDefs,
   newSpecRow,
@@ -132,7 +135,7 @@ export function PivotGrid({ workspace, sheetName, view, version, isBusy, onMessa
     setFilters([]);
     setMenu(null);
   }, [sheetName]);
-  // 先頭の列: 親のキー列と説明（読むだけ）
+  // 先頭の列: 親のキー列・説明・分類（読むだけ）
   const labelCols = useMemo<ColumnSchema[]>(() => {
     if (!sheet) return [];
     const keys = new Set(sheet.meta.keyColumns.map((k) => k.toUpperCase()));
@@ -140,16 +143,34 @@ export function PivotGrid({ workspace, sheetName, view, version, isBusy, onMessa
     const out = parentCols.filter((c) => keys.has(c.name.toUpperCase()));
     const desc = parentCols.find((c) => c.name.toUpperCase() === "DESCRIPTION");
     if (desc !== undefined && !out.includes(desc)) out.push(desc);
+    const cls = parentCols.find((c) => c.name.toUpperCase() === "CLASSSTRUCTUREID");
+    if (cls !== undefined && !out.includes(cls)) out.push(cls);
     return out;
   }, [sheet, version]);
+  // 分類 ID → 階層パス（読み込んだ分類のシートから。この表のシートは除く）
+  const classLabels = useMemo(
+    () => findClassLabels(Array.from(workspace.sheets.values()).filter((x) => x.name !== sheetName)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [workspace, sheetName, version],
+  );
+  const classColName = useMemo(() => (sheet ? parentClassColumn(sheet.meta) : null), [sheet]);
+  /** 先頭の列の文字（分類の列は階層パス） */
+  const labelText = useCallback(
+    (prow: PivotRow, col: ColumnSchema): string => {
+      if (!sheet) return "";
+      const v = sheet.viewValue(prow.parent, col.name, view);
+      return col.name === classColName ? classLabelText(v, classLabels) : formatColumnValue(col, v);
+    },
+    [sheet, view, classColName, classLabels],
+  );
 
   /** 絞り込みに使う文字（画面の表示と同じ。分類に無い項目のセルは「（分類に無い）」） */
   const filterText = useCallback(
     (prow: PivotRow, id: string): string => {
       if (!sheet) return "";
       if (id.startsWith("p:")) {
-        const name = id.slice(2);
-        return formatColumnValue(sheet.column(name), sheet.viewValue(prow.parent, name, view));
+        const col = labelCols.find((c) => `p:${c.name}` === id);
+        return col === undefined ? "" : labelText(prow, col);
       }
       const column = table.columns.find((c) => `v:${c.key}` === id);
       if (column === undefined) return "";
@@ -157,7 +178,7 @@ export function PivotGrid({ workspace, sheetName, view, version, isBusy, onMessa
       if (cell.row === null) return pivotCellState(prow, column, classInfo, value) === "notInClass" ? t.notInClassValue : "";
       return formatColumnValue(sheet.column(cell.valueCol), value(cell.row, cell.valueCol));
     },
-    [sheet, view, table.columns, spec, value, classInfo, t],
+    [sheet, labelCols, labelText, table.columns, spec, value, classInfo, t],
   );
   /** 変更の状態（縦持ちの表と同じ区分。行の無いセルは変更なし） */
   const changeOf = useCallback(
@@ -225,10 +246,15 @@ export function PivotGrid({ workspace, sheetName, view, version, isBusy, onMessa
 
   const gridColumns = useMemo<GridColumn[]>(
     () => [
-      ...labelCols.map((c) => ({ id: `p:${c.name}`, title: headerLines(c).main, width: widths[`p:${c.name}`] ?? (c.name.toUpperCase() === "DESCRIPTION" ? 220 : 120), hasMenu: true })),
+      ...labelCols.map((c) => ({
+        id: `p:${c.name}`,
+        title: headerLines(c).main,
+        width: widths[`p:${c.name}`] ?? (c.name === classColName ? 240 : c.name.toUpperCase() === "DESCRIPTION" ? 220 : 120),
+        hasMenu: true,
+      })),
       ...table.columns.map((c) => ({ id: `v:${c.key}`, title: c.attr, width: widths[`v:${c.key}`] ?? 140, hasMenu: true })),
     ],
-    [labelCols, table.columns, widths],
+    [labelCols, table.columns, widths, classColName],
   );
 
   // 見出しの 2 段目: 親の列は属性名、項目の列はセクションと単位（混ざっていれば ⚠）
@@ -304,7 +330,7 @@ export function PivotGrid({ workspace, sheetName, view, version, isBusy, onMessa
       if (prow === undefined) return EMPTY_CELL;
       const label = labelRef.current[c];
       if (label !== undefined) {
-        const text = formatColumnValue(label, sheet.viewValue(prow.parent, label.name, view));
+        const text = labelText(prow, label);
         return { kind: GridCellKind.Text, data: text, displayData: text, allowOverlay: true, readonly: true, themeOverride: { bgCell: TONE_STYLE.normal.bg, textDark: TONE_STYLE.normal.fg } };
       }
       const at = cellAt(item);
@@ -336,7 +362,7 @@ export function PivotGrid({ workspace, sheetName, view, version, isBusy, onMessa
       };
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sheet, view, busy, version, cellAt, value],
+    [sheet, view, busy, version, cellAt, value, labelText],
   );
 
   const onCellsEdited = useCallback(
@@ -500,7 +526,7 @@ export function PivotGrid({ workspace, sheetName, view, version, isBusy, onMessa
           const author = changed && cell.row !== null ? cellAuthor(cell.row, cell.valueCol) : null;
           return { name: column.key, label: column.section === null ? column.attr : `${column.attr}（${column.section}）`, attr: null, value: text, changed, ...(author ? { author } : {}), long: false, empty: text === "" };
         });
-  const detailTitle = selectedRow === null ? "" : labelCols.map((c) => formatColumnValue(c, sheet.viewValue(selectedRow.parent, c.name, view))).filter((v) => v !== "").join(" / ");
+  const detailTitle = selectedRow === null ? "" : labelCols.map((c) => labelText(selectedRow, c)).filter((v) => v !== "").join(" / ");
   const tooltipLeft = hover ? Math.max(4, Math.min(hover.x, (typeof window !== "undefined" ? window.innerWidth : 1200) - 364)) : 0;
 
   return (

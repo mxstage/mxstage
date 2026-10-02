@@ -8,6 +8,7 @@ All notable changes to MX Stage are listed here. Versions follow [Semantic Versi
 
 - **Filters in the one-row-per-record view.** Column headers in the wide specification view open the same filter menu as other tables. Missing and empty values count as empty, and items outside the record's classification appear as "(not in classification)", so you can list the records missing a given item.
 - The color legend explains the yellow, grey and ⚠ cells of the wide view.
+- **Classification hierarchy path in the wide view.** The one-row-per-record view shows each record's classification as its hierarchy path with the description (for example MECH  ROT  PUMP (Pump)), taken from a loaded classification sheet; without one it shows the classification ID. When specifications are loaded without CLASSSTRUCTUREID or without a classification sheet that has HIERARCHYPATH, load_sheet tells the AI what to load (it asks you first).
 
 ### Changed
 

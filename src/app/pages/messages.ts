@@ -79,6 +79,10 @@ export const pagesMessages = defineMessages(
       maximizeTitle: "Show only this table",
       hide: "Hide",
       hideTitle: "Hide this table (show it again from the bar above)",
+      toHorizontal: "One row per record",
+      toHorizontalTitle: "Show one row per record and one column per item (easier to read specifications)",
+      toVertical: "One row per item",
+      toVerticalTitle: "Show one row per item, as Maximo stores it",
     },
     paneBar: {
       label: "Tables shown",
@@ -191,6 +195,10 @@ export const pagesMessages = defineMessages(
       maximizeTitle: "この表だけを広げる",
       hide: "隠す",
       hideTitle: "この表を隠す（上の帯から戻せます）",
+      toHorizontal: "横持ち",
+      toHorizontalTitle: "1 行 ＝ 1 件、1 列 ＝ 1 項目で見る（仕様などが読みやすい）",
+      toVertical: "縦持ち",
+      toVerticalTitle: "Maximo と同じ 1 項目 ＝ 1 行で見る",
     },
     paneBar: {
       label: "表示する表",

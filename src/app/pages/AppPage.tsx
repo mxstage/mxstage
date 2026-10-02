@@ -7,7 +7,12 @@ import type { Runtime } from "../boot/runtime";
 import type { ObjectStructureCatalog } from "../catalog/catalog";
 import type { LicenseClient } from "../license/client";
 import { formatCellValue } from "../grid/cellStyle";
-import { SheetGrid, type LinkFilter } from "../grid/SheetGrid";
+import { SheetGrid, type GridHeaderInfo, type LinkFilter } from "../grid/SheetGrid";
+import { PivotGrid } from "../grid/PivotGrid";
+import { pivotSpecFor, preferPivot, type PivotSpec } from "../grid/pivot";
+import { browserStorage } from "../boot/migrate";
+import type { RowState } from "../store/sheet";
+import { loadOrientations, orientationKey, saveOrientations, type Orientation } from "./orientation";
 import type { VaultView } from "../keyvault/client";
 import type { ViewKind } from "../store";
 import { Link } from "../ui/Link";
@@ -158,6 +163,26 @@ export function AppPage({ runtime, vault, toasts, catalog, license, onEndWork, o
   const focusSheet = focused !== null && panes.some((p) => p.sheet === focused) ? focused : current;
   const busy = focusSheet !== null && isRunning(focusSheet);
   const linkColumns = useMemo(() => Array.from(new Set(panes.flatMap((p) => (p.link ? [p.link.from] : [])))), [panes]);
+  // 子の表の縦持ち・横持ち。利用者が選んだものを構造と子ごとに覚え、選んでいなければ表の形から決める（grid/pivot.ts）
+  const [orientations, setOrientations] = useState<Record<string, Orientation>>(() => loadOrientations(browserStorage()));
+  const pivotFor = (pane: PaneSpec): { spec: PivotSpec; key: string; horizontal: boolean } | null => {
+    if (pane.scope.kind !== "child") return null;
+    const sheet = workspace.sheets.get(pane.sheet);
+    if (!sheet) return null;
+    const spec = pivotSpecFor(sheet.meta, pane.scope.name);
+    if (spec === null) return null;
+    const key = orientationKey(sheet.meta, pane.scope.name);
+    const chosen = orientations[key];
+    const horizontal = chosen !== undefined ? chosen === "horizontal" : preferPivot(sheet.viewRows("final"), spec, (row, col) => sheet.finalValue(row, col));
+    return { spec, key, horizontal };
+  };
+  const toggleOrientation = (key: string, horizontal: boolean) => {
+    setOrientations((all) => {
+      const next = { ...all, [key]: horizontal ? ("vertical" as const) : ("horizontal" as const) };
+      saveOrientations(browserStorage(), next);
+      return next;
+    });
+  };
   const [linked, setLinked] = useState<LinkedSelection | null>(null);
   // 1 つの表だけを広げているか（列が多い表を見るため）
   const [maximized, setMaximized] = useState<string | null>(null);
@@ -305,8 +330,9 @@ export function AppPage({ runtime, vault, toasts, catalog, license, onEndWork, o
                       applyLayout({ layout: swapPanes(layout, arranged, from, pane.key) });
                     }}
                   >
-                    <SheetGrid
-                      renderHeader={(h) => (
+                    {(() => {
+                      const pivot = pivotFor(pane);
+                      const header = (h: GridHeaderInfo) => (
                         <PaneHeader
                           title={pane.title}
                           subtitle={pane.subtitle}
@@ -324,18 +350,10 @@ export function AppPage({ runtime, vault, toasts, catalog, license, onEndWork, o
                               ? { pressed: maximized === pane.key, onToggle: () => setMaximized((m) => (m === pane.key ? null : pane.key)) }
                               : undefined
                           }
+                          {...(pivot ? { orientation: { horizontal: pivot.horizontal, onToggle: () => toggleOrientation(pivot.key, pivot.horizontal) } } : {})}
                         />
-                      )}
-                      workspace={workspace}
-                      valueLists={runtime.valueLists}
-                      sheetName={pane.sheet}
-                      view={view}
-                      version={version}
-                      isBusy={() => commits.isRunning(pane.sheet)}
-                      onMessage={onMessage}
-                      scope={pane.scope}
-                      linkFilter={linked === null ? null : paneLink(pane, linked)}
-                      onSelectRow={(row) => {
+                      );
+                      const selectRow = (row: RowState | null) => {
                         setFocused(pane.sheet);
                         if (row === null) {
                           setLinked(null);
@@ -345,8 +363,38 @@ export function AppPage({ runtime, vault, toasts, catalog, license, onEndWork, o
                         const values: Record<string, string> = {};
                         if (sheet) for (const col of linkColumns) values[col] = formatCellValue(sheet.viewValue(row, col, view));
                         setLinked({ paneKey: pane.key, sheet: pane.sheet, parentKey: row.parentKey, values });
-                      }}
+                      };
+                      if (pivot?.horizontal) {
+                        return (
+                          <PivotGrid
+                            renderHeader={header}
+                            workspace={workspace}
+                            sheetName={pane.sheet}
+                            view={view}
+                            version={version}
+                            isBusy={() => commits.isRunning(pane.sheet)}
+                            onMessage={onMessage}
+                            spec={pivot.spec}
+                            onSelectRow={selectRow}
+                          />
+                        );
+                      }
+                      return (
+                    <SheetGrid
+                      renderHeader={header}
+                      workspace={workspace}
+                      valueLists={runtime.valueLists}
+                      sheetName={pane.sheet}
+                      view={view}
+                      version={version}
+                      isBusy={() => commits.isRunning(pane.sheet)}
+                      onMessage={onMessage}
+                      scope={pane.scope}
+                      linkFilter={linked === null ? null : paneLink(pane, linked)}
+                      onSelectRow={selectRow}
                     />
+                      );
+                    })()}
                   </section>
                 ))}
               </div>

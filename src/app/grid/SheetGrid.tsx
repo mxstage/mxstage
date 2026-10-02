@@ -77,8 +77,8 @@ export type LinkFilter = { kind: "parent"; parentKey: string } | { kind: "value"
 
 // Carbon（White テーマ）の色。canvas には CSS の変数が届かないので値で持つ（docs/design.md に対応表がある）
 /** 書体の並び（styles/carbon.scss の --mx-font-sans と同じ） */
-const FONT_SANS = "'IBM Plex Sans', 'IBM Plex Sans JP', system-ui, -apple-system, 'Segoe UI', sans-serif";
-const GRID_THEME: Partial<Theme> = {
+export const FONT_SANS = "'IBM Plex Sans', 'IBM Plex Sans JP', system-ui, -apple-system, 'Segoe UI', sans-serif";
+export const GRID_THEME: Partial<Theme> = {
   // interactive（blue 60）
   accentColor: "#0f62fe",
   accentLight: "rgba(15, 98, 254, 0.10)",
@@ -112,7 +112,7 @@ const GRID_THEME: Partial<Theme> = {
 };
 
 /** 列の見出しの 2 段目（属性名）と ▾ の色（text-secondary） */
-const HEADER_SUB_COLOR = "#525252";
+export const HEADER_SUB_COLOR = "#525252";
 /** 絞り込み中の列の見出し（地・文字・漏斗の印。blue 20 / blue 80 / blue 60） */
 const FILTERED_HEADER_BG = "#d0e2ff";
 const FILTERED_HEADER_FG = "#002d9c";
@@ -121,9 +121,9 @@ const FILTERED_MARK = "#0f62fe";
 const MATCH_FILL = "rgba(15, 98, 254, 0.20)";
 const MATCH_LINE = "#0043ce";
 /** 選んだセルと同じ行の塗り（DataTable の選んだ行と同じ灰色。利用者の変更の青と紛れないように） */
-const ROW_HIGHLIGHT = "rgba(141, 141, 141, 0.20)";
+export const ROW_HIGHLIGHT = "rgba(141, 141, 141, 0.20)";
 /** 行の高さ（Carbon の DataTable の sm） */
-const ROW_HEIGHT = 32;
+export const ROW_HEIGHT = 32;
 
 /** 見出しの印（Carbon の chevron--down 16px と filter 32px のパス）。Path2D が無い環境（試験）では作らない */
 const CHEVRON_DOWN_16 = "M8 11 3 6 3.7 5.3 8 9.6 12.3 5.3 13 6z";
@@ -141,7 +141,7 @@ const HEADER_ICON = 16;
  * canvas は書体を読み終えても描き直さないので、読み終えたら数を増やして描き直させる（最初の描画は OS の字体になりうる）。
  * document.fonts が無い環境（試験）では何もしない
  */
-function useFontsReady(): number {
+export function useFontsReady(): number {
   const [epoch, setEpoch] = useState(0);
   useEffect(() => {
     const fonts = (typeof document === "undefined" ? undefined : (document as { fonts?: FontFaceSet }).fonts) ?? undefined;
@@ -183,7 +183,7 @@ interface HoverState {
 }
 
 /** セルを最後に変えた作者（削除行は削除した作者、追加行は追加した作者） */
-function cellAuthor(row: RowState, col: string): BatchAuthor | null {
+export function cellAuthor(row: RowState, col: string): BatchAuthor | null {
   if (row.deleted) return row.deleted.author;
   return row.cells?.get(col)?.author ?? row.added?.author ?? null;
 }

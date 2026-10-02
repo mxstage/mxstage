@@ -2,6 +2,12 @@
 
 All notable changes to MX Stage are listed here. Versions follow [Semantic Versioning](https://semver.org/). Each version becomes available under the Apache License 2.0 four years after its release (see [LICENSE](LICENSE)).
 
+## Unreleased
+
+### Added
+
+- **One row per record for specification tables.** Child tables shaped as item–value pairs (such as asset, location and item specifications) can be shown with one row per record and one column per item. The work screen chooses this automatically from the table's shape, and the button in the table header switches between the two views (remembered per object structure). Edits in the wide view change the matching specification row (the numeric or text value column), so differences, undo, commit and the AI's tools work as before. Units appear under the item names; grey cells have no row for the item; cells marked ⚠ have duplicate rows or a value in an unusual column and are edited in the one-row-per-item view.
+
 ## 0.2.3 — 2026-10-02
 
 ### Added

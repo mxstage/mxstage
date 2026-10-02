@@ -1,7 +1,7 @@
 // ペイン（関連する表 1 つ分）の見出し。つかむ所（入れ替え）・表の名前・連動・行数・行の詳細・広げる・隠す。
 // 行数と行の詳細の開閉はグリッド（SheetGrid）の中の状態なので、SheetGrid の renderHeader から描く。
 
-import { Close, Draggable, Maximize, OpenPanelBottom, ViewOff } from "@carbon/icons-react";
+import { Close, Draggable, Maximize, OpenPanelBottom, Transpose, ViewOff } from "@carbon/icons-react";
 import { Button, IconButton } from "@carbon/react";
 import { pagesMessages } from "./messages";
 
@@ -28,6 +28,8 @@ export interface PaneHeaderProps {
   dragKey?: string;
   /** 窓を隠す（上の帯から戻せる） */
   onHide?: () => void;
+  /** 縦持ち・横持ちの切り替え（横持ちにできる子の表だけ） */
+  orientation?: { horizontal: boolean; onToggle: () => void };
 }
 
 export function PaneHeader(p: PaneHeaderProps) {
@@ -71,6 +73,23 @@ export function PaneHeader(p: PaneHeaderProps) {
       <span className="row-count" title={p.rowCountTitle}>
         {p.rowCount}
       </span>
+      {p.orientation && (
+        <IconButton
+          kind="ghost"
+          size="sm"
+          align="bottom"
+          isSelected={p.orientation.horizontal}
+          aria-pressed={p.orientation.horizontal}
+          aria-label={p.orientation.horizontal ? t.toVertical : t.toHorizontal}
+          label={p.orientation.horizontal ? t.toVerticalTitle : t.toHorizontalTitle}
+          onClick={(e) => {
+            e.stopPropagation();
+            p.orientation?.onToggle();
+          }}
+        >
+          <Transpose />
+        </IconButton>
+      )}
       <IconButton
         kind="ghost"
         size="sm"

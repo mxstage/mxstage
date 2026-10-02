@@ -102,7 +102,8 @@ function main(): void {
       if (value === undefined || name === "host" || name === "connection" || name === "content-length") continue;
       headers.set(name, Array.isArray(value) ? value.join(", ") : value);
     }
-    const body = method === "GET" || method === "HEAD" ? undefined : await readBody(req);
+    // 偽の Maximo は本文を文字列で受け取る（Buffer のままだと本文が無いものとして 400 を返す）
+    const body = method === "GET" || method === "HEAD" ? undefined : (await readBody(req)).toString("utf8");
     const response = await fake.fetch(`${baseUrl}${req.url ?? "/"}`, { method, headers, ...(body !== undefined ? { body } : {}) });
     const out = Buffer.from(await response.arrayBuffer());
     const outHeaders: Record<string, string> = {};

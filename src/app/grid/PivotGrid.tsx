@@ -1,8 +1,10 @@
 // 子の表の横持ち（1 行 ＝ 1 親、1 列 ＝ 1 項目）。仕様（ASSETSPEC など）を機器ごとに横に並べて読む・直す。
 // - データは縦持ちのまま。セルを直すと、対応する縦持ちの行の値の列が変わる（workspace.applyEdits、author:"user"）。
 //   差分の色・取り消し・反映・LLM のツールは、縦持ちのときと同じように動く。
-// - 縦持ちの行が無い項目のセル（欠け）は灰色で、まだ直せない。同じ項目の行が 2 つ以上あるセルも、どれを直すか
-//   決められないので横持ちでは直さない（縦持ちで直す）。
+// - 読み込んだ「分類の仕様」のシートがあれば、行の無いセルを 2 つに分ける（grid/pivot.ts の pivotCellState）:
+//   欠け（その機器の分類にある項目なのに行が無い。黄色）は値を入れると仕様の行を足す（workspace.addRows、author:"user"）。
+//   分類に無い項目は灰色で直せない。分類の仕様が無ければ、行の無いセルはすべて灰色で直せない。
+// - 同じ項目の行が 2 つ以上あるセルは、どれを直すか決められないので横持ちでは直さない（縦持ちで直す）。
 // - 先頭の列は親のキー列と説明（読むだけ。親の値は親のペインで直す）。
 
 import { DataEditor, GridCellKind, type DrawHeaderCallback, type EditListItem, type GridCell, type GridColumn, type GridMouseEventArgs, type GridSelection, type Highlight, type Item, CompactSelection } from "@glideapps/glide-data-grid";
@@ -17,7 +19,20 @@ import { CellEditorContext, DATE_EDITOR, type CellEditorTarget } from "./editors
 import { conflictSummary, storeErrorMessage } from "./edits";
 import { freezeCountForWidth } from "./layout";
 import { gridMessages } from "./messages";
-import { buildPivot, pivotCell, type PivotColumn, type PivotRow, type PivotSpec } from "./pivot";
+import {
+  addClassColumns,
+  buildPivot,
+  findAttrTypes,
+  findClassDefs,
+  newSpecRow,
+  parentClassColumn,
+  pivotCell,
+  pivotCellState,
+  type PivotClassInfo,
+  type PivotColumn,
+  type PivotRow,
+  type PivotSpec,
+} from "./pivot";
 import { RowDetail } from "./RowDetail";
 import { GRID_THEME, HEADER_SUB_COLOR, ROW_HEIGHT, ROW_HIGHLIGHT, cellAuthor, useFontsReady } from "./SheetGrid";
 import type { GridHeaderInfo } from "./SheetGrid";
@@ -35,18 +50,17 @@ export interface PivotGridProps {
   renderHeader?: (h: GridHeaderInfo) => ReactNode;
 }
 
-/** 縦持ちの行が無いセル（欠け）の地（layer-01）と文字 */
-const MISSING_STYLE = { bg: "#f4f4f4", fg: "#6f6f6f" };
+/** 行が無く直せないセル（分類に無い項目・分類が分からない）の地（layer-01）と文字 */
+const NONE_STYLE = { bg: "#f4f4f4", fg: "#6f6f6f" };
+/** 欠け（分類にあるのに行が無い。値を入れると行を足す）の地（yellow 10）と文字 */
+const MISSING_STYLE = { bg: "#fcf4d6", fg: "#161616" };
 /** 重複・別の列に値がある・単位が混ざっているときの印 */
 const WARN_MARK = "⚠ ";
 const EMPTY_CELL: GridCell = { kind: GridCellKind.Text, data: "", displayData: "", allowOverlay: false, readonly: true };
 const EMPTY_SELECTION: GridSelection = { columns: CompactSelection.empty(), rows: CompactSelection.empty() };
 
-interface EditingTarget {
-  index: Item;
-  rowKey: string;
-  col: string;
-}
+/** 編集を開いたセル。行があれば行と列、欠けなら親と項目（値を入れると行を足す） */
+type EditingTarget = { index: Item; kind: "edit"; rowKey: string; col: string } | { index: Item; kind: "add"; parentKey: string; columnKey: string };
 
 interface HoverState {
   x: number;
@@ -79,8 +93,22 @@ export function PivotGrid({ workspace, sheetName, view, version, isBusy, onMessa
   }, []);
 
   const value = useCallback((row: RowState, col: string): CellValue => (sheet ? sheet.viewValue(row, col, view) : null), [sheet, view]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const table = useMemo(() => (sheet ? buildPivot(sheet.viewRows(view), spec, value) : { columns: [], rows: [] }), [sheet, view, version, spec, value]);
+  // 分類の仕様（読み込んだシートから）。この表のシートは除く（資産のシートも分類 ID と ASSETSPEC を持つため）
+  const classInfo = useMemo<PivotClassInfo | null>(() => {
+    if (!sheet) return null;
+    const classCol = parentClassColumn(sheet.meta);
+    if (classCol === null) return null;
+    const others = Array.from(workspace.sheets.values()).filter((x) => x.name !== sheetName);
+    const defs = findClassDefs(others);
+    return defs === null ? null : { defs, classCol, attrTypes: findAttrTypes(others) };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspace, sheet, sheetName, version]);
+  const table = useMemo(() => {
+    if (!sheet) return { columns: [], rows: [] };
+    const base = buildPivot(sheet.viewRows(view), spec, value);
+    return classInfo === null ? base : addClassColumns(base, spec, classInfo, value);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sheet, view, version, spec, value, classInfo]);
   // 先頭の列: 親のキー列と説明（読むだけ）
   const labelCols = useMemo<ColumnSchema[]>(() => {
     if (!sheet) return [];
@@ -118,9 +146,9 @@ export function PivotGrid({ workspace, sheetName, view, version, isBusy, onMessa
       const prow = rowsRef.current[r];
       const column = columnsRef.current[c - labelRef.current.length];
       if (prow === undefined || column === undefined) return null;
-      return { prow, column, cell: pivotCell(prow, column, spec, value) };
+      return { prow, column, cell: pivotCell(prow, column, spec, value), state: pivotCellState(prow, column, classInfo, value) };
     },
-    [spec, value],
+    [spec, value, classInfo],
   );
 
   const gridColumns = useMemo<GridColumn[]>(
@@ -189,7 +217,12 @@ export function PivotGrid({ workspace, sheetName, view, version, isBusy, onMessa
       if (at === null) return EMPTY_CELL;
       const { cell } = at;
       if (cell.row === null) {
-        return { kind: GridCellKind.Text, data: "", displayData: "", allowOverlay: false, readonly: true, themeOverride: { bgCell: MISSING_STYLE.bg, textDark: MISSING_STYLE.fg } };
+        // 欠けは値を入れられる（反映中・元の値ビューを除く）。分類に無い・分からないセルは直せない
+        if (at.state === "missing") {
+          const editable = view !== "base" && !busy;
+          return { kind: GridCellKind.Text, data: "", displayData: "", allowOverlay: editable, readonly: !editable, themeOverride: { bgCell: MISSING_STYLE.bg, textDark: MISSING_STYLE.fg } };
+        }
+        return { kind: GridCellKind.Text, data: "", displayData: "", allowOverlay: false, readonly: true, themeOverride: { bgCell: NONE_STYLE.bg, textDark: NONE_STYLE.fg } };
       }
       const row = cell.row;
       const changed = view !== "base" && sheet.isCellChanged(row, cell.valueCol);
@@ -221,34 +254,69 @@ export function PivotGrid({ workspace, sheetName, view, version, isBusy, onMessa
       }
       const editing = editingRef.current;
       const edits: CellEdit[] = [];
+      // 欠けに入れた値は、親ごとに仕様の行を足す（親の行キー → 足す行の値）
+      const adds = new Map<string, Array<Record<string, CellValue>>>();
       let skipped = 0;
+      const addTo = (prow: PivotRow, column: PivotColumn, v: CellValue) => {
+        // 空のまま確定したときは行を足さない
+        if (v === null || v === "" || classInfo === null) return;
+        const values = newSpecRow(prow, column, spec, classInfo, sheet.meta.columns, v, value);
+        if (values === null) {
+          skipped++;
+          return;
+        }
+        const list = adds.get(prow.parent.rowKey);
+        if (list) list.push(values);
+        else adds.set(prow.parent.rowKey, [values]);
+      };
       for (const it of items) {
         if (it.value.kind !== GridCellKind.Text) continue;
         const v = parseEditedText(it.value.data);
         if (items.length === 1 && editing && editing.index[0] === it.location[0] && editing.index[1] === it.location[1]) {
-          edits.push({ rowKey: editing.rowKey, col: editing.col, value: v });
+          if (editing.kind === "edit") {
+            edits.push({ rowKey: editing.rowKey, col: editing.col, value: v });
+          } else {
+            // 開いた時点の親と項目に足す（開いている間に並びが変わっても別の機器に足さない）
+            const prow = rowsRef.current.find((x) => x.parentKey === editing.parentKey);
+            const column = columnsRef.current.find((x) => x.key === editing.columnKey);
+            if (prow && column && (prow.cells.get(column.key)?.length ?? 0) === 0) addTo(prow, column, v);
+            else skipped++;
+          }
           continue;
         }
         const at = cellAt(it.location);
-        // 親の列・欠け・重複のセルには書かない
-        if (at === null || at.cell.row === null || at.cell.count !== 1) {
-          if (it.location[0] >= labelRef.current.length) skipped++;
+        if (at === null) continue;
+        if (at.cell.row === null) {
+          if (at.state === "missing") addTo(at.prow, at.column, v);
+          else if (it.location[0] >= labelRef.current.length) skipped++;
+          continue;
+        }
+        // 重複のセルには書かない
+        if (at.cell.count !== 1) {
+          skipped++;
           continue;
         }
         edits.push({ rowKey: at.cell.row.rowKey, col: at.cell.valueCol, value: v });
       }
       if (skipped > 0) onMessage(t.skipped(skipped), "info");
-      if (edits.length === 0) return true;
+      if (edits.length === 0 && adds.size === 0) return true;
       try {
-        const res = workspace.applyEdits(sheetName, edits, { author: "user", baseRevision: workspace.revision });
-        const msg = conflictSummary(res.conflicts);
-        if (msg) onMessage(msg, "error");
+        if (edits.length > 0) {
+          const res = workspace.applyEdits(sheetName, edits, { author: "user", baseRevision: workspace.revision });
+          const msg = conflictSummary(res.conflicts);
+          if (msg) onMessage(msg, "error");
+        }
+        for (const [parentRowKey, rows] of adds) {
+          const res = workspace.addRows(sheetName, rows, { author: "user", parentRowKey, childName: spec.child, baseRevision: workspace.revision, reason: t.addReason });
+          const msg = conflictSummary(res.conflicts);
+          if (msg) onMessage(msg, "error");
+        }
       } catch (e) {
         onMessage(storeErrorMessage(e), "error");
       }
       return true;
     },
-    [sheet, sheetName, workspace, isBusy, onMessage, cellAt, t],
+    [sheet, sheetName, workspace, isBusy, onMessage, cellAt, t, classInfo, spec, value],
   );
 
   // 編集を開いた時点の行と列を覚える（開いている間に LLM が行を増減しても、別の行に書かないため）
@@ -257,8 +325,11 @@ export function PivotGrid({ workspace, sheetName, view, version, isBusy, onMessa
       const cur = selectionRef.current.current?.cell;
       if (sheet && cur && cell.kind === GridCellKind.Text && !cell.readonly && !isBusy()) {
         const at = cellAt(cur);
+        if (at !== null && at.cell.row === null && at.state === "missing") {
+          editingRef.current = { index: [cur[0], cur[1]], kind: "add", parentKey: at.prow.parentKey, columnKey: at.column.key };
+        }
         if (at !== null && at.cell.row !== null) {
-          editingRef.current = { index: [cur[0], cur[1]], rowKey: at.cell.row.rowKey, col: at.cell.valueCol };
+          editingRef.current = { index: [cur[0], cur[1]], kind: "edit", rowKey: at.cell.row.rowKey, col: at.cell.valueCol };
           workspace.setEditingCell(sheetName, at.cell.row.rowKey, at.cell.valueCol);
           const col = sheet.column(at.cell.valueCol);
           if (col && (col.type === "date" || col.type === "datetime")) {
@@ -296,7 +367,10 @@ export function PivotGrid({ workspace, sheetName, view, version, isBusy, onMessa
       const lines: string[] = [column.section === null ? column.attr : `${column.attr}（${t.section(column.section)}）`];
       if (column.units.length > 0) lines.push(column.units.length > 1 ? t.mixedUnits(column.units.join(" / ")) : t.units(column.units[0] as string));
       if (cell.row === null) {
-        lines.push(t.missing);
+        const cls = classInfo === null ? null : sheet.viewValue(at.prow.parent, classInfo.classCol, view);
+        if (at.state === "missing") lines.push(t.missingInClass(String(cls)));
+        else if (at.state === "notInClass") lines.push(t.notInClass(String(cls)));
+        else lines.push(classInfo === null ? t.missingNoClass : t.missing);
       } else {
         lines.push(t.valueColumn(cell.valueCol));
         if (cell.otherColumn) lines.push(t.otherColumn(cell.valueCol, column.valueCol));
@@ -309,7 +383,7 @@ export function PivotGrid({ workspace, sheetName, view, version, isBusy, onMessa
       }
       setHover({ x: args.bounds.x, y: args.bounds.y + args.bounds.height, lines });
     },
-    [sheet, sheetName, view, workspace, cellAt, t],
+    [sheet, sheetName, view, workspace, cellAt, t, classInfo],
   );
 
   const selectedRowIndex = selection.current?.cell[1];
@@ -343,6 +417,7 @@ export function PivotGrid({ workspace, sheetName, view, version, isBusy, onMessa
         detailOpen: showDetail,
         toggleDetail: () => setShowDetail((s) => !s),
       })}
+      {classInfo === null && <p className="pivot-hint muted small">{parentClassColumn(sheet.meta) === null ? t.hintNoClassColumn : t.hintNoClassSheet}</p>}
       <div className="grid-body">
         <CellEditorContext.Provider value={editorTargetRef}>
           <DataEditor

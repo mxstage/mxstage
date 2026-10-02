@@ -1,6 +1,18 @@
 // 子の表の横持ち（src/app/grid/pivot.ts）: 形の見分け方、横持ちの作り方、値の列の選び方、既定の向き。
 import { describe, expect, it } from "vitest";
-import { buildPivot, pivotCell, pivotSpecFor, preferPivot } from "../../src/app/grid/pivot";
+import {
+  addClassColumns,
+  buildPivot,
+  findAttrTypes,
+  findClassDefs,
+  newSpecRow,
+  parentClassColumn,
+  pivotCell,
+  pivotCellState,
+  pivotSpecFor,
+  preferPivot,
+  type PivotClassInfo,
+} from "../../src/app/grid/pivot";
 import { loadOrientations, orientationKey, saveOrientations } from "../../src/app/pages/orientation";
 import { Workspace } from "../../src/app/store/workspace";
 import type { ColumnSchema } from "../../src/shared/model";
@@ -163,5 +175,160 @@ describe("向きを覚える", () => {
     expect(loadOrientations(storage)).toEqual({ [key]: "vertical" });
     data.set("mxstage.grid.orientations", JSON.stringify({ a: "sideways", b: "horizontal" }));
     expect(loadOrientations(storage)).toEqual({ b: "horizontal" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 段階 3: 分類による区別と、欠けのセルへの入力
+// ---------------------------------------------------------------------------
+
+const ASSET_COLUMNS: ColumnSchema[] = [
+  { name: "ASSETNUM", type: "string" },
+  { name: "SITEID", type: "string" },
+  { name: "CLASSSTRUCTUREID", type: "string" },
+  { name: "ASSETSPEC.ASSETATTRID", type: "string", child: "ASSETSPEC" },
+  { name: "ASSETSPEC.ALNVALUE", type: "string", child: "ASSETSPEC" },
+  { name: "ASSETSPEC.NUMVALUE", type: "number", child: "ASSETSPEC" },
+  { name: "ASSETSPEC.MEASUREUNITID", type: "string", child: "ASSETSPEC" },
+  { name: "ASSETSPEC.CLASSSTRUCTUREID", type: "string", child: "ASSETSPEC" },
+  { name: "ASSETSPEC.ASSETSPECID", type: "integer", child: "ASSETSPEC" },
+];
+
+/** 資産（分類 ID 付き）と、分類の仕様・属性のシート */
+function classifiedWorkspace(): Workspace {
+  const ws = new Workspace("test");
+  const assetRows: SheetRow[] = [];
+  const add = (assetnum: string, cls: string, specs: Array<[string, string | null, number | null, string | null]>) => {
+    const parentKey = makeParentKey([assetnum, "KITA"]);
+    const base = { ASSETNUM: assetnum, SITEID: "KITA", CLASSSTRUCTUREID: cls };
+    const empty = { "ASSETSPEC.ASSETATTRID": null, "ASSETSPEC.ALNVALUE": null, "ASSETSPEC.NUMVALUE": null, "ASSETSPEC.MEASUREUNITID": null, "ASSETSPEC.CLASSSTRUCTUREID": null, "ASSETSPEC.ASSETSPECID": null };
+    if (specs.length === 0) assetRows.push({ rowKey: parentKey, parentKey, childName: null, values: { ...base, ...empty } });
+    specs.forEach(([attr, aln, num, unit], i) => {
+      const id = Number(assetnum.replace(/\D/g, "")) * 10 + i;
+      assetRows.push({
+        rowKey: makeChildRowKey(parentKey, "ASSETSPEC", id),
+        parentKey,
+        childName: "ASSETSPEC",
+        values: { ...base, ...empty, "ASSETSPEC.ASSETATTRID": attr, "ASSETSPEC.ALNVALUE": aln, "ASSETSPEC.NUMVALUE": num, "ASSETSPEC.MEASUREUNITID": unit, "ASSETSPEC.CLASSSTRUCTUREID": cls, "ASSETSPEC.ASSETSPECID": id },
+      });
+    });
+  };
+  // ポンプ（PUMP）: RATED_POWER・MAKER・FLOW が分類にある。P-2 は FLOW が欠け
+  add("P-1", "PUMP", [["RATED_POWER", null, 15, "KW"], ["MAKER", "荏原", null, null], ["FLOW", null, 120, "M3/H"]]);
+  add("P-2", "PUMP", [["RATED_POWER", null, 22, "KW"], ["MAKER", "酉島", null, null]]);
+  // 計器（INSTR）: SIGNAL・RANGE が分類にあるが、どの機器にも行が無い
+  add("T-1", "INSTR", []);
+  ws.createSheet(
+    {
+      name: "資産",
+      source: { kind: "maximo", os: "MXAPIASSET", select: [], where: [] },
+      columns: ASSET_COLUMNS,
+      keyColumns: ["ASSETNUM", "SITEID"],
+      childIdAttrs: { ASSETSPEC: "ASSETSPECID" },
+    },
+    assetRows,
+  );
+
+  const classRows: SheetRow[] = [];
+  const cls = (id: string, attrs: Array<[string, string | null]>) => {
+    const parentKey = makeParentKey([id]);
+    attrs.forEach(([attr, unit], i) =>
+      classRows.push({
+        rowKey: makeChildRowKey(parentKey, "CLASSSPEC", `${id}-${i}`),
+        parentKey,
+        childName: "CLASSSPEC",
+        values: { CLASSSTRUCTUREID: id, "CLASSSPEC.CLASSSPECID": `${id}-${i}`, "CLASSSPEC.ASSETATTRID": attr, "CLASSSPEC.MEASUREUNITID": unit },
+      }),
+    );
+  };
+  cls("PUMP", [["RATED_POWER", "KW"], ["MAKER", null], ["FLOW", "M3/H"]]);
+  cls("INSTR", [["SIGNAL", null], ["RANGE", "KPA"]]);
+  ws.createSheet(
+    {
+      name: "分類の仕様",
+      source: { kind: "maximo", os: "MXAPICLASSSTRUCTURE", select: [], where: [] },
+      columns: [
+        { name: "CLASSSTRUCTUREID", type: "string" },
+        { name: "CLASSSPEC.CLASSSPECID", type: "string", child: "CLASSSPEC" },
+        { name: "CLASSSPEC.ASSETATTRID", type: "string", child: "CLASSSPEC" },
+        { name: "CLASSSPEC.MEASUREUNITID", type: "string", child: "CLASSSPEC" },
+      ],
+      keyColumns: ["CLASSSTRUCTUREID"],
+      childIdAttrs: { CLASSSPEC: "CLASSSPECID" },
+    },
+    classRows,
+  );
+  ws.createSheet(
+    {
+      name: "属性",
+      source: { kind: "maximo", os: "MXAPIASSETATTRIBUTE", select: [], where: [] },
+      columns: [
+        { name: "ASSETATTRID", type: "string" },
+        { name: "DATATYPE", type: "string" },
+      ],
+      keyColumns: ["ASSETATTRID"],
+      childIdAttrs: {},
+    },
+    [
+      ["SIGNAL", "ALN"],
+      ["RANGE", "NUMERIC"],
+      ["FLOW", "NUMERIC"],
+    ].map(([a, d]) => ({ rowKey: makeParentKey([a as string]), parentKey: makeParentKey([a as string]), childName: null, values: { ASSETATTRID: a as string, DATATYPE: d as string } })),
+  );
+  return ws;
+}
+
+describe("分類による区別", () => {
+  const ws = classifiedWorkspace();
+  const sheet = ws.getSheet("資産");
+  const spec = pivotSpecFor(sheet.meta, "ASSETSPEC")!;
+  const value = (row: Parameters<typeof sheet.finalValue>[0], col: string) => sheet.finalValue(row, col);
+  const others = [ws.getSheet("分類の仕様"), ws.getSheet("属性")];
+  const defs = findClassDefs(others)!;
+  const info: PivotClassInfo = { defs, classCol: parentClassColumn(sheet.meta)!, attrTypes: findAttrTypes(others) };
+
+  it("分類の仕様のシートから分類ごとの項目と単位を読む。資産のシートは分類の仕様と取り違えない", () => {
+    expect([...defs.keys()].sort()).toEqual(["INSTR", "PUMP"]);
+    expect(defs.get("PUMP")?.get("RATED_POWER")).toMatchObject({ unit: "KW" });
+    expect(findClassDefs([sheet])).toBeNull();
+    expect(info.attrTypes.get("RANGE")).toBe("NUMERIC");
+  });
+
+  it("分類にあってどの機器にも行が無い項目も列にし、セルを 欠け・分類に無い・行あり に分ける", () => {
+    const table = addClassColumns(buildPivot(sheet.viewRows("final"), spec, value), spec, info, value);
+    const col = (attr: string) => table.columns.find((c) => c.attr === attr)!;
+    expect(table.columns.map((c) => c.attr)).toEqual(expect.arrayContaining(["SIGNAL", "RANGE"]));
+    // 型の分かる項目は型の列
+    expect(col("RANGE").valueCol).toBe("ASSETSPEC.NUMVALUE");
+    expect(col("SIGNAL").valueCol).toBe("ASSETSPEC.ALNVALUE");
+    const [p1, p2, t1] = table.rows;
+    expect(pivotCellState(p1!, col("FLOW"), info, value)).toBe("present");
+    expect(pivotCellState(p2!, col("FLOW"), info, value)).toBe("missing");
+    expect(pivotCellState(p2!, col("SIGNAL"), info, value)).toBe("notInClass");
+    expect(pivotCellState(t1!, col("SIGNAL"), info, value)).toBe("missing");
+    expect(pivotCellState(t1!, col("FLOW"), info, value)).toBe("notInClass");
+    expect(pivotCellState(p2!, col("FLOW"), null, value)).toBe("unknown");
+  });
+
+  it("欠けに値を入れると、項目名・値・分類の単位・分類 ID の仕様の行を足す（差分・取り消しはそのまま）", () => {
+    const w = classifiedWorkspace();
+    const s = w.getSheet("資産");
+    const v = (row: Parameters<typeof s.finalValue>[0], col: string) => s.finalValue(row, col);
+    const table = addClassColumns(buildPivot(s.viewRows("final"), spec, v), spec, info, v);
+    const flow = table.columns.find((c) => c.attr === "FLOW")!;
+    const p2 = table.rows[1]!;
+    const values = newSpecRow(p2, flow, spec, info, s.meta.columns, 95, v);
+    expect(values).toEqual({ "ASSETSPEC.ASSETATTRID": "FLOW", "ASSETSPEC.NUMVALUE": 95, "ASSETSPEC.MEASUREUNITID": "M3/H", "ASSETSPEC.CLASSSTRUCTUREID": "PUMP" });
+    // 分類に無い項目には足さない
+    const signal = table.columns.find((c) => c.attr === "SIGNAL")!;
+    expect(newSpecRow(p2, signal, spec, info, s.meta.columns, "4-20mA", v)).toBeNull();
+
+    const res = w.addRows("資産", [values!], { author: "user", parentRowKey: p2.parent.rowKey, childName: "ASSETSPEC" });
+    expect(res.conflicts).toEqual([]);
+    expect(w.getDiff("資産").addedRows).toBe(1);
+    const after = addClassColumns(buildPivot(s.viewRows("final"), spec, v), spec, info, v);
+    const cell = pivotCell(after.rows[1]!, after.columns.find((c) => c.attr === "FLOW")!, spec, v);
+    expect(cell.row !== null && v(cell.row, "ASSETSPEC.NUMVALUE")).toBe(95);
+    expect(s.rowStatus(cell.row!)).toBe("added");
   });
 });

@@ -185,3 +185,162 @@ export function preferPivot(rows: readonly RowState[], spec: PivotSpec, value: (
   const repeats = names.size <= Math.max(1, childRows / 2) || parents.size === 1;
   return perParent >= 2 && repeats && names.size <= MAX_PIVOT_COLUMNS;
 }
+
+// ---------------------------------------------------------------------------
+// 分類による区別と、欠けのセルへの入力（段階 3）
+//
+// 分類ごとの項目は、読み込んだ「分類の仕様」のシート（親の列 CLASSSTRUCTUREID と、子の ASSETATTRID）から取る。
+// 項目の型（数値・文字）は、読み込んだ「属性」のシート（ASSETATTRID と DATATYPE）があればそこから取る。
+// どちらも作業画面に見えるシートなので、利用者と LLM が同じ定義を確かめられる。
+// ---------------------------------------------------------------------------
+
+/** 分類の定義を読むシートの口（Sheet の一部） */
+export interface DefinitionSheet {
+  meta: Pick<SheetMeta, "name" | "columns">;
+  viewRows(view: "final"): readonly RowState[];
+  finalValue(row: RowState, col: string): CellValue;
+}
+
+/** 分類 ID → その分類の項目（項目名 → 単位と表示順） */
+export type ClassDefs = Map<string, Map<string, { unit: string | null; seq: number | null }>>;
+
+const CLASS_COL = "CLASSSTRUCTUREID";
+
+function upper(name: string): string {
+  return name.toUpperCase();
+}
+
+/** 読み込んだシートの中から、分類の仕様（分類 ID ごとの項目）を作る。見つからなければ null */
+export function findClassDefs(sheets: Iterable<DefinitionSheet>): ClassDefs | null {
+  for (const sheet of sheets) {
+    const cols = sheet.meta.columns;
+    const classCol = cols.find((c) => c.child === undefined && upper(c.name) === CLASS_COL);
+    if (classCol === undefined) continue;
+    const children = [...new Set(cols.flatMap((c) => (c.child !== undefined ? [c.child] : [])))];
+    // 分類の仕様の子（CLASSSPEC）で、ASSETATTRID を持つもの。
+    // 資産のシートも「分類 ID ＋ ASSETATTRID のある子（ASSETSPEC）」の形なので、子の名前で見分ける
+    const child = children.find((ch) => upper(ch) === "CLASSSPEC" && cols.some((c) => c.child === ch && upper(c.name) === `${upper(ch)}.ASSETATTRID`));
+    if (child === undefined) continue;
+    const attrCol = cols.find((c) => c.child === child && upper(c.name) === `${upper(child)}.ASSETATTRID`)?.name as string;
+    const unitCol = cols.find((c) => c.child === child && upper(c.name) === `${upper(child)}.MEASUREUNITID`)?.name ?? null;
+    const seqCol = cols.find((c) => c.child === child && upper(c.name) === `${upper(child)}.DISPLAYSEQUENCE`)?.name ?? null;
+    const defs: ClassDefs = new Map();
+    for (const row of sheet.viewRows("final")) {
+      const cls = sheet.finalValue(row, classCol.name);
+      if (isEmpty(cls)) continue;
+      let attrs = defs.get(String(cls));
+      if (attrs === undefined) defs.set(String(cls), (attrs = new Map()));
+      if (row.childName !== child) continue;
+      const attr = sheet.finalValue(row, attrCol);
+      if (isEmpty(attr)) continue;
+      const unit = unitCol === null ? null : sheet.finalValue(row, unitCol);
+      const seq = seqCol === null ? null : sheet.finalValue(row, seqCol);
+      attrs.set(String(attr), { unit: isEmpty(unit) ? null : String(unit), seq: typeof seq === "number" ? seq : null });
+    }
+    if (defs.size > 0) return defs;
+  }
+  return null;
+}
+
+/** 項目名 → データ型（ALN・NUMERIC・TABLE・DATE）。読み込んだ「属性」のシートから。見つからなければ空 */
+export function findAttrTypes(sheets: Iterable<DefinitionSheet>): Map<string, string> {
+  for (const sheet of sheets) {
+    const cols = sheet.meta.columns.filter((c) => c.child === undefined);
+    const attrCol = cols.find((c) => upper(c.name) === "ASSETATTRID");
+    const typeCol = cols.find((c) => upper(c.name) === "DATATYPE");
+    if (attrCol === undefined || typeCol === undefined) continue;
+    const out = new Map<string, string>();
+    for (const row of sheet.viewRows("final")) {
+      const attr = sheet.finalValue(row, attrCol.name);
+      const type = sheet.finalValue(row, typeCol.name);
+      if (!isEmpty(attr) && !isEmpty(type)) out.set(String(attr), upper(String(type)));
+    }
+    if (out.size > 0) return out;
+  }
+  return new Map();
+}
+
+/** データ型から値の列の属性名 */
+const TYPE_TO_VALUE_ATTR: Record<string, string> = { ALN: "ALNVALUE", NUMERIC: "NUMVALUE", TABLE: "TABLEVALUE", DATE: "DATEVALUE" };
+
+/** 親の分類 ID の列（無ければ null） */
+export function parentClassColumn(meta: Pick<SheetMeta, "columns">): string | null {
+  return meta.columns.find((c) => c.child === undefined && upper(c.name) === CLASS_COL)?.name ?? null;
+}
+
+/** 横持ちのセルの状態。present: 行がある / missing: 分類にあるのに行が無い（欠け。値を入れると行を足す） / notInClass: 分類に無い項目 / unknown: 分類が分からない */
+export type PivotCellState = "present" | "missing" | "notInClass" | "unknown";
+
+export interface PivotClassInfo {
+  defs: ClassDefs;
+  /** 親の分類 ID の列 */
+  classCol: string;
+  attrTypes: Map<string, string>;
+}
+
+export function pivotCellState(row: PivotRow, column: PivotColumn, info: PivotClassInfo | null, value: (row: RowState, col: string) => CellValue): PivotCellState {
+  if ((row.cells.get(column.key)?.length ?? 0) > 0) return "present";
+  if (info === null) return "unknown";
+  const cls = value(row.parent, info.classCol);
+  if (isEmpty(cls)) return "unknown";
+  const attrs = info.defs.get(String(cls));
+  if (attrs === undefined) return "unknown";
+  return attrs.has(column.attr) ? "missing" : "notInClass";
+}
+
+/**
+ * 分類にあるのに、どの親にも行が無い項目も列にする（横持ちの表に出ている親の分類の項目だけ）。
+ * 列の値の列は、属性の型 → 単位があれば数値 → 文字 の順で決める。
+ */
+export function addClassColumns(table: PivotTable, spec: PivotSpec, info: PivotClassInfo, value: (row: RowState, col: string) => CellValue): PivotTable {
+  const have = new Set(table.columns.filter((c) => c.section === null).map((c) => c.attr));
+  const extra = new Map<string, PivotColumn>();
+  for (const row of table.rows) {
+    const cls = value(row.parent, info.classCol);
+    if (isEmpty(cls)) continue;
+    const attrs = info.defs.get(String(cls));
+    if (attrs === undefined) continue;
+    for (const [attr, def] of attrs) {
+      if (have.has(attr) || extra.has(attr)) continue;
+      extra.set(attr, { key: attr, attr, section: null, valueCol: valueColumnFor(spec, attr, def.unit, info, null), units: def.unit ? [def.unit] : [], count: 0 });
+    }
+  }
+  if (extra.size === 0) return table;
+  return { rows: table.rows, columns: [...table.columns, ...[...extra.values()].sort((a, b) => a.attr.localeCompare(b.attr))] };
+}
+
+/** 新しく足す行の値の列（属性の型 → 横持ちの列で多く使われている列 → 単位があれば数値 → 文字） */
+export function valueColumnFor(spec: PivotSpec, attr: string, unit: string | null, info: PivotClassInfo | null, column: PivotColumn | null): string {
+  const byType = info?.attrTypes.get(attr);
+  const fromType = byType === undefined ? undefined : spec.valueCols.find((c) => upper(c).endsWith(`.${TYPE_TO_VALUE_ATTR[byType] ?? ""}`));
+  if (fromType !== undefined) return fromType;
+  if (column !== null && column.count > 0) return column.valueCol;
+  const num = spec.valueCols.find((c) => upper(c).endsWith(".NUMVALUE"));
+  const aln = spec.valueCols.find((c) => upper(c).endsWith(".ALNVALUE"));
+  return (unit !== null ? num : aln) ?? (spec.valueCols[0] as string);
+}
+
+/**
+ * 欠けのセルに値を入れたときに足す行の値（子の列だけ）。項目名・値・単位（分類の仕様の単位）・分類 ID（子に列があれば）。
+ * 分類が分からない・分類に無い項目なら null（足さない）
+ */
+export function newSpecRow(
+  row: PivotRow,
+  column: PivotColumn,
+  spec: PivotSpec,
+  info: PivotClassInfo,
+  childColumns: readonly ColumnSchema[],
+  newValue: CellValue,
+  value: (row: RowState, col: string) => CellValue,
+): Record<string, CellValue> | null {
+  const cls = value(row.parent, info.classCol);
+  if (isEmpty(cls)) return null;
+  const def = info.defs.get(String(cls))?.get(column.attr);
+  if (def === undefined) return null;
+  const out: Record<string, CellValue> = { [spec.nameCol]: column.attr };
+  out[valueColumnFor(spec, column.attr, def.unit, info, column)] = newValue;
+  if (spec.unitCol !== null && def.unit !== null) out[spec.unitCol] = def.unit;
+  const childClass = childColumns.find((c) => c.child === spec.child && upper(c.name) === `${upper(spec.child)}.${CLASS_COL}`);
+  if (childClass !== undefined) out[childClass.name] = cls;
+  return out;
+}

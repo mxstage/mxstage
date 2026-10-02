@@ -10,6 +10,28 @@ import { createUpdatesApi, type UpdateStatus, type UpdatesApi } from "./updates"
 /** 進んでいる間は状態を読み直す */
 const POLL_MS = 3_000;
 
+/** ダウンロードした場所をコピーする（エクスプローラーが前に出ないときに、アドレス欄へ貼れるように） */
+function CopyPath({ path }: { path: string }) {
+  const t = m().updates;
+  const [copied, setCopied] = useState(false);
+  const clip = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
+  if (!clip || typeof clip.writeText !== "function") return null;
+  return (
+    <Button
+      kind="ghost"
+      size="sm"
+      onClick={() => {
+        clip.writeText(path).then(
+          () => setCopied(true),
+          () => setCopied(false),
+        );
+      }}
+    >
+      {copied ? t.copied : t.copyPath}
+    </Button>
+  );
+}
+
 export function UpdatesSection({ api: given }: { api?: UpdatesApi }) {
   const api = useMemo(() => given ?? createUpdatesApi(), [given]);
   const [status, setStatus] = useState<UpdateStatus | null | "loading">("loading");
@@ -95,9 +117,12 @@ export function UpdatesSection({ api: given }: { api?: UpdatesApi }) {
         <Notice kind="success">
           {t.downloaded}
           <br />
-          <code className="mono">{status.downloaded}</code>
+          <code className="mono">{status.downloaded}</code>{" "}
+          <CopyPath path={status.downloaded} />
           <br />
           {t.installSteps}
+          <br />
+          {t.folderHint}
         </Notice>
       )}
 

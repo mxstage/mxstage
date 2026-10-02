@@ -2,6 +2,12 @@
 
 All notable changes to MX Stage are listed here. Versions follow [Semantic Versioning](https://semver.org/). Each version becomes available under the Apache License 2.0 four years after its release (see [LICENSE](LICENSE)).
 
+## Unreleased
+
+### Changed
+
+- Settings → Updates: after downloading the Claude Desktop extension, a button copies the file's path, for when the folder does not open (Claude Desktop runs the extension in the background).
+
 ## 0.2.4 — 2026-10-02
 
 ### Added

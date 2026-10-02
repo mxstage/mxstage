@@ -98,6 +98,9 @@ export const settingsMessages = defineMessages(
       restartNeeded: "Updated. Restart your AI assistant to use the new version.",
       downloaded: "Downloaded and checked the new extension file:",
       installSteps: "In Claude Desktop, open Settings → Extensions → Advanced settings → Install Extension… and choose this file.",
+      folderHint: "If the folder did not open, paste the copied path into the File Explorer address bar.",
+      copyPath: "Copy path",
+      copied: "Copied",
       error: (code: string) => (UPDATE_ERRORS_EN as Record<string, string>)[code] ?? `Could not update (${code}).`,
     },
     language: {
@@ -284,6 +287,9 @@ export const settingsMessages = defineMessages(
       restartNeeded: "入れ替えました。AI アシスタントを開き直すと新しい版になります。",
       downloaded: "新しい拡張機能のファイルをダウンロードし、確かめました:",
       installSteps: "Claude Desktop の「Settings → Extensions」で「Advanced settings → Install Extension…」を押し、このファイルを選んでください。",
+      folderHint: "フォルダが開かなかったときは、コピーした場所をエクスプローラーのアドレス欄に貼り付けてください。",
+      copyPath: "場所をコピー",
+      copied: "コピーしました",
       error: (code) => (UPDATE_ERRORS_JA as Record<string, string>)[code] ?? `更新できませんでした（${code}）。`,
     },
     language: {

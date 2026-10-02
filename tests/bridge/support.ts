@@ -102,6 +102,8 @@ export interface FakeTabOptions {
   /** hello を自動で送らない */
   noHello?: boolean;
   appVersion?: string;
+  /** hello で知らせるシートの数（省けば送らない） */
+  sheets?: number;
 }
 
 /** 作業タブのふりをする WebSocket クライアント */
@@ -158,6 +160,7 @@ export class FakeTab {
         revision: 0,
         workspace: null,
         focused: opts.focused ?? true,
+        ...(opts.sheets !== undefined ? { sheets: opts.sheets } : {}),
       });
       await tab.waitFor("welcome").catch(() => undefined);
     }

@@ -66,6 +66,8 @@ export interface HelloMsg {
   revision: number;
   workspace: string | null;
   focused: boolean;
+  /** 作業にあるシートの数。シートの無いタブはフォーカスしても、シートのある primary を奪わない */
+  sheets?: number;
 }
 
 export interface FocusMsg {
@@ -119,7 +121,14 @@ export interface SheetOpsMsg {
   ops: unknown;
 }
 
-export type TabToHub = HelloMsg | FocusMsg | AckMsg | ProgressMsg | ChunkMsg | ResultMsg | ErrorMsg | SheetOpsMsg;
+/** タブの作業の様子が変わった（シートの数）。hello の後で送る */
+export interface TabStateMsg {
+  type: "tab.state";
+  tabId: string;
+  sheets: number;
+}
+
+export type TabToHub = HelloMsg | FocusMsg | AckMsg | ProgressMsg | ChunkMsg | ResultMsg | ErrorMsg | SheetOpsMsg | TabStateMsg;
 
 // ---------------------------------------------------------------------------
 // Hub → Tab
@@ -130,11 +139,29 @@ export interface WelcomeMsg {
   role: TabRole;
   primaryTabId: string | null;
   heartbeatMs: number;
+  /** primary のタブにあるシートの数（分からなければ null） */
+  primarySheets?: number | null;
 }
 
 export interface RolesMsg {
   type: "tab.roles";
   primaryTabId: string | null;
+  primarySheets?: number | null;
+}
+
+/**
+ * 作業を別の窓へ移す（作業データを橋渡しの /_mxstage/handoff へ送らせる）。送り先の窓が「この窓に移す」を押したとき、
+ * 作業のある primary のタブへ送る。タブは作業を直列化して /_mxstage/handoff/upload?token= に送る（保存はしない）
+ */
+export interface WorkspaceExportMsg {
+  type: "workspace.export";
+  token: string;
+}
+
+/** 作業が別の窓に移り終わった。送り元のタブは作業を空にする */
+export interface WorkspaceReleaseMsg {
+  type: "workspace.release";
+  token: string;
 }
 
 export interface InvokeMsg {
@@ -175,7 +202,7 @@ export interface ErrorFrameMsg {
   message: string;
 }
 
-export type HubToTab = WelcomeMsg | RolesMsg | InvokeMsg | CancelMsg | ImportChunkMsg | SheetOpsMsg | ErrorFrameMsg;
+export type HubToTab = WelcomeMsg | RolesMsg | InvokeMsg | CancelMsg | ImportChunkMsg | SheetOpsMsg | ErrorFrameMsg | WorkspaceExportMsg | WorkspaceReleaseMsg;
 
 // ---------------------------------------------------------------------------
 // MCP サーバ → Hub

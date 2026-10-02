@@ -6,6 +6,7 @@ import type { SavedConnectionsClient } from "../connections/client";
 import type { KeyVault } from "../keyvault/client";
 import type { LicenseClient } from "../license/client";
 import type { ToastStore } from "../ui/toast";
+import type { Workspace } from "../store";
 import type { Runtime } from "./runtime";
 
 export interface AppServices {
@@ -19,6 +20,9 @@ export interface AppServices {
   connections: SavedConnectionsClient;
   /** 保存した接続先への自動の接続（開いたとき・つながらなかったとき） */
   autoConnect: AutoConnector;
-  /** 作業画面を開いたときと、作業終了の後に呼ぶ */
-  createRuntime(): Runtime;
+  /**
+   * 作業画面を開いたときと、作業終了の後に呼ぶ。
+   * workspace: 別の窓から移してきた作業。onReleased: この窓の作業が別の窓へ移り終わった
+   */
+  createRuntime(extras?: { workspace?: Workspace; onReleased?: () => void }): Runtime;
 }

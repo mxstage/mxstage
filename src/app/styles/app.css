@@ -128,6 +128,17 @@ button.link:hover {
   margin: 0 0 var(--cds-spacing-03);
 }
 
+/* 作業が別の窓にあるときの案内（「この窓に移す」） */
+.move-work p {
+  max-width: 36rem;
+  margin-inline: auto;
+  color: var(--cds-text-primary);
+}
+
+.move-work .cds--btn {
+  margin-top: var(--cds-spacing-04);
+}
+
 /* 画面の下に重ねる通知（ui/toast.tsx）。モーダルより上に出す */
 .toasts {
   position: fixed;

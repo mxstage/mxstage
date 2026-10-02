@@ -63,8 +63,10 @@ export function createServices(): AppServices {
     license,
     connections,
     autoConnect,
-    createRuntime: () => {
+    createRuntime: (extras) => {
       const runtime = createRuntime({
+        ...(extras?.workspace ? { initialWorkspace: extras.workspace } : {}),
+        ...(extras?.onReleased ? { onReleased: extras.onReleased } : {}),
         connection: vault,
         catalog,
         license,

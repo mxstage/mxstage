@@ -1,7 +1,7 @@
 // 作業画面 /app: 上部バー（シートタブを含む）、グリッド、サイドパネル（表示の切替・反映・変更履歴）。
 // 保存・確定ボタンは置かない（グリッドの変更はその場で作業状態に入る）。
 
-import { ContentSwitcher, Switch } from "@carbon/react";
+import { Button, ContentSwitcher, Switch } from "@carbon/react";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { Runtime } from "../boot/runtime";
 import type { ObjectStructureCatalog } from "../catalog/catalog";
@@ -11,6 +11,7 @@ import { SheetGrid, type LinkFilter } from "../grid/SheetGrid";
 import type { VaultView } from "../keyvault/client";
 import type { ViewKind } from "../store";
 import { Link } from "../ui/Link";
+import { uiMessages } from "../ui/messages";
 import { Notice } from "../ui/Notice";
 import { SETTINGS_PATH } from "../ui/routes";
 import { Toasts, type ToastStore } from "../ui/toast";
@@ -79,6 +80,8 @@ export interface AppPageProps {
   /** 接続中の Maximo の環境（テスト／本番）を上部バーに出す */
   license?: LicenseClient;
   onEndWork: () => void;
+  /** 別の窓にある作業をこの窓へ移す（作業が空で、別の窓が primary のときに出す） */
+  onMoveWorkHere?: () => Promise<void>;
   confirm?: (message: string) => boolean;
   reload?: () => void;
 }
@@ -91,7 +94,7 @@ function viewOptions(): Array<{ kind: ViewKind; label: string }> {
   return VIEW_KINDS.map((kind) => ({ kind, label: labels[kind] }));
 }
 
-export function AppPage({ runtime, vault, toasts, catalog, license, onEndWork, confirm, reload }: AppPageProps) {
+export function AppPage({ runtime, vault, toasts, catalog, license, onEndWork, onMoveWorkHere, confirm, reload }: AppPageProps) {
   const { workspace, commits } = runtime;
   const confirmFn = confirm ?? ((m: string) => window.confirm(m));
   const reloadFn = reload ?? (() => window.location.reload());
@@ -195,6 +198,8 @@ export function AppPage({ runtime, vault, toasts, catalog, license, onEndWork, c
 
   // 再接続が続いたら、作業画面を開き直す案内を出す（WebSocket では鍵切れも回線断も同じ見え方になる）
   const suggestReopen = shouldSuggestReopen(relayStatus);
+  // 作業が別の窓にある（この窓はミラーで、primary の窓にシートがある）
+  const elsewhere = relayStatus.role === "mirror" ? (relayStatus.primarySheets ?? 0) : 0;
   const reopen = suggestReopen ? reopenHint() : null;
 
   const tabInfos: SheetTabInfo[] = sheetNames.map((name) => {
@@ -245,7 +250,9 @@ export function AppPage({ runtime, vault, toasts, catalog, license, onEndWork, c
       />
       <div className={`workarea${sidePanel ? "" : " no-side"}`}>
         <div className="grid-area">
-          {current === null ? (
+          {current === null && elsewhere > 0 && onMoveWorkHere ? (
+            <MoveWorkHere sheets={elsewhere} onMove={onMoveWorkHere} />
+          ) : current === null ? (
             <div className="empty">
               <p>{t.emptyTitle}</p>
               <p className="muted">
@@ -375,6 +382,28 @@ export function AppPage({ runtime, vault, toasts, catalog, license, onEndWork, c
         )}
       </div>
       <Toasts store={toasts} />
+    </div>
+  );
+}
+
+/** 作業が別の窓にあるときの案内と「この窓に移す」 */
+function MoveWorkHere({ sheets, onMove }: { sheets: number; onMove: () => Promise<void> }) {
+  const t = uiMessages().handoff;
+  const [moving, setMoving] = useState(false);
+  return (
+    <div className="empty move-work">
+      <p>{t.elsewhere(sheets)}</p>
+      <Button
+        kind="primary"
+        size="md"
+        disabled={moving}
+        onClick={() => {
+          setMoving(true);
+          void onMove().finally(() => setMoving(false));
+        }}
+      >
+        {moving ? t.moving : t.move}
+      </Button>
     </div>
   );
 }

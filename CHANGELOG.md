@@ -2,6 +2,16 @@
 
 All notable changes to MX Stage are listed here. Versions follow [Semantic Versioning](https://semver.org/). Each version becomes available under the Apache License 2.0 four years after its release (see [LICENSE](LICENSE)).
 
+## Unreleased
+
+### Added
+
+- **Move the work to this window.** When the sheets are open in another window (for example, the installed app) and you open the work screen somewhere else (for example, the browser inside your AI assistant), the new window says so and offers **Move it to this window**. The sheets, changes and undo history move through the bridge's memory (nothing is written to disk), and the other window becomes empty.
+
+### Fixed
+
+- Clicking a work screen window that has no sheets no longer moves the AI assistant's tools away from the window that has the sheets.
+
 ## 0.2.1 — 2026-10-02
 
 ### Added

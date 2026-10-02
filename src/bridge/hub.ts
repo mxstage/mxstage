@@ -30,6 +30,8 @@ import type {
   SheetOpsMsg,
   TabRole,
   WelcomeMsg,
+  WorkspaceExportMsg,
+  WorkspaceReleaseMsg,
 } from "../shared/protocol.ts";
 import {
   MAX_APP_VERSION_LENGTH,
@@ -69,6 +71,8 @@ interface TabEntry {
   connectedAt: number;
   lastFocusAt: number;
   closed: boolean;
+  /** 作業にあるシートの数（hello・tab.state。古い画面で分からなければ null） */
+  sheets: number | null;
 }
 
 interface PendingCall {
@@ -142,6 +146,7 @@ export class LocalHub implements HubRpc {
       connectedAt: this.now(),
       lastFocusAt: 0,
       closed: false,
+      sheets: null,
     };
     this.conns.set(entry.connId, entry);
     ws.onmessage = (text) => this.onMessage(entry, text);
@@ -176,6 +181,9 @@ export class LocalHub implements HubRpc {
         return;
       case "tab.focus":
         this.onFocus(entry);
+        return;
+      case "tab.state":
+        this.onState(entry, msg.tabId, msg.sheets);
         return;
       case "tool.ack": {
         const call = this.callFrom(entry, msg.id);
@@ -319,9 +327,11 @@ export class LocalHub implements HubRpc {
     entry.workspace = msg.workspace === null ? null : capText(msg.workspace, MAX_WORKSPACE_LENGTH);
     entry.lastFocusAt = msg.focused ? now : lastFocusAt;
     entry.role = inheritPrimary ? "primary" : "mirror";
+    entry.sheets = msg.sheets ?? null;
 
     const hasOtherPrimary = this.tabs().some((t) => t.connId !== entry.connId && t.role === "primary");
-    const makePrimary = msg.focused || inheritPrimary || !hasOtherPrimary;
+    // シートの無いタブは、フォーカスがあっても、シートのある primary を奪わない
+    const makePrimary = (msg.focused && this.mayTakePrimary(entry)) || inheritPrimary || !hasOtherPrimary;
     const { primary } = this.syncRoles(makePrimary ? entry.connId : undefined);
 
     const welcome: WelcomeMsg = {
@@ -329,6 +339,7 @@ export class LocalHub implements HubRpc {
       role: primary?.connId === entry.connId ? "primary" : "mirror",
       primaryTabId: primary?.tabId ?? null,
       heartbeatMs: RELAY_TIMEOUTS.heartbeatMs,
+      primarySheets: primary?.sheets ?? null,
     };
     sendJson(entry.ws, welcome);
     this.broadcastRoles(primary);
@@ -336,9 +347,56 @@ export class LocalHub implements HubRpc {
     for (const wake of [...this.tabWaiters]) wake();
   }
 
+  /**
+   * フォーカスでこのタブを primary にしてよいか。
+   * シートの無いタブ（AI クライアントの中のブラウザで開いただけの窓など）が、作業のある primary を奪うと、
+   * LLM のツールが空の作業に届いてしまう。作業を移したいときは、その窓の「この窓に移す」で移す。
+   */
+  private mayTakePrimary(entry: TabEntry): boolean {
+    if (entry.sheets !== 0) return true;
+    const current = this.tabs().find((t) => t.connId !== entry.connId && t.role === "primary");
+    return !(current !== undefined && (current.sheets ?? 0) > 0);
+  }
+
+  /** タブのシートの数が変わった。作業のある窓が primary になるように揃え、ほかの窓に知らせる */
+  private onState(entry: TabEntry, tabId: string, sheets: number): void {
+    if (entry.tabId === null || entry.tabId !== tabId) return;
+    entry.sheets = sheets;
+    const current = this.tabs().find((t) => t.role === "primary");
+    // primary の作業が空になり、この窓に作業があるなら、この窓を primary にする
+    const takeOver = entry.role !== "primary" && sheets > 0 && current !== undefined && current.sheets === 0;
+    const { primary } = this.syncRoles(takeOver ? entry.connId : undefined);
+    this.broadcastRoles(primary);
+  }
+
+  /**
+   * 作業を移す（target の窓が「この窓に移す」を押した）。target 以外で作業のある primary に workspace.export を送る。
+   * 送った先の tabId を返す（作業のある窓が無ければ null）
+   */
+  requestExport(targetTabId: string, token: string): string | null {
+    const primary = this.primaryTab();
+    if (!primary || primary.tabId === null || primary.tabId === targetTabId || (primary.sheets ?? 0) === 0) return null;
+    const msg: WorkspaceExportMsg = { type: "workspace.export", token };
+    return sendJson(primary.ws, msg) ? primary.tabId : null;
+  }
+
+  /** 移し終えた。送り元の窓に作業を空にさせる */
+  releaseExport(sourceTabId: string, token: string): boolean {
+    const source = this.tabs().find((t) => t.tabId === sourceTabId);
+    if (!source) return false;
+    const msg: WorkspaceReleaseMsg = { type: "workspace.release", token };
+    return sendJson(source.ws, msg);
+  }
+
+  /** いまの primary のタブ ID（試験・状態の確認用） */
+  primaryTabId(): string | null {
+    return this.primaryTab()?.tabId ?? null;
+  }
+
   private onFocus(entry: TabEntry): void {
     if (entry.tabId === null) return;
     entry.lastFocusAt = this.now();
+    if (!this.mayTakePrimary(entry)) return;
     const { primary } = this.syncRoles(entry.connId);
     this.broadcastRoles(primary);
   }
@@ -647,7 +705,13 @@ export class LocalHub implements HubRpc {
     let primary = forceConnId === undefined ? undefined : tabs.find((t) => t.connId === forceConnId);
     if (!primary) {
       const flagged = tabs.filter((t) => t.role === "primary");
-      primary = [...(flagged.length > 0 ? flagged : tabs)].sort(byRecentFocus)[0];
+      // primary が居なければ、作業のある窓を先に選ぶ
+      primary = flagged.length > 0 ? flagged.sort(byRecentFocus)[0] : [...tabs].sort(byWorkThenFocus)[0];
+    }
+    // 作業のある窓があるのに、空の窓を primary にしない（LLM のツールが空の作業に届かないように）
+    if (primary !== undefined && primary.sheets === 0) {
+      const working = tabs.filter((t) => (t.sheets ?? 0) > 0).sort(byRecentFocus)[0];
+      if (working !== undefined) primary = working;
     }
     let changed = false;
     for (const t of tabs) {
@@ -670,7 +734,7 @@ export class LocalHub implements HubRpc {
   }
 
   private broadcastRoles(primary: TabEntry | null): void {
-    const msg: RolesMsg = { type: "tab.roles", primaryTabId: primary?.tabId ?? null };
+    const msg: RolesMsg = { type: "tab.roles", primaryTabId: primary?.tabId ?? null, primarySheets: primary?.sheets ?? null };
     const text = JSON.stringify(msg);
     for (const t of this.tabs()) t.ws.send(text);
   }
@@ -733,6 +797,12 @@ function cancelMsg(id: string, reason: CancelMsg["reason"]): CancelMsg {
 
 function byRecentFocus(a: TabEntry, b: TabEntry): number {
   return b.lastFocusAt - a.lastFocusAt || b.connectedAt - a.connectedAt;
+}
+
+/** 作業のある窓を先に、その中では最後にフォーカスされた順 */
+function byWorkThenFocus(a: TabEntry, b: TabEntry): number {
+  const work = Number((b.sheets ?? 0) > 0) - Number((a.sheets ?? 0) > 0);
+  return work || byRecentFocus(a, b);
 }
 
 function sendJson(ws: BridgeSocket, msg: unknown): boolean {

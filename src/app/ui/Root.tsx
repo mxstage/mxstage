@@ -2,7 +2,9 @@
 // 画面はこのパソコンの橋渡し（127.0.0.1）が配る。ログインも作業キーも無い。
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { Workspace } from "../store";
 import { getLocale, subscribeLocale } from "../../shared/i18n";
+import { confirmWorkMoved, fetchWorkFromOtherWindow } from "../boot/handoff";
 import type { Runtime } from "../boot/runtime";
 import type { AppServices } from "../boot/types";
 import { AppPage } from "../pages/AppPage";
@@ -50,14 +52,34 @@ export function Root({ services }: { services: AppServices }) {
     };
   }, [services]);
 
+  /**
+   * 作業（runtime）を作り直す。initial があれば、別の窓から移してきた作業で始める。
+   * この窓の作業が別の窓へ移り終わったら（onReleased）、空の作業で作り直す
+   */
+  const startRuntime = useCallback(
+    (initial?: Workspace): Runtime => {
+      runtimeRef.current?.dispose();
+      const rt: Runtime = services.createRuntime({
+        ...(initial ? { workspace: initial } : {}),
+        onReleased: () => {
+          if (runtimeRef.current !== rt) return;
+          startRuntime();
+          services.toasts.show(uiMessages().handoff.movedAway);
+        },
+      });
+      runtimeRef.current = rt;
+      rt.start();
+      setRuntime(rt);
+      return rt;
+    },
+    [services],
+  );
+
   // 作業画面を初めて開いたときに中継を始める。設定画面だけのタブは primary を奪わないよう接続しない
   useEffect(() => {
     if (route.kind !== "app" || runtimeRef.current !== null) return;
-    const rt = services.createRuntime();
-    runtimeRef.current = rt;
-    rt.start();
-    setRuntime(rt);
-  }, [route.kind, services]);
+    startRuntime();
+  }, [route.kind, startRuntime]);
 
   useEffect(
     () => () => {
@@ -68,13 +90,24 @@ export function Root({ services }: { services: AppServices }) {
   );
 
   const endWork = useCallback(() => {
-    runtimeRef.current?.dispose();
-    const rt = services.createRuntime();
-    runtimeRef.current = rt;
-    rt.start();
-    setRuntime(rt);
+    startRuntime();
     services.toasts.show(uiMessages().workEnded);
-  }, [services]);
+  }, [services, startRuntime]);
+
+  /** 別の窓にある作業をこの窓へ移す（作業画面の「この窓に移す」） */
+  const moveWorkHere = useCallback(async () => {
+    const current = runtimeRef.current;
+    if (!current) return;
+    const t = uiMessages().handoff;
+    const got = await fetchWorkFromOtherWindow(current.tabId);
+    if (!got.ok) {
+      services.toasts.show(t.failed[got.reason], "error");
+      return;
+    }
+    const rt = startRuntime(got.workspace);
+    await confirmWorkMoved(got.token, rt.tabId);
+    services.toasts.show(t.movedHere);
+  }, [services, startRuntime]);
 
   if (route.kind === "settings") {
     return (
@@ -94,7 +127,7 @@ export function Root({ services }: { services: AppServices }) {
     );
   }
   if (route.kind === "app" && runtime) {
-    return <AppPage key={locale} runtime={runtime} vault={services.vault} toasts={services.toasts} catalog={services.catalog} license={services.license} onEndWork={endWork} />;
+    return <AppPage key={locale} runtime={runtime} vault={services.vault} toasts={services.toasts} catalog={services.catalog} license={services.license} onEndWork={endWork} onMoveWorkHere={moveWorkHere} />;
   }
   return null;
 }

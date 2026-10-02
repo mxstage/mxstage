@@ -21,6 +21,7 @@ import type { UpstreamRequest } from "./mx.ts";
 import { PEER_PREFIX, handlePeerRequest, readBody } from "./peer.ts";
 import type { LicenseStore } from "./license.ts";
 import type { ConnectionStore } from "./connections.ts";
+import { HANDOFF_PATHS, Handoffs } from "./handoff.ts";
 import type { BridgeKeyStore } from "./bridgeKey.ts";
 import { readSkillCatalog } from "./skills.ts";
 import { serveStatic } from "./staticFiles.ts";
@@ -269,6 +270,8 @@ function isSameOriginBrowserRequest(req: IncomingMessage, port: number): boolean
 
 export async function startBridgeServer(opts: BridgeServerOptions): Promise<BridgeServer> {
   const hub = opts.hub ?? new LocalHub();
+  // 作業を別の窓へ移す（「この窓に移す」。作業のデータはメモリを通るだけ）
+  const handoffs = new Handoffs();
   const tickets = opts.tickets ?? new ImportTickets();
   const allowedHosts = (opts.allowedHosts ?? []).map((h) => h.trim().toLowerCase()).filter(Boolean);
   const insecure = opts.insecure === true;
@@ -286,7 +289,7 @@ export async function startBridgeServer(opts: BridgeServerOptions): Promise<Brid
       const pathname = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
       // ライセンスの入口は作業画面（同一オリジン）からだけ受ける
       // ライセンスと保存した接続先の入口は作業画面（同一オリジン）からだけ受ける
-      isTicketPath = pathname.startsWith("/import/") || (pathname.startsWith(PEER_PREFIX) && !LICENSE_PATHS.includes(pathname) && !CONNECTIONS_PATHS.includes(pathname));
+      isTicketPath = pathname.startsWith("/import/") || (pathname.startsWith(PEER_PREFIX) && !LICENSE_PATHS.includes(pathname) && !CONNECTIONS_PATHS.includes(pathname) && !HANDOFF_PATHS.includes(pathname));
     } catch {
       isTicketPath = false;
     }
@@ -328,6 +331,11 @@ export async function startBridgeServer(opts: BridgeServerOptions): Promise<Brid
 
     if (LICENSE_PATHS.includes(url.pathname)) {
       await handleLicenseRequest(req, res, url.pathname, opts.license ?? null);
+      return;
+    }
+
+    if (HANDOFF_PATHS.includes(url.pathname)) {
+      await handoffs.handle(req, res, url.pathname, hub);
       return;
     }
 

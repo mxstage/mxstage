@@ -4,7 +4,7 @@
 // 期待値として固定しているので、判定を変えると試験が知らせる。
 
 import { RelayErrorCode } from "../shared/protocol.ts";
-import type { ChunkMsg, ErrorMsg, ProgressMsg, TabToHub, ToolResultPayload } from "../shared/protocol.ts";
+import type { ChunkMsg, ErrorMsg, HelloMsg, ProgressMsg, TabToHub, ToolResultPayload } from "../shared/protocol.ts";
 
 const MAX_MESSAGE_TEXT = 4_000;
 
@@ -42,8 +42,8 @@ export function parseTabMessage(data: string | ArrayBuffer): TabToHub | null {
   if (!isObj(v) || typeof v.type !== "string") return null;
 
   switch (v.type) {
-    case "hello":
-      return {
+    case "hello": {
+      const hello: HelloMsg = {
         type: "hello",
         tabId: typeof v.tabId === "string" ? v.tabId : "",
         protocol: finite(v.protocol) ? v.protocol : -1,
@@ -53,6 +53,12 @@ export function parseTabMessage(data: string | ArrayBuffer): TabToHub | null {
         workspace: typeof v.workspace === "string" ? v.workspace : null,
         focused: v.focused === true,
       };
+      if (finite(v.sheets) && v.sheets >= 0) hello.sheets = Math.floor(v.sheets);
+      return hello;
+    }
+    case "tab.state":
+      if (typeof v.tabId !== "string" || !finite(v.sheets) || v.sheets < 0) return null;
+      return { type: "tab.state", tabId: v.tabId, sheets: Math.floor(v.sheets) };
     case "tab.focus":
       return { type: "tab.focus", tabId: typeof v.tabId === "string" ? v.tabId : "" };
     case "tool.ack":

@@ -26,6 +26,7 @@ import type {
   ProgressMsg,
   SheetOpsMsg,
   TabRole,
+  TabStateMsg,
   ToolResultPayload,
 } from "../../shared/protocol";
 import type { ToolName } from "../../shared/toolDefs";
@@ -146,6 +147,8 @@ export interface RelayStatus {
   /** welcome を受けるまでと切断中は null */
   role: TabRole | null;
   primaryTabId: string | null;
+  /** primary のタブにあるシートの数（分からなければ null）。ミラーの窓が「作業は別の窓にあります」と出すのに使う */
+  primarySheets?: number | null;
   heartbeatMs: number;
   /** 連続した再接続の回数（welcome で 0 に戻る） */
   attempt: number;
@@ -162,6 +165,12 @@ export interface RelaySocketOptions {
   tools: string[];
   getRevision(): number;
   getWorkspace(): string | null;
+  /** 作業にあるシートの数（hello と tab.state で知らせる。シートの無い窓はフォーカスしても primary を奪わない） */
+  getSheetCount?(): number;
+  /** 作業を別の窓へ移すよう頼まれた（workspace.export） */
+  onWorkspaceExport?(token: string): void;
+  /** 作業が別の窓へ移り終わった（workspace.release） */
+  onWorkspaceRelease?(token: string): void;
   handler: ToolHandler;
   onImport?(file: ImportedFile): void;
   onImportError?(importId: string, reason: ImportErrorReason): void;
@@ -225,6 +234,11 @@ let pageTabIdValue: string | null = null;
  * sessionStorage には保存しない: タブを複製すると sessionStorage も複製されて同じ tabId が 2 つでき、
  * Hub は同じ tabId の新しい hello で古い接続を 4000 で閉じる（src/bridge/hub.ts）ため、2 つのタブが互いを追い出し続ける。
  */
+/** Hub が知らせるシートの数（形が合わなければ null） */
+function sheetCountOf(v: unknown): number | null {
+  return typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.floor(v) : null;
+}
+
 export function pageTabId(): string {
   pageTabIdValue ??= newTabId();
   return pageTabIdValue;
@@ -351,6 +365,11 @@ export class RelaySocket {
   private readonly getWorkspaceFn: () => string | null;
   private readonly handler: ToolHandler;
   private readonly onSheetOps: ((msg: SheetOpsMsg) => void) | undefined;
+  private readonly getSheetCountFn: (() => number) | undefined;
+  private readonly onWorkspaceExport: ((token: string) => void) | undefined;
+  private readonly onWorkspaceRelease: ((token: string) => void) | undefined;
+  /** 最後に Hub へ知らせたシートの数 */
+  private sentSheets: number | null = null;
   private readonly onStatus: ((status: RelayStatus) => void) | undefined;
   private readonly WebSocketImpl: WebSocketFactory | undefined;
   private readonly now: () => number;
@@ -412,6 +431,9 @@ export class RelaySocket {
     this.getWorkspaceFn = opts.getWorkspace;
     this.handler = opts.handler;
     this.onSheetOps = opts.onSheetOps;
+    this.getSheetCountFn = opts.getSheetCount;
+    this.onWorkspaceExport = opts.onWorkspaceExport;
+    this.onWorkspaceRelease = opts.onWorkspaceRelease;
     this.onStatus = opts.onStatus;
     this.WebSocketImpl =
       opts.WebSocketImpl ?? (typeof globals.WebSocket === "function" ? (globals.WebSocket as unknown as WebSocketFactory) : undefined);
@@ -432,6 +454,7 @@ export class RelaySocket {
       tabId,
       role: null,
       primaryTabId: null,
+      primarySheets: null,
       heartbeatMs: this.heartbeatMs,
       attempt: 0,
       nextRetryMs: null,
@@ -469,6 +492,16 @@ export class RelaySocket {
     if (!ws || !this.helloSent) return;
     const msg: FocusMsg = { type: "tab.focus", tabId: this.tabId };
     this.sendJson(ws, msg);
+  }
+
+  /** 作業のシートの数が変わったかもしれない。変わっていれば Hub に知らせる */
+  notifyState(): void {
+    const ws = this.ws;
+    if (!ws || !this.helloSent) return;
+    const sheets = this.currentSheets();
+    if (sheets === null || sheets === this.sentSheets) return;
+    const msg: TabStateMsg = { type: "tab.state", tabId: this.tabId, sheets };
+    if (this.sendJson(ws, msg)) this.sentSheets = sheets;
   }
 
   getStatus(): RelayStatus {
@@ -519,6 +552,9 @@ export class RelaySocket {
       workspace: this.currentWorkspace(),
       focused: this.hasFocus(),
     };
+    const sheets = this.currentSheets();
+    if (sheets !== null) hello.sheets = sheets;
+    this.sentSheets = sheets;
     this.sendJson(ws, hello);
     this.helloSent = true;
     this.scheduleHeartbeat(ws);
@@ -669,12 +705,23 @@ export class RelaySocket {
           this.heartbeatMs = hb;
           this.scheduleHeartbeat(ws);
         }
-        this.updateStatus({ state: "open", role, primaryTabId: v.primaryTabId, heartbeatMs: hb, attempt: 0, nextRetryMs: null });
+        this.updateStatus({ state: "open", role, primaryTabId: v.primaryTabId, primarySheets: sheetCountOf(v.primarySheets), heartbeatMs: hb, attempt: 0, nextRetryMs: null });
         return;
       }
       case "tab.roles": {
         if (!isNullableString(v.primaryTabId)) return;
-        this.updateStatus({ primaryTabId: v.primaryTabId, role: v.primaryTabId === this.tabId ? "primary" : "mirror" });
+        this.updateStatus({ primaryTabId: v.primaryTabId, primarySheets: sheetCountOf(v.primarySheets), role: v.primaryTabId === this.tabId ? "primary" : "mirror" });
+        return;
+      }
+      case "workspace.export":
+      case "workspace.release": {
+        if (typeof v.token !== "string" || !/^[0-9a-f]{32}$/.test(v.token)) return;
+        try {
+          if (v.type === "workspace.export") this.onWorkspaceExport?.(v.token);
+          else this.onWorkspaceRelease?.(v.token);
+        } catch {
+          // 画面側の失敗で接続を止めない
+        }
         return;
       }
       case "tool.invoke": {
@@ -969,6 +1016,16 @@ export class RelaySocket {
       return finite(r) ? r : 0;
     } catch {
       return 0;
+    }
+  }
+
+  private currentSheets(): number | null {
+    if (!this.getSheetCountFn) return null;
+    try {
+      const n = this.getSheetCountFn();
+      return finite(n) && n >= 0 ? Math.floor(n) : null;
+    } catch {
+      return null;
     }
   }
 

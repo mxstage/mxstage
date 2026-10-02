@@ -2,6 +2,18 @@
 
 All notable changes to MX Stage are listed here. Versions follow [Semantic Versioning](https://semver.org/). Each version becomes available under the Apache License 2.0 four years after its release (see [LICENSE](LICENSE)).
 
+## 0.2.1 — 2026-10-02
+
+### Added
+
+- **Saved Maximo connections.** Choose "Save on this PC" when you connect. The bridge saves the API key encrypted with Windows data protection (DPAPI) or the macOS Keychain, and never sends it to the browser. Every window of the work screen — the installed app, a browser tab, or the browser inside your AI assistant — then connects automatically, also after reloading the page, restarting the bridge or restarting the PC. If the bridge or Maximo is not reachable yet, the work screen retries.
+- **Settings → Connection → Saved connections**: switch between Maximo environments, re-enter an API key, or delete a connection. The environment (production or test) is saved with the connection.
+- A large development dataset for the fake Maximo: three waste incineration plants operated for 20, 13 and 5 years (`npm run dev:fake-maximo -- --dataset plants`).
+
+### Changed
+
+- On a narrow work screen (for example next to a chat), related tables (such as an asset and its specifications) are stacked vertically, two at a time, instead of showing only the first one.
+
 ## 0.2.0 — 2026-10-01
 
 First public release.

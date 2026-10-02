@@ -50,6 +50,19 @@ export const TONE_STYLE: Record<CellTone, { bg: string; fg: string }> = {
 /** 凡例に出す色（読み取り専用は色ではなく文字の薄さで分かるので出さない） */
 export const LEGEND_TONES: readonly Exclude<CellTone, "normal" | "readonly">[] = ["llm", "user", "added", "deleted"];
 
+/**
+ * 横持ちの表（grid/PivotGrid.tsx）だけで使う、行の無いセルの色。凡例（pages/TopBar.tsx）と同じものを使う。
+ * missing: 欠け（分類にある項目なのに行が無い。値を入れると行を足す。yellow 10）
+ * none: 分類に無い項目・分類が分からない（直せない。layer-01）
+ */
+export const PIVOT_CELL_STYLE = {
+  missing: { bg: "#fcf4d6", fg: "#161616" },
+  none: { bg: "#f4f4f4", fg: "#6f6f6f" },
+} as const;
+
+/** 横持ちの表で、重複・別の列に値・単位の混在に付ける印 */
+export const PIVOT_WARN_MARK = "⚠";
+
 /** 凡例に出す色の名前（今の言語の文言） */
 export function toneLabel(tone: Exclude<CellTone, "normal">): string {
   return gridMessages().tone[tone];

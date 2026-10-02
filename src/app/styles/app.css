@@ -348,6 +348,19 @@ button.link:hover {
   border: 1px solid;
 }
 
+/* 印の見本（横持ちの ⚠）。色見本と同じ幅に揃える */
+.legend-mark {
+  width: 12px;
+  flex: none;
+  text-align: center;
+  line-height: 1;
+}
+
+/* 2 つ目の見出し（横持ちの表）の上を空ける */
+.legend-list + .legend-head {
+  margin-top: var(--cds-spacing-05);
+}
+
 /* Toggletip は反転の色（暗い地）なので、文字と罫線の色は地に合わせて継ぐ */
 .legend-note {
   margin: var(--cds-spacing-04) 0 0;

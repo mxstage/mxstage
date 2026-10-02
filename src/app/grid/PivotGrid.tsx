@@ -13,7 +13,7 @@ import type { CellEdit, CellValue, ColumnSchema } from "../../shared/model";
 import { headerLines } from "../../shared/columnLabel";
 import type { ViewKind, Workspace } from "../store";
 import type { RowState } from "../store/sheet";
-import { TONE_STYLE, cellTone, formatColumnValue, hoverLines, isCellEditable, parseEditedText } from "./cellStyle";
+import { PIVOT_CELL_STYLE, PIVOT_WARN_MARK, TONE_STYLE, cellTone, formatColumnValue, hoverLines, isCellEditable, parseEditedText } from "./cellStyle";
 import type { DetailItem } from "./detailItems";
 import { CellEditorContext, DATE_EDITOR, type CellEditorTarget } from "./editors";
 import { conflictSummary, storeErrorMessage } from "./edits";
@@ -50,12 +50,11 @@ export interface PivotGridProps {
   renderHeader?: (h: GridHeaderInfo) => ReactNode;
 }
 
-/** 行が無く直せないセル（分類に無い項目・分類が分からない）の地（layer-01）と文字 */
-const NONE_STYLE = { bg: "#f4f4f4", fg: "#6f6f6f" };
-/** 欠け（分類にあるのに行が無い。値を入れると行を足す）の地（yellow 10）と文字 */
-const MISSING_STYLE = { bg: "#fcf4d6", fg: "#161616" };
+/** 行が無く直せないセル（分類に無い項目・分類が分からない）と、欠け（値を入れると行を足す）の色。凡例と同じ */
+const NONE_STYLE = PIVOT_CELL_STYLE.none;
+const MISSING_STYLE = PIVOT_CELL_STYLE.missing;
 /** 重複・別の列に値がある・単位が混ざっているときの印 */
-const WARN_MARK = "⚠ ";
+const WARN_MARK = `${PIVOT_WARN_MARK} `;
 const EMPTY_CELL: GridCell = { kind: GridCellKind.Text, data: "", displayData: "", allowOverlay: false, readonly: true };
 const EMPTY_SELECTION: GridSelection = { columns: CompactSelection.empty(), rows: CompactSelection.empty() };
 

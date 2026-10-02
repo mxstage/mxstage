@@ -4,7 +4,7 @@ import { Information, Logout, OpenPanelRight, Settings } from "@carbon/icons-rea
 import { Button, IconButton, Toggletip, ToggletipButton, ToggletipContent } from "@carbon/react";
 import { useCallback, useSyncExternalStore, type ReactNode } from "react";
 import type { ObjectStructureCatalog } from "../catalog/catalog";
-import { LEGEND_TONES, TONE_STYLE, toneLabel } from "../grid/cellStyle";
+import { LEGEND_TONES, PIVOT_CELL_STYLE, PIVOT_WARN_MARK, TONE_STYLE, toneLabel } from "../grid/cellStyle";
 import type { LicenseClient } from "../license/client";
 import { EnvironmentTag } from "../license/EnvironmentTag";
 import { Link, spaClick } from "../ui/Link";
@@ -70,6 +70,23 @@ function LegendButton() {
                 {toneLabel(tone)}
               </li>
             ))}
+          </ul>
+          <div className="legend-head">{t.legendPivotHead}</div>
+          <ul className="legend-list">
+            <li>
+              <span className="legend-dot" style={{ background: PIVOT_CELL_STYLE.missing.bg, borderColor: "#b28600" }} />
+              {t.legendMissing}
+            </li>
+            <li>
+              <span className="legend-dot" style={{ background: PIVOT_CELL_STYLE.none.bg, borderColor: PIVOT_CELL_STYLE.none.fg }} />
+              {t.legendNone}
+            </li>
+            <li>
+              <span className="legend-mark" aria-hidden="true">
+                {PIVOT_WARN_MARK}
+              </span>
+              {t.legendWarn}
+            </li>
           </ul>
           <p className="legend-note">{t.legendNote}</p>
         </div>

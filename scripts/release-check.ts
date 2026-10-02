@@ -3,7 +3,8 @@
 //   2. 画面のビルドと .mcpb の作成（scripts/build-mcpb.ts）
 //   3. .mcpb の橋渡しを空いたポートで起動し、MCP の initialize と tools/list が通ること、
 //      実装していないツールが無いこと、最初の呼び出しに基本手順が付くことを確かめる
-//   4. 客先の情報が送るものに入っていないこと（scripts/check-publish.mjs --worktree）
+//   4. npm のパッケージ（scripts/build-npm.ts）を作り、入口が起動できること
+//   5. 客先の情報が送るものに入っていないこと（scripts/check-publish.mjs --worktree）
 // 本物の状態フォルダ（~/.config/mxstage）とふだんのポート 8788 には触れない。
 
 import { spawn, spawnSync } from "node:child_process";
@@ -90,5 +91,8 @@ try {
   process.stderr.write(`\n失敗: .mcpb の橋渡し: ${e instanceof Error ? e.message : String(e)}\n`);
   process.exit(1);
 }
+step("npm のパッケージの作成", "npm run build:npm");
+step("npm の入口（npx mxstage）が起動できる", "node dist/npm/bin/mxstage.mjs --version");
+step("npm に送る中身", "npm pack --dry-run ./dist/npm");
 step("客先の情報の検査", "node scripts/check-publish.mjs --worktree");
 process.stdout.write("\nすべて通りました。\n");

@@ -1,7 +1,12 @@
-# MCP Registry に server.json を載せる。人の GitHub ログイン（デバイスフロー）では組織の名前で載せられない
-# 不具合があるため（modelcontextprotocol/registry#1537）、このリポジトリの OIDC で本人を確かめる。
-# リリースのたびに server.json の版・URL・fileSha256 を直してから、リリースを出す（または手で実行する）。
-name: Publish to MCP Registry
+# リリースを出したら、同じ版を npm（npx mxstage）に出し、そのあと MCP Registry に server.json を載せる。
+# Registry は server.json の npm の版が npm にあり、その package.json の mcpName が名前と同じかを確かめるので、npm を先に出す。
+# - npm: Trusted Publishing（npmjs.com の mxstage の設定で、このリポジトリのこのファイルを登録してある）。合鍵（トークン）は置かない。
+#   その版がもう npm にあれば出さない（やり直しで失敗しないように）。provenance は npm が自動で付ける。
+# - Registry: 人の GitHub ログイン（デバイスフロー）では組織の名前で載せられない不具合があるため
+#   （modelcontextprotocol/registry#1537）、このリポジトリの OIDC で本人を確かめる。
+# リリースのたびに server.json（dist/mcpb/server.json の写し）を直してから、リリースを出す（または手で実行する）。
+# このファイルの名前を変えたら、npmjs.com の Trusted Publisher の設定も直す。
+name: Publish to npm and MCP Registry
 
 on:
   workflow_dispatch:
@@ -15,8 +20,36 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    env:
+      IBM_TELEMETRY_DISABLED: "true"
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+      # Trusted Publishing には npm 11.5.1 以上が要る
+      - name: Update npm
+        run: npm install -g npm@11
+      - name: Install dependencies
+        run: npm ci
+      - name: Build the npm package
+        run: |
+          npm run build
+          npm run build:mcpb
+          npm run build:npm
+          node dist/npm/bin/mxstage.mjs --version
+      - name: Publish to npm
+        run: |
+          version=$(node -p "require('./dist/npm/package.json').version")
+          listed=$(node -p "(require('./server.json').packages || []).some(p => p.registryType === 'npm' && p.version === '$version')")
+          if [ "$listed" != "true" ]; then
+            echo "server.json に npm の $version が無いので、npm には出さない"
+          elif npm view "mxstage@$version" version > /dev/null 2>&1; then
+            echo "mxstage@$version はもう npm にある"
+          else
+            npm publish ./dist/npm --access public
+          fi
       - name: Install mcp-publisher
         run: curl -sSL "https://github.com/modelcontextprotocol/registry/releases/download/v1.8.1/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
       - name: Log in with GitHub OIDC

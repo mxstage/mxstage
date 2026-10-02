@@ -168,7 +168,7 @@ writeFileSync(outFile, archive);
 const sha256 = createHash("sha256").update(archive).digest("hex");
 writeFileSync(`${outFile}.sha256`, `${sha256}  mxstage-${version}.mcpb\n`);
 
-// 5. MCP Registry に載せる server.json（公開のときに、この .mcpb を GitHub のリリース v<版> に添えてから mcp-publisher で送る）。
+// 5. MCP Registry に載せる server.json（公開のときに、この .mcpb を GitHub のリリース v<版> に添えてから mcp-publisher で送る）。npm の同じ版も載せる。
 //    名前は GitHub の組織にもとづく io.github.mxstage/mxstage。説明は 100 文字まで
 const serverJson = {
   $schema: "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
@@ -184,6 +184,15 @@ const serverJson = {
       identifier: `https://github.com/mxstage/mxstage/releases/download/v${version}/mxstage-${version}.mcpb`,
       version,
       fileSha256: sha256,
+      transport: { type: "stdio" },
+    },
+    // 同じ版を npm にも出す（npx mxstage。scripts/build-npm.ts）。GitHub Actions が npm に出してから Registry に送る
+    {
+      registryType: "npm",
+      registryBaseUrl: "https://registry.npmjs.org",
+      identifier: "mxstage",
+      version,
+      runtimeHint: "npx",
       transport: { type: "stdio" },
     },
   ],

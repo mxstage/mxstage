@@ -61,7 +61,7 @@ describe("リポジトリ全体の決まり", () => {
     expect(createHash("sha256").update(terms, "utf8").digest("hex")).toBe("418989f0e58e9be45720f11d0bba6bf7ff7b61da68753918b784754dc22b011b");
     expect(license.startsWith("Business Source License 1.1\n\nParameters\n")).toBe(true);
     expect(license).toMatch(/^Change License: {7}Apache License, Version 2\.0$/m);
-    expect(license).toMatch(/^Licensor: {13}TSUNAGI$/m);
+    expect(license).toMatch(/^Licensor: {13}Kazuhiro Muto$/m);
     expect(license).not.toMatch(/\[[A-Z ]+\]/); // 仮の欄が残っていない
     expect(license).toMatch(/^Licensed Work: {8}MX Stage 0\.2\.0 or later\.$/m);
     // 有償なのは本番の Maximo への書き込みだけ。本番の切り替えに向けて準備中の移行先も本番に含める

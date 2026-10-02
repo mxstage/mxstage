@@ -1,0 +1,15 @@
+{
+  "name": "mxstage",
+  "displayName": "MX Stage",
+  "version": "0.2.4",
+  "description": "Correct IBM Maximo and MAS Manage (EAM/CMMS) data with Claude safely: plan a cleanup, then let MX Stage stage every change in a local sheet so a person reviews the diff and approves before anything is written to Maximo.",
+  "author": {
+    "name": "TSUNAGI",
+    "email": "mxstage@tsunagi.app",
+    "url": "https://mxstage.tsunagi.app"
+  },
+  "homepage": "https://mxstage.tsunagi.app",
+  "repository": "https://github.com/mxstage/mxstage",
+  "license": "BUSL-1.1",
+  "keywords": ["ibm-maximo", "maximo", "mas", "eam", "cmms", "asset-management", "data-quality", "data-migration"]
+}

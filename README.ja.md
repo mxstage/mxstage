@@ -41,6 +41,10 @@ Maximo（MAS Manage）のデータ整備を、利用者の LLM クライアン�
 
 拡張には Node.js も Git も要らない（Claude Desktop が動かす）。ほかの AI アシスタント（ChatGPT デスクトップ・IBM Bob・ターミナルの Claude Code・Antigravity）でも使うときは、下の導入スクリプトを使う。拡張が入っていれば、二重には登録しない。
 
+### Claude の plugin（Skill）
+
+[`plugin/`](plugin) の `mxstage` plugin は、Claude に Skill を 2 つ足す。Maximo のデータを安全に一括で直す段取りと、MX Stage の説明・入れ方・困ったときの確かめ方。中身は Markdown だけで、どこにも何も送らない。拡張と一緒に使う。Claude Code では `/plugin marketplace add mxstage/mxstage` のあと `/plugin install mxstage@mxstage`。
+
 ### ほかの AI アシスタント（導入スクリプト）
 
 **Claude Code（Claude Desktop の Code タブでもよい）に、このリポジトリの URL と「インストールして」とだけ伝える。**

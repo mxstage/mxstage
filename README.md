@@ -55,6 +55,10 @@ Several Maximo MCP servers let the AI call the REST API. That is fine for readin
 
 The extension needs no Node.js or Git: Claude Desktop runs it. To use MX Stage from other assistants as well (ChatGPT desktop, IBM Bob, Claude Code in the terminal, Antigravity), use the installer below; it detects the extension and does not register MX Stage twice.
 
+### Claude plugin (Skills)
+
+The `mxstage` plugin in [`plugin/`](plugin) adds two Skills to Claude: planning a safe bulk correction of Maximo data, and explaining, installing and troubleshooting MX Stage. It contains only Markdown, sends nothing, and works alongside the extension. In Claude Code: `/plugin marketplace add mxstage/mxstage`, then `/plugin install mxstage@mxstage`.
+
 ### Other assistants (installer)
 
 **Ask Claude Code (or the Code tab of Claude Desktop) to install it:** give it this repository's URL and say "install this". It follows [Installation steps for Claude Code](#installation-steps-for-claude-code) below and asks before running each command.

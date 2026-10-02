@@ -1,0 +1,17 @@
+{
+  "name": "mxstage",
+  "owner": {
+    "name": "TSUNAGI",
+    "email": "mxstage@tsunagi.app"
+  },
+  "metadata": {
+    "description": "MX Stage: human-approved AI corrections for IBM Maximo / MAS Manage data."
+  },
+  "plugins": [
+    {
+      "name": "mxstage",
+      "source": "./plugin",
+      "description": "Correct IBM Maximo and MAS Manage data with Claude safely, and set up MX Stage (human-approved, staged changes)."
+    }
+  ]
+}

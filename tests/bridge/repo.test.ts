@@ -54,6 +54,30 @@ describe("リポジトリ全体の決まり", () => {
     expect([lock.packages[""]?.name, lock.packages[""]?.version]).toEqual([pkg.name, pkg.version]);
   });
 
+  it("Claude の plugin（plugin/）は版が package.json とそろい、Anthropic のディレクトリの検査に通る形をしている", () => {
+    const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as { version: string };
+    const manifest = JSON.parse(readFileSync(join(ROOT, "plugin", ".claude-plugin", "plugin.json"), "utf8")) as Record<string, unknown>;
+    // ディレクトリはコミットごとに取り込むので、リリースのたびに版を上げる
+    expect(manifest.version).toBe(pkg.version);
+    expect(manifest.name).toBe("mxstage"); // 一度出したら変えない
+    expect(manifest.license).toBe("BUSL-1.1");
+    // README は 40 語以上（コードブロックの中は数えない）
+    const readme = readFileSync(join(ROOT, "plugin", "README.md"), "utf8").replace(/```[\s\S]*?```/g, "");
+    expect(readme.split(/\s+/).filter(Boolean).length).toBeGreaterThanOrEqual(40);
+    // Skill（Markdown）と JSON だけ。実行するもの・バイナリ・.mcpb は入れない（入れると審査で止まる）
+    const files = repoFiles().filter((f) => f.startsWith("plugin/"));
+    expect(files.length).toBeGreaterThan(0);
+    for (const f of files) expect(f).toMatch(/\.(md|json)$/);
+    for (const f of files.filter((f) => f.endsWith("/SKILL.md"))) {
+      const text = readFileSync(join(ROOT, f), "utf8").replace(/\r\n/g, "\n");
+      const name = /^---\nname: ([a-z0-9-]+)\n/.exec(text)?.[1];
+      expect(f).toBe(`plugin/skills/${name}/SKILL.md`);
+      expect(text).toMatch(/^description: ".+"$/m);
+    }
+    const marketplace = JSON.parse(readFileSync(join(ROOT, ".claude-plugin", "marketplace.json"), "utf8")) as { plugins: { name: string; source: string }[] };
+    expect(marketplace.plugins).toEqual([expect.objectContaining({ name: "mxstage", source: "./plugin" })]);
+  });
+
   it("LICENSE は BSL 1.1 の原文のまま（Terms と Covenants は SPDX の BUSL-1.1 と同じ）で、変更先は Apache 2.0", () => {
     const license = readFileSync(join(ROOT, "LICENSE"), "utf8").replace(/\r\n/g, "\n");
     // Parameters だけが MX Stage のもの。Terms から後ろは一字も変えない（BSL の Covenants の 4）

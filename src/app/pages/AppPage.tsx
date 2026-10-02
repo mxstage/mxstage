@@ -89,6 +89,8 @@ export interface AppPageProps {
   onMoveWorkHere?: () => Promise<void>;
   confirm?: (message: string) => boolean;
   reload?: () => void;
+  /** 再読み込みの前に作業を預ける（預けられたら true）。省くと預けずに再読み込みする */
+  keepWorkForReload?: () => Promise<boolean>;
 }
 
 const VIEW_KINDS: readonly ViewKind[] = ["final", "diff", "base"];
@@ -99,7 +101,7 @@ function viewOptions(): Array<{ kind: ViewKind; label: string }> {
   return VIEW_KINDS.map((kind) => ({ kind, label: labels[kind] }));
 }
 
-export function AppPage({ runtime, vault, toasts, catalog, license, onEndWork, onMoveWorkHere, confirm, reload }: AppPageProps) {
+export function AppPage({ runtime, vault, toasts, catalog, license, onEndWork, onMoveWorkHere, confirm, reload, keepWorkForReload }: AppPageProps) {
   const { workspace, commits } = runtime;
   const confirmFn = confirm ?? ((m: string) => window.confirm(m));
   const reloadFn = reload ?? (() => window.location.reload());
@@ -267,7 +269,15 @@ export function AppPage({ runtime, vault, toasts, catalog, license, onEndWork, o
         onToggleSide={() => setSidePanel((s) => !s)}
         viewHint={view === "final" ? null : (views.find((v) => v.kind === view)?.label ?? null)}
         onReload={() => {
-          if (confirmFn(t.confirmReload)) reloadFn();
+          // 作業が無ければそのまま。あれば橋渡しに預けてから再読み込みし、開き直したあとに戻す（boot/handoff.ts）
+          if (workspace.sheets.size === 0 || !keepWorkForReload) {
+            if (workspace.sheets.size === 0 || confirmFn(t.confirmReload)) reloadFn();
+            return;
+          }
+          if (!confirmFn(t.confirmReloadKeep)) return;
+          void keepWorkForReload().then((kept) => {
+            if (kept || confirmFn(t.reloadKeepFailed)) reloadFn();
+          });
         }}
         onEndWork={() => {
           if (confirmFn(t.confirmEndWork)) onEndWork();

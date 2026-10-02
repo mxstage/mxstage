@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Workspace } from "../store";
 import { getLocale, subscribeLocale } from "../../shared/i18n";
-import { confirmWorkMoved, fetchWorkFromOtherWindow } from "../boot/handoff";
+import { confirmWorkMoved, fetchWorkFromOtherWindow, parkWork, unparkWork, type SessionStorageLike } from "../boot/handoff";
 import type { Runtime } from "../boot/runtime";
 import type { AppServices } from "../boot/types";
 import { AppPage } from "../pages/AppPage";
@@ -15,6 +15,15 @@ import { uiMessages } from "./messages";
 import { Toasts } from "./toast";
 
 const ACTIVITY_EVENTS = ["pointerdown", "keydown", "wheel"] as const;
+
+/** このタブの sessionStorage（使えなければ null） */
+function tabStorage(): SessionStorageLike | null {
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
 
 export function Root({ services }: { services: AppServices }) {
   const [path, setPath] = useState(() => window.location.pathname);
@@ -75,11 +84,26 @@ export function Root({ services }: { services: AppServices }) {
     [services],
   );
 
-  // 作業画面を初めて開いたときに中継を始める。設定画面だけのタブは primary を奪わないよう接続しない
+  // 作業画面を初めて開いたときに中継を始める。設定画面だけのタブは primary を奪わないよう接続しない。
+  // 再読み込みの前に作業を預けていれば（版違いの再読み込みなど）、受け取ってその作業で始める
+  const startingRef = useRef(false);
   useEffect(() => {
-    if (route.kind !== "app" || runtimeRef.current !== null) return;
-    startRuntime();
-  }, [route.kind, startRuntime]);
+    if (route.kind !== "app" || runtimeRef.current !== null || startingRef.current) return;
+    startingRef.current = true;
+    void unparkWork(tabStorage()).then((kept) => {
+      startingRef.current = false;
+      if (runtimeRef.current !== null) return;
+      startRuntime(kept.kind === "restored" ? kept.workspace : undefined);
+      if (kept.kind === "restored") services.toasts.show(uiMessages().handoff.restored);
+      else if (kept.kind === "lost") services.toasts.show(uiMessages().handoff.lost, "error");
+    });
+  }, [route.kind, startRuntime, services]);
+
+  /** 再読み込みの前に作業を預ける */
+  const keepWorkForReload = useCallback(async () => {
+    const rt = runtimeRef.current;
+    return rt ? parkWork(rt.workspace, tabStorage()) : false;
+  }, []);
 
   useEffect(
     () => () => {
@@ -127,7 +151,7 @@ export function Root({ services }: { services: AppServices }) {
     );
   }
   if (route.kind === "app" && runtime) {
-    return <AppPage key={locale} runtime={runtime} vault={services.vault} toasts={services.toasts} catalog={services.catalog} license={services.license} onEndWork={endWork} onMoveWorkHere={moveWorkHere} />;
+    return <AppPage key={locale} runtime={runtime} vault={services.vault} toasts={services.toasts} catalog={services.catalog} license={services.license} onEndWork={endWork} onMoveWorkHere={moveWorkHere} keepWorkForReload={keepWorkForReload} />;
   }
   return null;
 }

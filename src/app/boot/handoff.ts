@@ -47,6 +47,56 @@ export async function fetchWorkFromOtherWindow(tabId: string, opts: { fetch?: ty
   }
 }
 
+/** 再読み込みのあいだ預けた作業の合言葉を置く sessionStorage のキー（同じタブの再読み込みでだけ残る） */
+export const PARKED_TOKEN_KEY = "mxstage.parkedWork";
+
+export interface SessionStorageLike {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem(key: string): void;
+}
+
+/**
+ * 再読み込みの前に、作業を橋渡しのメモリに預ける（ファイルには書かない。10 分で消える）。
+ * 預けられたら true（合言葉はこのタブの sessionStorage に置く）
+ */
+export async function parkWork(workspace: Workspace, storage: SessionStorageLike | null, opts: { fetch?: typeof fetch } = {}): Promise<boolean> {
+  if (storage === null) return false;
+  const fetchImpl = opts.fetch ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));
+  try {
+    const res = await fetchImpl(HANDOFF_ENDPOINTS.park, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(workspace.toJSON()), cache: "no-store" });
+    const json = (await res.json().catch(() => null)) as { ok?: boolean; token?: unknown } | null;
+    if (!res.ok || json?.ok !== true || typeof json.token !== "string") return false;
+    storage.setItem(PARKED_TOKEN_KEY, json.token);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export type UnparkResult = { kind: "none" } | { kind: "restored"; workspace: Workspace } | { kind: "lost" };
+
+/** 開いたときに、再読み込みの前に預けた作業を受け取る（無ければ none、預けたのに受け取れなければ lost） */
+export async function unparkWork(storage: SessionStorageLike | null, opts: { fetch?: typeof fetch; now?: () => number } = {}): Promise<UnparkResult> {
+  let token: string | null = null;
+  try {
+    token = storage?.getItem(PARKED_TOKEN_KEY) ?? null;
+    storage?.removeItem(PARKED_TOKEN_KEY);
+  } catch {
+    token = null;
+  }
+  if (token === null) return { kind: "none" };
+  const fetchImpl = opts.fetch ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));
+  try {
+    const res = await fetchImpl(HANDOFF_ENDPOINTS.unpark, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token }), cache: "no-store" });
+    const json = (await res.json().catch(() => null)) as { ok?: boolean; workspace?: unknown } | null;
+    if (!res.ok || json?.ok !== true) return { kind: "lost" };
+    return { kind: "restored", workspace: Workspace.fromJSON(json.workspace as WorkspaceJSON, opts.now ? { now: opts.now } : {}) };
+  } catch {
+    return { kind: "lost" };
+  }
+}
+
 /** この窓で作り直し終えた。送り元の窓に作業を空にさせる */
 export async function confirmWorkMoved(token: string, tabId: string, opts: { fetch?: typeof fetch } = {}): Promise<boolean> {
   const fetchImpl = opts.fetch ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));

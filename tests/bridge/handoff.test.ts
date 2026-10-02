@@ -1,6 +1,6 @@
 // 作業のある窓を primary に保つことと、作業を別の窓へ移すこと（src/bridge/hub.ts・handoff.ts）。
 import { afterEach, describe, expect, it } from "vitest";
-import { HANDOFF_DONE_PATH, HANDOFF_REFUSE_PATH, HANDOFF_START_PATH, HANDOFF_UPLOAD_PATH } from "../../src/bridge/handoff.ts";
+import { HANDOFF_DONE_PATH, HANDOFF_PARK_PATH, HANDOFF_REFUSE_PATH, HANDOFF_START_PATH, HANDOFF_UNPARK_PATH, HANDOFF_UPLOAD_PATH } from "../../src/bridge/handoff.ts";
 import { LocalHub } from "../../src/bridge/hub.ts";
 import { FakeTab, SCALE, rawRequest, startTestBridge, stopAll, waitFor } from "./support.ts";
 
@@ -116,5 +116,21 @@ describe("作業を別の窓へ移す", () => {
     expect(crossSite.status).toBe(403);
     const unknown = await rawRequest(bridge, `${HANDOFF_UPLOAD_PATH}?token=${"0".repeat(32)}`, { method: "POST", headers: JSON_HEADERS, body: "{}" });
     expect(unknown.status).toBe(404);
+  });
+});
+
+describe("再読み込みのあいだ預ける", () => {
+  it("預けた作業を 1 回だけ返す。ほかのサイトからは受けない", async () => {
+    const { bridge } = await bridgeWithHub();
+    const work = JSON.stringify({ format: "mxstage.workspace.v1", name: "作業", sheets: [] });
+    const parked = await rawRequest(bridge, HANDOFF_PARK_PATH, { method: "POST", headers: JSON_HEADERS, body: work });
+    expect(parked.status).toBe(200);
+    const token = (JSON.parse(parked.body) as { token: string }).token;
+    const first = await rawRequest(bridge, HANDOFF_UNPARK_PATH, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ token }) });
+    expect(JSON.parse(first.body)).toEqual({ ok: true, workspace: JSON.parse(work) });
+    const again = await rawRequest(bridge, HANDOFF_UNPARK_PATH, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ token }) });
+    expect(again.status).toBe(404);
+    const crossSite = await rawRequest(bridge, HANDOFF_PARK_PATH, { method: "POST", headers: { "content-type": "application/json", "sec-fetch-site": "cross-site" }, body: work });
+    expect(crossSite.status).toBe(403);
   });
 });

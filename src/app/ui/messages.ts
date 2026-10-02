@@ -25,6 +25,8 @@ export const uiMessages = defineMessages(
       moving: "Moving…",
       movedHere: "Moved the work to this window. Your AI assistant's tools now work here.",
       movedAway: "The work was moved to another window.",
+      restored: "Reopened with your work kept.",
+      lost: "The work kept for the reload could not be restored (it is kept for 10 minutes, and only while MX Stage is running).",
       failed: {
         no_source: "No other window has work to move.",
         committing: "The other window is committing to Maximo. Try again when it has finished.",
@@ -56,6 +58,8 @@ export const uiMessages = defineMessages(
       moving: "移しています…",
       movedHere: "作業をこの窓に移しました。AI アシスタントのツールもこの窓で動きます。",
       movedAway: "作業を別の窓に移しました。",
+      restored: "作業を引き継いで開き直しました。",
+      lost: "再読み込みのあいだ預けた作業を戻せませんでした（預かるのは 10 分間、MX Stage が動いている間だけです）。",
       failed: {
         no_source: "移せる作業のある窓がありません。",
         committing: "別の窓で Maximo への反映をしています。終わってからもう一度試してください。",

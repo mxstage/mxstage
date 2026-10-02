@@ -35,6 +35,8 @@ export const HANDOFF_ENDPOINTS = {
   upload: "/_mxstage/handoff/upload",
   refuse: "/_mxstage/handoff/refuse",
   done: "/_mxstage/handoff/done",
+  park: "/_mxstage/handoff/park",
+  unpark: "/_mxstage/handoff/unpark",
 } as const;
 
 export interface RuntimeOptions {

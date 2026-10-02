@@ -5,6 +5,10 @@
 // 4. 橋渡しは 1 の応答として作業を返す。移したい窓はそれで作業を作り直し、POST /_mxstage/handoff/done { token } を送る
 // 5. 橋渡しは送り元の窓に workspace.release を送り、送り元は作業を空にする
 // 作業のデータは橋渡しのメモリを通るだけで、ファイルには書かない。どの入口も作業画面（同一オリジン）からだけ受ける。
+//
+// 再読み込みのあいだ預ける（作業画面の「再読み込み」。版違いのときなど）:
+//   POST /_mxstage/handoff/park           本文は作業の JSON。{ token } を返す。PARK_TTL_MS で消える
+//   POST /_mxstage/handoff/unpark { token } 預けた作業を 1 回だけ返して消す
 
 import { randomBytes } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -16,7 +20,13 @@ export const HANDOFF_START_PATH = "/_mxstage/handoff/start";
 export const HANDOFF_UPLOAD_PATH = "/_mxstage/handoff/upload";
 export const HANDOFF_REFUSE_PATH = "/_mxstage/handoff/refuse";
 export const HANDOFF_DONE_PATH = "/_mxstage/handoff/done";
-export const HANDOFF_PATHS: readonly string[] = [HANDOFF_START_PATH, HANDOFF_UPLOAD_PATH, HANDOFF_REFUSE_PATH, HANDOFF_DONE_PATH];
+export const HANDOFF_PARK_PATH = "/_mxstage/handoff/park";
+export const HANDOFF_UNPARK_PATH = "/_mxstage/handoff/unpark";
+export const HANDOFF_PATHS: readonly string[] = [HANDOFF_START_PATH, HANDOFF_UPLOAD_PATH, HANDOFF_REFUSE_PATH, HANDOFF_DONE_PATH, HANDOFF_PARK_PATH, HANDOFF_UNPARK_PATH];
+/** 再読み込みのあいだ預かる時間（これを過ぎたら捨てる） */
+export const PARK_TTL_MS = 10 * 60 * 1000;
+/** 同時に預かる作業の数の上限（古いものから捨てる） */
+const MAX_PARKED = 4;
 
 /** 作業のデータの上限（大きなシートを数枚持つ作業でも収まるように） */
 export const HANDOFF_BODY_LIMIT = 256 * 1024 * 1024;
@@ -57,10 +67,53 @@ async function readSmallJson(req: IncomingMessage): Promise<Record<string, unkno
 
 export class Handoffs {
   private readonly pending = new Map<string, Pending>();
+  private readonly parked = new Map<string, { data: Buffer; timer: ReturnType<typeof setTimeout> }>();
   private readonly waitMs: number;
+  private readonly parkTtlMs: number;
 
-  constructor(opts: { waitMs?: number } = {}) {
+  constructor(opts: { waitMs?: number; parkTtlMs?: number } = {}) {
     this.waitMs = opts.waitMs ?? HANDOFF_WAIT_MS;
+    this.parkTtlMs = opts.parkTtlMs ?? PARK_TTL_MS;
+  }
+
+  /** 再読み込みのあいだ作業を預かる */
+  private async park(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const data = await readBody(req, HANDOFF_BODY_LIMIT);
+    if (data === null) {
+      sendJson(res, 413, { ok: false, error: "too_large", message: "The work is too large to keep." });
+      return;
+    }
+    if (!data.subarray(0, 64).toString("utf8").trimStart().startsWith("{")) {
+      sendJson(res, 400, { ok: false, error: "invalid_request", message: "Send the work as JSON." });
+      return;
+    }
+    while (this.parked.size >= MAX_PARKED) {
+      const oldest = this.parked.keys().next().value as string;
+      clearTimeout(this.parked.get(oldest)?.timer);
+      this.parked.delete(oldest);
+    }
+    const token = randomBytes(16).toString("hex");
+    const timer = setTimeout(() => this.parked.delete(token), this.parkTtlMs);
+    timer.unref?.();
+    this.parked.set(token, { data, timer });
+    sendJson(res, 200, { ok: true, token, expiresInMs: this.parkTtlMs });
+  }
+
+  /** 預けた作業を 1 回だけ返す */
+  private async unpark(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const body = await readSmallJson(req);
+    const token = typeof body?.token === "string" ? body.token : "";
+    const p = TOKEN_RE.test(token) ? this.parked.get(token) : undefined;
+    if (!p) {
+      sendJson(res, 404, { ok: false, error: "unknown_token", message: "The kept work is no longer available." });
+      return;
+    }
+    clearTimeout(p.timer);
+    this.parked.delete(token);
+    const head = Buffer.from('{"ok":true,"workspace":', "utf8");
+    const tail = Buffer.from("}", "utf8");
+    res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Content-Length": String(head.length + p.data.length + tail.length), "Cache-Control": "no-store" });
+    res.end(Buffer.concat([head, p.data, tail]));
   }
 
   async handle(req: IncomingMessage, res: ServerResponse, pathname: string, hub: LocalHub): Promise<void> {
@@ -69,6 +122,8 @@ export class Handoffs {
       sendJson(res, 405, { ok: false, error: "method_not_allowed", message: "Only POST is accepted." });
       return;
     }
+    if (pathname === HANDOFF_PARK_PATH) return this.park(req, res);
+    if (pathname === HANDOFF_UNPARK_PATH) return this.unpark(req, res);
     if (pathname === HANDOFF_START_PATH) return this.start(req, res, hub);
     if (pathname === HANDOFF_UPLOAD_PATH) return this.upload(req, res);
     if (pathname === HANDOFF_REFUSE_PATH) return this.refuse(req, res);

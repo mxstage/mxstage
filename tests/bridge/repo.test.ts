@@ -67,7 +67,9 @@ describe("リポジトリ全体の決まり", () => {
     // Skill（Markdown）と JSON だけ。実行するもの・バイナリ・.mcpb は入れない（入れると審査で止まる）
     const files = repoFiles().filter((f) => f.startsWith("plugin/"));
     expect(files.length).toBeGreaterThan(0);
-    for (const f of files) expect(f).toMatch(/\.(md|json)$/);
+    // アイコンはディレクトリの一覧に出る（最初に申請したときの 1 回だけ取り込まれる）。.mcpb と同じ public/icon-512.png
+    for (const f of files) expect(f === "plugin/.claude-plugin/icon.png" || /\.(md|json)$/.test(f), f).toBe(true);
+    expect(readFileSync(join(ROOT, "plugin", ".claude-plugin", "icon.png")).equals(readFileSync(join(ROOT, "public", "icon-512.png")))).toBe(true);
     for (const f of files.filter((f) => f.endsWith("/SKILL.md"))) {
       const text = readFileSync(join(ROOT, f), "utf8").replace(/\r\n/g, "\n");
       const name = /^---\nname: ([a-z0-9-]+)\n/.exec(text)?.[1];

@@ -6,6 +6,7 @@ All notable changes to MX Stage are listed here. Versions follow [Semantic Versi
 
 ### Changed
 
+- **Reloading keeps your work.** When the work screen asks you to reload (for example after an update), it now asks MX Stage on this PC to keep the sheets, changes and undo history in memory while the tab reloads, and restores them afterwards (kept for 10 minutes; nothing is written to disk).
 - Settings → Updates: after downloading the Claude Desktop extension, a button copies the file's path, for when the folder does not open (Claude Desktop runs the extension in the background).
 
 ## 0.2.4 — 2026-10-02

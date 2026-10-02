@@ -1,6 +1,6 @@
 // 作業を別の窓へ移す（画面側）: シートの数を Hub に知らせること、移すよう頼まれたら送ること、受け取った作業を作り直すこと。
 import { describe, expect, it, vi } from "vitest";
-import { confirmWorkMoved, fetchWorkFromOtherWindow } from "../../src/app/boot/handoff";
+import { PARKED_TOKEN_KEY, confirmWorkMoved, fetchWorkFromOtherWindow, parkWork, unparkWork } from "../../src/app/boot/handoff";
 import { HANDOFF_ENDPOINTS } from "../../src/app/boot/runtime";
 import { RelaySocket, type WebSocketLike } from "../../src/app/relay/socket";
 import { Workspace } from "../../src/app/store/workspace";
@@ -150,5 +150,35 @@ describe("受け取った作業を作り直す", () => {
     }) as typeof fetch;
     expect(await confirmWorkMoved("c".repeat(32), "tab-target", { fetch: fetchImpl })).toBe(true);
     expect(sent).toEqual([[HANDOFF_ENDPOINTS.done, { token: "c".repeat(32), tabId: "tab-target" }]]);
+  });
+});
+
+describe("再読み込みのあいだ作業を預ける", () => {
+  it("預けて、開き直したら同じ作業で始める（合言葉はこのタブの sessionStorage）", async () => {
+    const source = sampleWorkspace();
+    const kept = new Map<string, string>();
+    const storage = { getItem: (k: string) => kept.get(k) ?? null, setItem: (k: string, v: string) => void kept.set(k, v), removeItem: (k: string) => void kept.delete(k) };
+    let held: string | null = null;
+    const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === HANDOFF_ENDPOINTS.park) {
+        held = String(init?.body);
+        return new Response(JSON.stringify({ ok: true, token: "d".repeat(32) }), { status: 200 });
+      }
+      if (String(input) === HANDOFF_ENDPOINTS.unpark && held !== null) {
+        const body = held;
+        held = null;
+        return new Response(`{"ok":true,"workspace":${body}}`, { status: 200 });
+      }
+      return new Response(JSON.stringify({ ok: false }), { status: 404 });
+    }) as typeof fetch;
+    expect(await parkWork(source, storage, { fetch: fetchImpl })).toBe(true);
+    expect(kept.get(PARKED_TOKEN_KEY)).toBe("d".repeat(32));
+    const back = await unparkWork(storage, { fetch: fetchImpl });
+    expect(back.kind).toBe("restored");
+    if (back.kind === "restored") expect(back.workspace.cell("資産", makeParentKey(["A-100"]), "DESCRIPTION")?.value).toBe("ポンプ");
+    // 合言葉は 1 回で消える。預けていなければ none、預けたのに戻せなければ lost
+    expect(await unparkWork(storage, { fetch: fetchImpl })).toEqual({ kind: "none" });
+    storage.setItem(PARKED_TOKEN_KEY, "e".repeat(32));
+    expect(await unparkWork(storage, { fetch: fetchImpl })).toEqual({ kind: "lost" });
   });
 });

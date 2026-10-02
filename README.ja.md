@@ -56,7 +56,7 @@ Claude Code が下の「導入手順（Claude Code 向け）」に沿って入�
 終わったら、使う環境を開き直す。デスクトップの `mxstage`（または `http://127.0.0.1:8788/app`）を開き、
 **設定で Maximo の URL と API キーを入れる。** API キーはチャットに書かない。
 
-npm でサーバを起動する MCP クライアントでは、`npx -y mxstage` でサーバだけを動かすこともできる（Node.js 20 以上。Skill やショートカットは導入スクリプトでだけ入る）。
+npm でサーバを起動する MCP クライアントでは、`npx -y @mxstage/mxstage` でサーバだけを動かすこともできる（Node.js 20 以上。Skill やショートカットは導入スクリプトでだけ入る）。
 
 更新は「MX Stage を更新して」、取り消しは「MX Stage をアンインストールして」と Claude Code に伝える（下の「アンインストール」）。
 

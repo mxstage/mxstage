@@ -1,4 +1,5 @@
-// npm に公開するパッケージ（npx mxstage）を dist/npm に作る。
+// npm に公開するパッケージ（npx @mxstage/mxstage）を dist/npm に作る。
+// 名前に組織（@mxstage）を付けるのは、npm が mxstage を既存の xstate に似すぎているとして断るため。
 //   node --experimental-strip-types scripts/build-npm.ts   （npm run build:npm。先に npm run build:mcpb で dist/mcpb/stage を作る）
 //
 // 中身は .mcpb と同じ橋渡し（server/mxstage-bridge.mjs、依存は中に入っている）と作業画面（app/）に、
@@ -15,6 +16,7 @@ const STAGE = join(ROOT, "dist", "mcpb", "stage");
 const OUT = join(ROOT, "dist", "npm");
 
 export const MCP_NAME = "io.github.mxstage/mxstage";
+export const NPM_NAME = "@mxstage/mxstage";
 
 const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as { version: string };
 const manifest = JSON.parse(readFileSync(join(STAGE, "manifest.json"), "utf8")) as { version: string; description: string; keywords: string[] };
@@ -33,7 +35,7 @@ writeFileSync(
   join(OUT, "bin", "mxstage.mjs"),
   [
     "#!/usr/bin/env node",
-    "// npx mxstage の入口。本体は server/mxstage-bridge.mjs（Claude Desktop の拡張 .mcpb と同じもの）",
+    "// npx @mxstage/mxstage の入口。本体は server/mxstage-bridge.mjs（Claude Desktop の拡張 .mcpb と同じもの）",
     'import { main } from "../server/mxstage-bridge.mjs";',
     "",
     "const code = await main(process.argv.slice(2));",
@@ -43,7 +45,7 @@ writeFileSync(
 );
 
 const npmPackage = {
-  name: "mxstage",
+  name: NPM_NAME,
   version: pkg.version,
   description: manifest.description,
   mcpName: MCP_NAME,
@@ -64,4 +66,4 @@ if (!existsSync(join(OUT, "app", "index.html"))) {
   process.stderr.write("dist/npm/app/index.html がありません。\n");
   process.exit(1);
 }
-process.stdout.write(`${relative(ROOT, OUT)}  mxstage@${pkg.version}\n`);
+process.stdout.write(`${relative(ROOT, OUT)}  ${NPM_NAME}@${pkg.version}\n`);

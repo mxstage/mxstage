@@ -69,7 +69,7 @@ To install by hand, clone this repository to `%USERPROFILE%\mxstage` and run `no
 
 In Settings, also choose for each Maximo whether it is **production** or **test**. Committing to production needs a license (see [License](#license)); everything else is free.
 
-MCP clients that start servers with npm can also run the server alone with `npx -y mxstage` (Node.js 20 or later; the Skills and shortcuts come only with the installer).
+MCP clients that start servers with npm can also run the server alone with `npx -y @mxstage/mxstage` (Node.js 20 or later; the Skills and shortcuts come only with the installer).
 
 To update, say "update MX Stage"; to remove it, say "uninstall MX Stage" (see [Uninstall](#uninstall)).
 

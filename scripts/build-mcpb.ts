@@ -186,11 +186,11 @@ const serverJson = {
       fileSha256: sha256,
       transport: { type: "stdio" },
     },
-    // 同じ版を npm にも出す（npx mxstage。scripts/build-npm.ts）。GitHub Actions が npm に出してから Registry に送る
+    // 同じ版を npm にも出す（npx @mxstage/mxstage。scripts/build-npm.ts）。GitHub Actions が npm に出してから Registry に送る
     {
       registryType: "npm",
       registryBaseUrl: "https://registry.npmjs.org",
-      identifier: "mxstage",
+      identifier: "@mxstage/mxstage",
       version,
       runtimeHint: "npx",
       transport: { type: "stdio" },

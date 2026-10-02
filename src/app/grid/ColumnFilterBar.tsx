@@ -55,6 +55,8 @@ export function ColumnFilterBar({ filters, shown, total, titleOf, onRemove, onCl
 
 export interface ColumnFilterMenuProps {
   col: string;
+  /** 見出しに出す名前（省けば列名。横持ちの表は内部の列の ID ではなく項目名を出す） */
+  title?: string;
   /** 候補（多い順。値と件数） */
   options: Array<{ value: string; count: number }>;
   /** 変更の状態ごとの件数（その列のセルの色分けと同じ区分） */
@@ -75,7 +77,7 @@ function changeSwatch(kind: ChangeKind): string | null {
 }
 
 /** 列 1 つ分の絞り込みメニュー（変更の状態 / 文字を含む / 値を選ぶ / 空・空でない） */
-export function ColumnFilterMenu({ col, options, changes = [], current, position, onApply, onClose, pinned = false, onTogglePin }: ColumnFilterMenuProps) {
+export function ColumnFilterMenu({ col, title, options, changes = [], current, position, onApply, onClose, pinned = false, onTogglePin }: ColumnFilterMenuProps) {
   const [text, setText] = useState(current?.kind === "contains" ? current.text : "");
   const [picked, setPicked] = useState<string[]>(current?.kind === "values" ? [...current.values] : []);
   const [pickedChanges, setPickedChanges] = useState<ChangeKind[]>(current?.kind === "change" ? [...current.changes] : []);
@@ -105,11 +107,11 @@ export function ColumnFilterMenu({ col, options, changes = [], current, position
   };
 
   return (
-    <div className="column-filter" ref={ref} style={{ left: position.x, top: position.y }} role="dialog" aria-label={t.filterMenu.label(col)}>
+    <div className="column-filter" ref={ref} style={{ left: position.x, top: position.y }} role="dialog" aria-label={t.filterMenu.label(title ?? col)}>
       {/* メニューは layer-01 の面。中の入力欄は一段上の面の色で描く */}
       <Layer className="column-filter-body">
         <div className="head">
-          <span className="mono">{col}</span>
+          <span className="mono">{title ?? col}</span>
           {onTogglePin && (
             <Button
               kind="ghost"

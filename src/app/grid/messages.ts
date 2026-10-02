@@ -74,6 +74,8 @@ export const gridMessages = defineMessages(
     /** 子の表の横持ち（1 行 ＝ 1 親、1 列 ＝ 1 項目） */
     pivot: {
       size: (rows: number, cols: number) => `${rows} rows × ${cols} items`,
+      sizeFiltered: (shown: number, total: number, cols: number) => `${shown} / ${total} rows × ${cols} items`,
+      notInClassValue: "(not in classification)",
       sizeTitle: "One row per record, one column per item (the data stays one row per item)",
       section: (section: string) => `section ${section}`,
       units: (unit: string) => `Unit: ${unit}`,
@@ -184,6 +186,8 @@ export const gridMessages = defineMessages(
     },
     pivot: {
       size: (rows, cols) => `${rows} 件 × ${cols} 項目`,
+      sizeFiltered: (shown, total, cols) => `${shown} / ${total} 件 × ${cols} 項目`,
+      notInClassValue: "（分類に無い）",
       sizeTitle: "1 行 ＝ 1 件、1 列 ＝ 1 項目で見せています（データは 1 項目 ＝ 1 行のまま）",
       section: (section) => `セクション ${section}`,
       units: (unit) => `単位: ${unit}`,

@@ -114,9 +114,9 @@ export const GRID_THEME: Partial<Theme> = {
 /** 列の見出しの 2 段目（属性名）と ▾ の色（text-secondary） */
 export const HEADER_SUB_COLOR = "#525252";
 /** 絞り込み中の列の見出し（地・文字・漏斗の印。blue 20 / blue 80 / blue 60） */
-const FILTERED_HEADER_BG = "#d0e2ff";
-const FILTERED_HEADER_FG = "#002d9c";
-const FILTERED_MARK = "#0f62fe";
+export const FILTERED_HEADER_BG = "#d0e2ff";
+export const FILTERED_HEADER_FG = "#002d9c";
+export const FILTERED_MARK = "#0f62fe";
 /** 「文字を含む」で当たった部分の印（blue 60 を薄く重ね、blue 70 の下線を引く） */
 const MATCH_FILL = "rgba(15, 98, 254, 0.20)";
 const MATCH_LINE = "#0043ce";
@@ -130,12 +130,12 @@ const CHEVRON_DOWN_16 = "M8 11 3 6 3.7 5.3 8 9.6 12.3 5.3 13 6z";
 const FILTER_32 =
   "M18,28H14a2,2,0,0,1-2-2V18.41L4.59,11A2,2,0,0,1,4,9.59V6A2,2,0,0,1,6,4H26a2,2,0,0,1,2,2V9.59A2,2,0,0,1,27.41,11L20,18.41V26A2,2,0,0,1,18,28ZM6,6V9.59l8,8V26h4V17.59l8-8V6Z";
 let headerIcons: { chevron: Path2D; filter: Path2D } | null = null;
-function headerIconPaths(): { chevron: Path2D; filter: Path2D } | null {
+export function headerIconPaths(): { chevron: Path2D; filter: Path2D } | null {
   if (headerIcons === null && typeof Path2D !== "undefined") headerIcons = { chevron: new Path2D(CHEVRON_DOWN_16), filter: new Path2D(FILTER_32) };
   return headerIcons;
 }
 /** 見出しの印の大きさ（px） */
-const HEADER_ICON = 16;
+export const HEADER_ICON = 16;
 
 /**
  * canvas は書体を読み終えても描き直さないので、読み終えたら数を増やして描き直させる（最初の描画は OS の字体になりうる）。

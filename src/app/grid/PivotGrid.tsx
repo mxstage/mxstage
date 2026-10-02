@@ -6,6 +6,8 @@
 //   分類に無い項目は灰色で直せない。分類の仕様が無ければ、行の無いセルはすべて灰色で直せない。
 // - 同じ項目の行が 2 つ以上あるセルは、どれを直すか決められないので横持ちでは直さない（縦持ちで直す）。
 // - 先頭の列は親のキー列と説明（読むだけ。親の値は親のペインで直す）。
+// - 列の見出しから縦持ちと同じ絞り込みができる（grid/filters.ts）。欠け・値が空のセルは「空」、分類に無い項目のセルは
+//   「（分類に無い）」という値として扱うので、「この項目が欠けている機器だけ」を出せる。
 
 import { DataEditor, GridCellKind, type DrawHeaderCallback, type EditListItem, type GridCell, type GridColumn, type GridMouseEventArgs, type GridSelection, type Highlight, type Item, CompactSelection } from "@glideapps/glide-data-grid";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -33,8 +35,23 @@ import {
   type PivotRow,
   type PivotSpec,
 } from "./pivot";
+import { createPortal } from "react-dom";
+import { ColumnFilterBar, ColumnFilterMenu, useColumnOptions } from "./ColumnFilterBar";
+import { applyGridFilters, changeCounts, setFilter, type ChangeKind, type GridFilter } from "./filters";
 import { RowDetail } from "./RowDetail";
-import { GRID_THEME, HEADER_SUB_COLOR, ROW_HEIGHT, ROW_HIGHLIGHT, cellAuthor, useFontsReady } from "./SheetGrid";
+import {
+  FILTERED_HEADER_BG,
+  FILTERED_HEADER_FG,
+  FILTERED_MARK,
+  GRID_THEME,
+  HEADER_ICON,
+  HEADER_SUB_COLOR,
+  ROW_HEIGHT,
+  ROW_HIGHLIGHT,
+  cellAuthor,
+  headerIconPaths,
+  useFontsReady,
+} from "./SheetGrid";
 import type { GridHeaderInfo } from "./SheetGrid";
 
 export interface PivotGridProps {
@@ -108,6 +125,13 @@ export function PivotGrid({ workspace, sheetName, view, version, isBusy, onMessa
     return classInfo === null ? base : addClassColumns(base, spec, classInfo, value);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sheet, view, version, spec, value, classInfo]);
+  // 列ごとの絞り込み（列の ID は 親の列が p:<列名>、項目の列が v:<項目のキー>）
+  const [filters, setFilters] = useState<readonly GridFilter[]>([]);
+  const [menu, setMenu] = useState<{ col: string; x: number; y: number } | null>(null);
+  useEffect(() => {
+    setFilters([]);
+    setMenu(null);
+  }, [sheetName]);
   // 先頭の列: 親のキー列と説明（読むだけ）
   const labelCols = useMemo<ColumnSchema[]>(() => {
     if (!sheet) return [];
@@ -119,8 +143,57 @@ export function PivotGrid({ workspace, sheetName, view, version, isBusy, onMessa
     return out;
   }, [sheet, version]);
 
-  const rowsRef = useRef<readonly PivotRow[]>(table.rows);
-  rowsRef.current = table.rows;
+  /** 絞り込みに使う文字（画面の表示と同じ。分類に無い項目のセルは「（分類に無い）」） */
+  const filterText = useCallback(
+    (prow: PivotRow, id: string): string => {
+      if (!sheet) return "";
+      if (id.startsWith("p:")) {
+        const name = id.slice(2);
+        return formatColumnValue(sheet.column(name), sheet.viewValue(prow.parent, name, view));
+      }
+      const column = table.columns.find((c) => `v:${c.key}` === id);
+      if (column === undefined) return "";
+      const cell = pivotCell(prow, column, spec, value);
+      if (cell.row === null) return pivotCellState(prow, column, classInfo, value) === "notInClass" ? t.notInClassValue : "";
+      return formatColumnValue(sheet.column(cell.valueCol), value(cell.row, cell.valueCol));
+    },
+    [sheet, view, table.columns, spec, value, classInfo, t],
+  );
+  /** 変更の状態（縦持ちの表と同じ区分。行の無いセルは変更なし） */
+  const changeOf = useCallback(
+    (prow: PivotRow, id: string): ChangeKind => {
+      if (!sheet || id.startsWith("p:")) return "none";
+      const column = table.columns.find((c) => `v:${c.key}` === id);
+      if (column === undefined) return "none";
+      const cell = pivotCell(prow, column, spec, value);
+      if (cell.row === null) return "none";
+      const status = sheet.rowStatus(cell.row);
+      if (status === "deleted") return "deleted";
+      if (status === "added") return "added";
+      if (sheet.isCellChanged(cell.row, cell.valueCol)) return cellAuthor(cell.row, cell.valueCol) === "llm" ? "llm" : "user";
+      return "none";
+    },
+    [sheet, table.columns, spec, value],
+  );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const shownRows = useMemo(() => applyGridFilters(table.rows, filters, filterText, changeOf), [table.rows, filters, filterText, changeOf, version]);
+  const menuOptions = useColumnOptions(table.rows, menu?.col ?? null, filterText);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const menuChanges = useMemo(() => (menu === null ? [] : changeCounts(table.rows, menu.col, changeOf)), [table.rows, menu, changeOf, version]);
+  const filterByCol = useMemo(() => new Map(filters.map((f) => [f.col, f] as const)), [filters]);
+  const titleOf = useCallback(
+    (id: string): string => {
+      if (id.startsWith("p:")) {
+        const c = labelCols.find((x) => `p:${x.name}` === id);
+        return c ? headerLines(c).main : id.slice(2);
+      }
+      return table.columns.find((c) => `v:${c.key}` === id)?.attr ?? id;
+    },
+    [labelCols, table.columns],
+  );
+
+  const rowsRef = useRef<readonly PivotRow[]>(shownRows);
+  rowsRef.current = shownRows;
   const columnsRef = useRef<readonly PivotColumn[]>(table.columns);
   columnsRef.current = table.columns;
   const labelRef = useRef(labelCols);
@@ -152,8 +225,8 @@ export function PivotGrid({ workspace, sheetName, view, version, isBusy, onMessa
 
   const gridColumns = useMemo<GridColumn[]>(
     () => [
-      ...labelCols.map((c) => ({ id: `p:${c.name}`, title: headerLines(c).main, width: widths[`p:${c.name}`] ?? (c.name.toUpperCase() === "DESCRIPTION" ? 220 : 120) })),
-      ...table.columns.map((c) => ({ id: `v:${c.key}`, title: c.attr, width: widths[`v:${c.key}`] ?? 140 })),
+      ...labelCols.map((c) => ({ id: `p:${c.name}`, title: headerLines(c).main, width: widths[`p:${c.name}`] ?? (c.name.toUpperCase() === "DESCRIPTION" ? 220 : 120), hasMenu: true })),
+      ...table.columns.map((c) => ({ id: `v:${c.key}`, title: c.attr, width: widths[`v:${c.key}`] ?? 140, hasMenu: true })),
     ],
     [labelCols, table.columns, widths],
   );
@@ -180,15 +253,24 @@ export function PivotGrid({ workspace, sheetName, view, version, isBusy, onMessa
         return;
       }
       const sub = subOf(args.column.id);
+      const filtered = filterByCol.has(args.column.id);
       const { ctx, rect, theme: th, column } = args;
+      const pad = th.cellHorizontalPadding;
       const midY = rect.y + rect.height / 2;
-      const x = rect.x + th.cellHorizontalPadding;
+      const x = rect.x + pad;
+      // 絞り込み中の列は地を塗り、▾ の代わりに漏斗の印（縦持ちの表と同じ）
+      if (filtered) {
+        ctx.save();
+        ctx.fillStyle = FILTERED_HEADER_BG;
+        ctx.fillRect(rect.x, rect.y, rect.width, rect.height - 1);
+        ctx.restore();
+      }
       ctx.save();
       ctx.beginPath();
-      ctx.rect(rect.x, rect.y, Math.max(0, rect.width - th.cellHorizontalPadding), rect.height);
+      ctx.rect(rect.x, rect.y, Math.max(0, rect.width - pad - HEADER_ICON - 4), rect.height);
       ctx.clip();
       ctx.textBaseline = "middle";
-      ctx.fillStyle = args.isSelected ? th.textHeaderSelected : th.textHeader;
+      ctx.fillStyle = filtered ? FILTERED_HEADER_FG : args.isSelected ? th.textHeaderSelected : th.textHeader;
       ctx.font = `${th.headerFontStyle} ${th.fontFamily}`;
       ctx.fillText(column.title, x, sub === null ? midY : midY - 8);
       if (sub !== null) {
@@ -197,8 +279,21 @@ export function PivotGrid({ workspace, sheetName, view, version, isBusy, onMessa
         ctx.fillText(sub, x, midY + 9);
       }
       ctx.restore();
+      const icons = headerIconPaths();
+      if (icons === null) return;
+      ctx.save();
+      ctx.translate(rect.x + rect.width - pad - HEADER_ICON, midY - HEADER_ICON / 2);
+      if (filtered) {
+        ctx.fillStyle = FILTERED_MARK;
+        ctx.scale(HEADER_ICON / 32, HEADER_ICON / 32);
+        ctx.fill(icons.filter);
+      } else {
+        ctx.fillStyle = HEADER_SUB_COLOR;
+        ctx.fill(icons.chevron);
+      }
+      ctx.restore();
     },
-    [subOf],
+    [subOf, filterByCol],
   );
 
   const getCellContent = useCallback(
@@ -394,7 +489,7 @@ export function PivotGrid({ workspace, sheetName, view, version, isBusy, onMessa
   if (!sheet) return null;
 
   // 選んだ行（親）の項目を縦に並べる
-  const selectedRow = selectedRowIndex === undefined ? null : (table.rows[selectedRowIndex] ?? null);
+  const selectedRow = selectedRowIndex === undefined ? null : (shownRows[selectedRowIndex] ?? null);
   const detailItems: DetailItem[] =
     selectedRow === null
       ? []
@@ -411,17 +506,34 @@ export function PivotGrid({ workspace, sheetName, view, version, isBusy, onMessa
   return (
     <div className="grid-wrap" ref={wrapRef} onMouseLeave={() => setHover(null)}>
       {renderHeader?.({
-        rowCount: t.size(table.rows.length, table.columns.length),
+        rowCount: filters.length > 0 ? t.sizeFiltered(shownRows.length, table.rows.length, table.columns.length) : t.size(table.rows.length, table.columns.length),
         rowCountTitle: t.sizeTitle,
         detailOpen: showDetail,
         toggleDetail: () => setShowDetail((s) => !s),
       })}
+      <ColumnFilterBar
+        filters={filters}
+        shown={shownRows.length}
+        total={table.rows.length}
+        titleOf={titleOf}
+        onRemove={(col) => setFilters((f) => setFilter(f, null, col))}
+        onClearAll={() => setFilters([])}
+      />
       {classInfo === null && <p className="pivot-hint muted small">{parentClassColumn(sheet.meta) === null ? t.hintNoClassColumn : t.hintNoClassSheet}</p>}
       <div className="grid-body">
         <CellEditorContext.Provider value={editorTargetRef}>
           <DataEditor
             columns={gridColumns}
-            rows={table.rows.length}
+            rows={shownRows.length}
+            onHeaderClicked={(col, args) => {
+              // 見出しを押したらその列の絞り込みを開く（縦持ちの表と同じ）
+              const id = gridColumns[col]?.id;
+              if (id === undefined) return;
+              args.preventDefault();
+              const width = 260;
+              const x = Math.max(4, Math.min(args.bounds.x, (typeof window === "undefined" ? 1200 : window.innerWidth) - width - 8));
+              setMenu((m) => (m?.col === id ? null : { col: id, x, y: args.bounds.y + args.bounds.height }));
+            }}
             freezeColumns={freezeCountForWidth(paneWidth, labelCols.length)}
             headerHeight={48}
             drawHeader={drawHeader}
@@ -457,6 +569,23 @@ export function PivotGrid({ workspace, sheetName, view, version, isBusy, onMessa
       </div>
       {showDetail &&
         (selectedRow === null ? <div className="row-detail hint muted small">{t.detailHint}</div> : <RowDetail title={detailTitle} items={detailItems} />)}
+      {menu &&
+        createPortal(
+          <ColumnFilterMenu
+            col={menu.col}
+            title={titleOf(menu.col)}
+            options={menuOptions}
+            changes={menuChanges}
+            current={filters.find((f) => f.col === menu.col) ?? null}
+            position={{ x: menu.x, y: menu.y }}
+            onApply={(f) => {
+              setFilters((cur) => setFilter(cur, f, menu.col));
+              setMenu(null);
+            }}
+            onClose={() => setMenu(null)}
+          />,
+          document.body,
+        )}
       {hover && (
         <div className="cell-tooltip" role="tooltip" style={{ left: tooltipLeft, top: hover.y + 4 }}>
           {hover.lines.map((line, i) => (

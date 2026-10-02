@@ -4,6 +4,11 @@ All notable changes to MX Stage are listed here. Versions follow [Semantic Versi
 
 ## Unreleased
 
+### Added
+
+- **Filters in the one-row-per-record view.** Column headers in the wide specification view open the same filter menu as other tables. Missing and empty values count as empty, and items outside the record's classification appear as "(not in classification)", so you can list the records missing a given item.
+- The color legend explains the yellow, grey and ⚠ cells of the wide view.
+
 ### Changed
 
 - **Reloading keeps your work.** When the work screen asks you to reload (for example after an update), it now asks MX Stage on this PC to keep the sheets, changes and undo history in memory while the tab reloads, and restores them afterwards (kept for 10 minutes; nothing is written to disk).

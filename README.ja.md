@@ -43,7 +43,7 @@ Maximo（MAS Manage）のデータ整備を、利用者の LLM クライアン�
 
 ### Claude の plugin（Skill）
 
-[`plugin/`](plugin) の `mxstage` plugin は、Claude に Skill を 2 つ足す。Maximo のデータを安全に一括で直す段取りと、MX Stage の説明・入れ方・困ったときの確かめ方。中身は Markdown だけで、どこにも何も送らない。拡張と一緒に使う。Claude Code では `/plugin marketplace add mxstage/mxstage` のあと `/plugin install mxstage@mxstage`。
+[`plugin/`](plugin) の `mxstage` plugin は、Claude に Skill を 2 つ足す（Maximo のデータを安全に一括で直す段取りと、MX Stage の説明・入れ方・困ったときの確かめ方）。Claude Code と Cowork では、`npx @mxstage/mxstage` で MX Stage のサーバも起動する（Node.js 20 以上）。チャットはローカルのサーバを起動しないので、チャットでは拡張を使う。Claude Code では `/plugin marketplace add mxstage/mxstage` のあと `/plugin install mxstage@mxstage`。
 
 ### ほかの AI アシスタント（導入スクリプト）
 

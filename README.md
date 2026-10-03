@@ -57,7 +57,7 @@ The extension needs no Node.js or Git: Claude Desktop runs it. To use MX Stage f
 
 ### Claude plugin (Skills)
 
-The `mxstage` plugin in [`plugin/`](plugin) adds two Skills to Claude: planning a safe bulk correction of Maximo data, and explaining, installing and troubleshooting MX Stage. It contains only Markdown, sends nothing, and works alongside the extension. In Claude Code: `/plugin marketplace add mxstage/mxstage`, then `/plugin install mxstage@mxstage`.
+The `mxstage` plugin in [`plugin/`](plugin) adds two Skills to Claude (planning a safe bulk correction of Maximo data; explaining, installing and troubleshooting MX Stage) and, in Claude Code and Cowork, starts the MX Stage server with `npx @mxstage/mxstage` (Node.js 20 or later). Chat does not start local servers, so use the extension there. In Claude Code: `/plugin marketplace add mxstage/mxstage`, then `/plugin install mxstage@mxstage`.
 
 ### Other assistants (installer)
 

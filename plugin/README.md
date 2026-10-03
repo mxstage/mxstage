@@ -9,13 +9,20 @@ Skills that help Claude correct IBM Maximo and Maximo Application Suite (Manage)
 
 ## Use it
 
-Ask Claude, for example: "I need to fix the classification of 3,000 assets in Maximo, how should we do it?", "What is MX Stage and how much does it cost?", or "Install MX Stage in Claude Desktop".
+Ask Claude, for example: "I need to fix the classification of 3,000 assets in Maximo, how should we do it?", "What is MX Stage and how much does it cost?", or "Show the MX Stage status".
 
-The MX Stage tools themselves come from the MX Stage desktop extension (`.mcpb`) or installer, not from this plugin; see the [repository](https://github.com/mxstage/mxstage) for install steps.
+## MCP server
+
+In **Claude Code** and **Cowork** (sessions on your computer), the plugin also starts the MX Stage MCP server on your PC with `npx -y @mxstage/mxstage@<version>` (Node.js 20 or later). Open `http://127.0.0.1:8788/app` and enter your Maximo URL and API key in Settings; never paste the API key into the chat.
+
+Chat in claude.ai and the Claude desktop app does not start local servers; there, install the MX Stage desktop extension (`.mcpb`) from the [latest release](https://github.com/mxstage/mxstage/releases/latest). If you already installed MX Stage with the extension or the installer, the tools may appear twice in Claude Code; turn one of them off.
 
 ## Data
 
-This plugin contains only Skills (Markdown). It runs nothing, stores nothing and sends nothing anywhere. MX Stage itself, once installed, runs on your PC and talks only to your Maximo and your AI assistant; there is no MX Stage cloud and no telemetry.
+- **Skills**: Markdown only. They store and send nothing.
+- **MCP server**: npx downloads the pinned `@mxstage/mxstage` package from the npm registry (registry.npmjs.org) and runs it on your PC. It serves the work screen at `127.0.0.1:8788` and connects only to the Maximo URL you enter. Maximo data you load reaches Claude as tool results, like any MCP tool. Your Maximo API key and settings stay on your PC (the key encrypted with Windows DPAPI or the macOS Keychain, under `~/.config/mxstage`) and are never sent to us or to the browser. License keys are checked offline.
+- **Updates**: only if you turn on Settings → Updates → Update automatically (off by default), it asks GitHub (api.github.com) once a day for the latest version number; nothing about you or your data is sent.
+- There is no MX Stage cloud and no telemetry. Privacy policy: https://mxstage.tsunagi.app/privacy
 
 ## License
 

@@ -37,6 +37,8 @@ Windows (macOS and Linux are untested), Chrome or Edge, and IBM Maximo or MAS Ma
 
 Ask which assistant they use, then give only the matching steps.
 
+**Claude Code or Cowork with this plugin**: the plugin already starts the MX Stage server (it needs Node.js 20 or later). Open `http://127.0.0.1:8788/app` in Chrome or Edge, enter the Maximo URL and API key in Settings, then ask "show the MX Stage status".
+
 **Claude Desktop (simplest, no Node.js needed)**
 1. Download `mxstage-<version>.mcpb` from https://github.com/mxstage/mxstage/releases/latest
 2. In Claude Desktop: Settings → Extensions → Advanced settings → Install Extension…, choose the file, then Install.

@@ -76,6 +76,9 @@ describe("リポジトリ全体の決まり", () => {
       expect(f).toBe(`plugin/skills/${name}/SKILL.md`);
       expect(text).toMatch(/^description: ".+"$/m);
     }
+    // MCP サーバは npm の同じ版を npx で起動する（版は固定。範囲や latest は審査で止まる）。シェルを挟まない
+    const mcp = JSON.parse(readFileSync(join(ROOT, "plugin", ".mcp.json"), "utf8")) as { mcpServers: Record<string, unknown> };
+    expect(mcp.mcpServers).toEqual({ mxstage: { command: "npx", args: ["-y", `@mxstage/mxstage@${pkg.version}`] } });
     const marketplace = JSON.parse(readFileSync(join(ROOT, ".claude-plugin", "marketplace.json"), "utf8")) as { plugins: { name: string; source: string }[] };
     expect(marketplace.plugins).toEqual([expect.objectContaining({ name: "mxstage", source: "./plugin" })]);
   });

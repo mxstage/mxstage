@@ -557,7 +557,12 @@ describe("CLI（別プロセス）", () => {
     // 会話で最初の呼び出しなので、タブの結果の後ろに基本手順の Skill が添えられる。
     // 更新の知らせ（[MX Stage updates]）は、試験を動かしているリポジトリの状態で付いたり付かなかったりするので外して比べる
     const content = ((call.result as { content: { type: string; text: string }[] }).content ?? []).filter((c) => !c.text.startsWith("[MX Stage updates]"));
-    expect(content).toMatchObject([{ type: "text", text: "primary のタブ" }, { type: "text", text: expect.stringContaining("MX Stage basic procedure and rules") }]);
+    // 続けて、読み込みの段階で読む Skill の知らせ（skillHints.ts）が添えられる
+    expect(content).toMatchObject([
+      { type: "text", text: "primary のタブ" },
+      { type: "text", text: expect.stringContaining("MX Stage rules and Skill index") },
+      { type: "text", text: expect.stringContaining("mxstage-core-load") },
+    ]);
     expect((tab.frames("tool.invoke")[0] as unknown as InvokeMsg).tool).toBe("load_sheet");
     const progress = second.notifications.filter((n) => n.method === "notifications/progress");
     expect(progress[0]?.params).toMatchObject({ progressToken: "tok-cli", progress: 1, total: 2 });

@@ -369,7 +369,8 @@ export const TOOL_DEFS = {
   list_skills: tool({
     name: "list_skills",
     title: "List Skills",
-    description: "Lists how to use these tools and the task procedures (Skills). Use it in clients without built-in Skill support.",
+    description:
+      "Lists the Skills: the index, basic operations (core), standard Maximo objects (object) and the user's Skills for their environment (user). Use it in clients without built-in Skill support.",
     inputSchema: z.strictObject({}),
     annotations: RO,
     runAt: "worker",
@@ -377,7 +378,8 @@ export const TOOL_DEFS = {
   get_skill: tool({
     name: "get_skill",
     title: "Get a Skill",
-    description: "Returns the text of a Skill (SKILL.md). Read mxstage-workbench before starting work.",
+    description:
+      "Returns the text of a Skill (SKILL.md). mxstage-workbench is the index (rules and the list of Skills); read the basic operation and object Skills it names before those steps.",
     inputSchema: z.strictObject({ name: z.string().min(1) }),
     annotations: RO,
     runAt: "worker",

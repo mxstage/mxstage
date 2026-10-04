@@ -10,7 +10,7 @@
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { byteLength, normalizeText, SKILL_FILE, validateSkill, type KnownNames, type SkillSource } from "../src/shared/skillFile.ts";
+import { byteLength, isReservedSkillName, normalizeText, SKILL_FILE, validateSkill, type KnownNames, type SkillCategory, type SkillSource } from "../src/shared/skillFile.ts";
 
 export {
   BODY_MAX_BYTES,
@@ -69,6 +69,8 @@ export function renderGenerated(skills: readonly SkillSource[], conflictReasons:
     "  name: string;",
     "  description: string;",
     "  version: string;",
+    "  /** index: 目次 / core: 基本動作 / object: 標準オブジェクト */",
+    '  category: "index" | "core" | "object";',
     "  /** frontmatter を除いた SKILL.md の本文 */",
     "  body: string;",
     "}",
@@ -84,6 +86,7 @@ export function renderGenerated(skills: readonly SkillSource[], conflictReasons:
         `    name: ${JSON.stringify(skill.name)},`,
         `    description: ${JSON.stringify(skill.description)},`,
         `    version: ${JSON.stringify(skill.version)},`,
+        `    category: ${JSON.stringify(skill.category)},`,
         `    body: ${JSON.stringify(skill.body)},`,
         "  },",
       );
@@ -100,11 +103,45 @@ export function renderGenerated(skills: readonly SkillSource[], conflictReasons:
 
 /** 基本手順を先頭に、残りを名前順に並べる */
 function orderSkills(skills: readonly SkillSource[]): SkillSource[] {
-  return [...skills].sort((a, b) => {
-    if (a.name === PRIMARY_SKILL) return -1;
-    if (b.name === PRIMARY_SKILL) return 1;
-    return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
-  });
+  const rank = (s: SkillSource) => (s.name === PRIMARY_SKILL ? -1 : BUILTIN_CATEGORIES.indexOf(s.category ?? "object"));
+  const place = (s: SkillSource) => {
+    const i = WORK_ORDER.indexOf(s.name);
+    return i < 0 ? WORK_ORDER.length : i;
+  };
+  return [...skills].sort((a, b) => rank(a) - rank(b) || place(a) - place(b) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+}
+
+/** 層の中の並び（作業の順・よく使う順）。目次の一覧と設定画面がこの順に出す。無いものは後ろに名前順 */
+export const WORK_ORDER: readonly string[] = [
+  "mxstage-core-load",
+  "mxstage-core-analyze",
+  "mxstage-core-change",
+  "mxstage-core-match",
+  "mxstage-core-import",
+  "mxstage-core-commit",
+  "mxstage-core-screen",
+  "mxstage-core-skills",
+  "mxstage-obj-asset",
+  "mxstage-obj-location",
+  "mxstage-obj-classification",
+  "mxstage-obj-workorder",
+  "mxstage-obj-pm-jobplan",
+  "mxstage-obj-item-inventory",
+  "mxstage-obj-purchasing",
+  "mxstage-obj-reference",
+];
+
+/** 既定の Skill の層の並び（目次・基本動作・標準オブジェクト） */
+export const BUILTIN_CATEGORIES: readonly SkillCategory[] = ["index", "core", "object"];
+
+/** 既定の Skill だけの決まり: 名前は mxstage-、層は index・core・object、目次は基本手順の 1 つだけ */
+export function builtinProblems(skill: SkillSource): string[] {
+  const problems: string[] = [];
+  if (!isReservedSkillName(skill.name)) problems.push(`built-in Skill names start with mxstage- (${skill.name})`);
+  if (skill.category === null) problems.push("metadata.category is missing (index, core or object)");
+  else if (!BUILTIN_CATEGORIES.includes(skill.category)) problems.push(`metadata.category of a built-in Skill must be index, core or object (${skill.category})`);
+  if ((skill.category === "index") !== (skill.name === PRIMARY_SKILL)) problems.push(`only ${PRIMARY_SKILL} has metadata.category index`);
+  return problems;
 }
 
 export interface CollectResult {
@@ -151,6 +188,7 @@ export function collectSkills(): CollectResult {
     }
     const errors: string[] = [];
     const skill = validateSkill(dirName, readFileSync(file, "utf8"), known, errors);
+    if (skill) errors.push(...builtinProblems(skill));
     problems.push(...errors.map((e) => `${label}: ${e}`));
     if (skill && errors.length === 0) skills.push(skill);
   }
@@ -183,7 +221,7 @@ function main(): number {
 
   if (current !== generated) writeFileSync(GENERATED_FILE, generated, "utf8");
   for (const skill of skills) {
-    console.log(`  ${skill.name} ${skill.version}（本文 ${byteLength(skill.body)} バイト）`);
+    console.log(`  ${skill.name} ${skill.version} [${skill.category}]（本文 ${byteLength(skill.body)} バイト）`);
   }
   console.log(`アプリ既定の Skill ${skills.length} 件を src/bridge/defaultSkills.ts に出力しました`);
   return 0;

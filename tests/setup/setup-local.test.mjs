@@ -499,7 +499,8 @@ test("Antigravity の Skill の置き場所が変わった: 前の場所（~/.ge
     writeFileSync(path.join(oldDir, name, "SKILL.md"), `${repoSkills[0].text}\n手で直した\n`, "utf8");
     const kept = await runJson(common);
     assert.equal(kept.code, 0, kept.stdout);
-    assert.equal(stepOf(kept.json, "antigravity_skills_moved")[0].level, "warn");
+    // ほかの Skill の写しは消すので ok の段も出る。書き換えた写しは warn の段で知らせる
+    assert.ok(stepOf(kept.json, "antigravity_skills_moved").some((s) => s.level === "warn" && s.message.includes(name)));
     assert.equal(existsSync(path.join(oldDir, name, "SKILL.md")), true);
     assert.equal(readFileSync(path.join(newDir, name, "SKILL.md"), "utf8"), repoSkills[0].text);
     rmSync(path.join(oldDir, name), { recursive: true, force: true });

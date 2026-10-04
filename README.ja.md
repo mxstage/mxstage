@@ -86,8 +86,8 @@ npm でサーバを起動する MCP クライアントでは、`npx -y @mxstage/
 | Codex（ChatGPT デスクトップアプリの Codex・CLI・IDE 拡張） | `~\.codex\config.toml` の `[mcp_servers.mxstage]`（3 つとも同じファイル。`CODEX_HOME` があればそこ） | `~\.agents\skills\<名前>\SKILL.md`（ほかのエージェントも読むことがある） | Codex を終了して開き直す |
 | IBM Bob | `~\.bob\settings\mcp.json` の `mcpServers.mxstage` | `~\.bob\skills\<名前>\SKILL.md` | IBM Bob を再起動する |
 
-入る Skill は、アプリ既定の `mxstage-workbench` と、利用者の Skill（`~\.config\mxstage\skills\` にあるもの）。
-Skill のファイルを置かない環境（Claude Desktop のチャット・`agy` CLI）にも、基本手順はツールの結果で届く（下の「Skill」）。
+入る Skill は、アプリ既定の 17 本（目次の `mxstage-workbench`・基本動作の `mxstage-core-*`・標準オブジェクトの `mxstage-obj-*`）と、利用者の Skill（`~\.config\mxstage\skills\` にあるもの）。
+Skill のファイルを置かない環境（Claude Desktop のチャット・`agy` CLI）にも、目次と Skill の一覧はツールの結果で届く（下の「Skill」）。
 どの環境の設定も、書き換える前に控え（`~\.config\mxstage\backup\`）を取り、`mxstage` 以外の設定には触らない。
 今どの環境に入っているかは `node scripts/setup-local.mjs --status` で見られる（何も書き換えない）。
 
@@ -138,7 +138,7 @@ node scripts/setup-local.mjs --uninstall
 
 | 環境 | MCP を外す | Skill を外す |
 |---|---|---|
-| Claude Code（CLI） | `claude mcp remove --scope user mxstage` | `~\.claude\skills\` の下の、MX Stage が入れたフォルダ（`mxstage-workbench` と利用者の Skill の名前）を消す |
+| Claude Code（CLI） | `claude mcp remove --scope user mxstage` | `~\.claude\skills\` の下の、MX Stage が入れたフォルダ（`mxstage-workbench`・`mxstage-core-*`・`mxstage-obj-*` と利用者の Skill の名前）を消す |
 | Claude Desktop（チャット・Code タブ） | Settings の「Developer」→「Edit Config」で開く `claude_desktop_config.json` の `mcpServers` から `"mxstage"` の項目を消し、Claude Desktop を開き直す。Code タブからも外すなら、Claude Code の分も外す | チャットには置いていない。Code タブは Claude Code と同じ |
 | Antigravity | `~\.gemini\config\mcp_config.json` の `mcpServers` から `"mxstage"` の項目を消す（IDE では「View raw config」で開ける） | `~\.gemini\config\skills\` の下の同じ名前のフォルダを消す |
 | Codex | `~\.codex\config.toml` から `[mcp_servers.mxstage]` の表（次の `[` の行の手前まで）を消し、Codex を開き直す | `~\.agents\skills\` の下の同じ名前のフォルダを消す |
@@ -187,17 +187,21 @@ LLM に MX Stage の使い方を教えるファイル。**アプリ既定**と**
 
 | | 置き場所 | 中身 | 更新 |
 |---|---|---|---|
-| アプリ既定 | このリポジトリの `skills/`（今は `mxstage-workbench` の 1 本） | どの業務にも共通の基本手順と禁止事項 | MX Stage と一緒に置き換わる。書き換えない |
-| 利用者の Skill | `~/.config/mxstage/skills/<名前>/SKILL.md` | 業務や客先ごとの手順 | 利用者が置く。MX Stage を更新しても消えず、このリポジトリにも入らない |
+| アプリ既定: 目次 | `skills/mxstage-workbench` | どの作業にも共通の決まりと、どの場面でどの Skill を読むか | MX Stage と一緒に置き換わる。書き換えない |
+| アプリ既定: 基本動作 | `skills/mxstage-core-*`（8 本） | 読み込み・分析・変更・突き合わせ・取り込み・反映・作業画面・Skill の作り方 | 同上 |
+| アプリ既定: 標準オブジェクト | `skills/mxstage-obj-*`（8 本） | 資産とメーター・場所・分類と仕様・作業指示・予防保全と作業計画・品目と在庫・購買・基準データ。Maximo の振る舞い、MX Stage で変えられること、落とし穴 | 同上 |
+| 利用者の Skill | `~/.config/mxstage/skills/<名前>/SKILL.md` | 客先の環境ごと（カスタムのオブジェクト・属性・決まり）と、繰り返す作業の手順 | 利用者が置く。MX Stage を更新しても消えず、このリポジトリにも入らない。`mxstage` で始まる名前は使えない |
 
-- **どの環境でも届く。** MX Stage をつないだ会話では、最初にツールを使ったときの結果に、基本手順と利用者の Skill の一覧が添えられる。
+- **どの環境でも届く。** MX Stage をつないだ会話では、最初にツールを使ったときの結果に、目次と全 Skill の一覧が添えられる。
+  読み込み・変更・取り込み・反映などのツールの結果には、その段階で読む Skill の名前が添えられ、LLM が `get_skill` で読む（資産の仕様を読み込んだら資産と分類の Skill など）。
   Skill のファイルを置かない Claude Desktop のチャットや `agy` CLI でも、これで同じ手順になる（利用者の Skill の本文は、LLM がツールで読む）。
 - **チャットから作れる。** 作業の途中で「この手順を Skill として残して」と頼むと、LLM が名前・説明・本文を示して確かめたうえで
   `~/.config/mxstage/skills/` に保存する。
 - 各環境の Skill の置き場所へは、導入のたびに写す。利用者の Skill を足したり直したりしたら、導入をもう一度実行する
   （「MX Stage の Skill を入れ直して」と頼めばよい）。
-- アプリ既定と同じ名前は使えない。どちらが入っているかは作業画面の設定の「Skill」に出る。
-- 書き方はアプリ既定の `skills/mxstage-workbench/SKILL.md` と同じ（frontmatter に `name`・`description`・`metadata.version`）。
+- 利用者の Skill は、その客先では既定の Skill の手順より先に読み、手順を置き換えてよい。ただし目次の決まりは置き換えられない。
+- `mxstage` で始まる名前は使えない。どれが入っているかは作業画面の設定の「Skill」に層ごとに出る。
+- 書き方はアプリ既定の `skills/*/SKILL.md` と同じ（frontmatter に `name`・`description`・`metadata.version`。層の `metadata.category` は利用者の Skill では省くか `user`）。
 
 ## 文書
 

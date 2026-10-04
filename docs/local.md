@@ -140,7 +140,7 @@ Claude に MX Stage の使い方を教えるファイルです。**アプリ既�
 
 | | 置き場所 | 中身 |
 |---|---|---|
-| アプリ既定 | リポジトリの `skills\`（`mxstage-workbench`） | どの業務にも共通の基本手順と禁止事項。MX Stage と一緒に置き換わるので、書き換えないでください |
+| アプリ既定 | リポジトリの `skills\`（目次の `mxstage-workbench`、基本動作の `mxstage-core-*`、標準オブジェクトの `mxstage-obj-*`） | どの業務にも共通の決まり、基本動作、Maximo の標準オブジェクトごとの振る舞い。MX Stage と一緒に置き換わるので、書き換えないでください |
 | 利用者の Skill | `~\.config\mxstage\skills\<名前>\SKILL.md` | 業務や客先ごとの手順。MX Stage を更新しても消えず、リポジトリにも入りません |
 
 - **どの LLM クライアントでも使えます。** Claude Code・Claude Desktop のチャット・Gemini など、MX Stage をつないだクライアントには、

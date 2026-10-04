@@ -10,8 +10,11 @@ All notable changes to MX Stage are listed here. Versions follow [Semantic Versi
 - The color legend explains the yellow, grey and ⚠ cells of the wide view.
 - **Classification hierarchy path in the wide view.** The one-row-per-record view shows each record's classification as its hierarchy path with the description (for example MECH  ROT  PUMP (Pump)), taken from a loaded classification sheet; without one it shows the classification ID. When specifications are loaded without CLASSSTRUCTUREID or without a classification sheet that has HIERARCHYPATH, load_sheet tells the AI what to load (it asks you first).
 
+- **Skills for every step and for standard Maximo objects.** The built-in Skills are now 17: an index (`mxstage-workbench` 2.0.0: the rules for every task and which Skill to read when), 8 basic operations (`mxstage-core-*`: loading, analysing, changing, matching, importing, committing, the work screen, writing user Skills) and 8 standard Maximo objects (`mxstage-obj-*`: assets and meters, locations, classifications and specifications, work orders and service requests, PMs and job plans, items and inventory, purchasing, reference data), each saying what Maximo does with the object, what MX Stage can and cannot change, and the traps (for example, changing an asset's classification rebuilds its specifications). The first tool result of a conversation carries the index with the list of all Skills by layer, and the results of loading, changing, matching, importing and committing tools name the Skills for that step. Settings → Skills lists them by layer.
+
 ### Changed
 
+- User Skills cannot use names starting with `mxstage` (reserved for built-in Skills); such Skills are not loaded, with the reason shown in Settings → Skills. Saved user Skills record `metadata.category: "user"`.
 - **Reloading keeps your work.** When the work screen asks you to reload (for example after an update), it now asks MX Stage on this PC to keep the sheets, changes and undo history in memory while the tab reloads, and restores them afterwards (kept for 10 minutes; nothing is written to disk).
 - Settings → Updates: after downloading the Claude Desktop extension, a button copies the file's path, for when the folder does not open (Claude Desktop runs the extension in the background).
 

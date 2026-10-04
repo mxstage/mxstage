@@ -280,7 +280,7 @@ describe("Skill の一覧（橋渡しの /_mxstage/skills）", () => {
     const list = parseSkillList({
       userSkillsDir: "/home/u/.config/mxstage/skills",
       skills: [
-        { name: "mxstage-workbench", version: "0.7.0", description: "基本手順", origin: "default" },
+        { name: "mxstage-workbench", version: "0.7.0", description: "基本手順", origin: "default", category: "index" },
         { name: "my-flow", version: "0.1.0", description: "業務の手順", origin: "user" },
         { name: "Bad Name", origin: "user" },
         { name: "no-origin" },
@@ -288,9 +288,9 @@ describe("Skill の一覧（橋渡しの /_mxstage/skills）", () => {
       ],
       problems: [{ name: "broken", level: "error", message: "SKILL.md がありません。" }, { name: "w", level: "warn", message: "注意" }, { name: "n" }],
     });
-    expect(list.skills.map((s) => [s.name, s.origin])).toEqual([
-      ["mxstage-workbench", "default"],
-      ["my-flow", "user"],
+    expect(list.skills.map((s) => [s.name, s.origin, s.category])).toEqual([
+      ["mxstage-workbench", "default", "index"],
+      ["my-flow", "user", null],
     ]);
     expect(list.problems).toEqual([
       { name: "broken", level: "error", message: "SKILL.md がありません。" },

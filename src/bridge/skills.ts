@@ -6,7 +6,8 @@
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { NAME_PATTERN, SKILL_FILE, validateSkill } from "../shared/skillFile.ts";
+import { isReservedSkillName, NAME_PATTERN, SKILL_FILE, validateSkill } from "../shared/skillFile.ts";
+import type { SkillCategory } from "../shared/skillFile.ts";
 import { TOOL_NAMES } from "../shared/toolDefs.ts";
 import { CONFLICT_REASONS, SKILLS as DEFAULT_SKILLS } from "./defaultSkills.ts";
 
@@ -22,6 +23,8 @@ export interface SkillEntry {
   /** frontmatter を除いた本文 */
   body: string;
   origin: SkillOrigin;
+  /** index / core / object (built-in), user */
+  category: SkillCategory;
 }
 
 export interface SkillProblem {
@@ -68,8 +71,8 @@ export function readSkillCatalog(userDir: string | null): SkillCatalog {
       problems.push({ name, level: "error", message: "Use only lowercase letters, digits and hyphens in the folder name (it must equal the Skill name)." });
       continue;
     }
-    if (defaultNames.has(name)) {
-      problems.push({ name, level: "error", message: "Not loaded because it has the name of a built-in Skill. Use another name." });
+    if (defaultNames.has(name) || isReservedSkillName(name)) {
+      problems.push({ name, level: "error", message: "Not loaded because names starting with mxstage are reserved for built-in Skills. Rename the folder and the name (for example <customer>-<task>)." });
       continue;
     }
     const file = join(userDir, name, SKILL_FILE);
@@ -84,8 +87,11 @@ export function readSkillCatalog(userDir: string | null): SkillCatalog {
       problems.push({ name, level: "error", message: errors.join(" / ") || "Could not be read." });
       continue;
     }
+    if (skill.category !== null && skill.category !== "user") {
+      warnings.push(`metadata.category "${skill.category}" is only for built-in Skills; this Skill is treated as a user Skill.`);
+    }
     for (const w of warnings) problems.push({ name, level: "warn", message: w });
-    skills.push({ name: skill.name, description: skill.description, version: skill.version, body: skill.body, origin: "user" });
+    skills.push({ name: skill.name, description: skill.description, version: skill.version, body: skill.body, origin: "user", category: "user" });
   }
   return { skills, problems, userDir };
 }
@@ -115,7 +121,7 @@ export function skillFileText(input: SaveSkillInput): string {
   const description = input.description.replace(/\s+/g, " ").trim();
   const body = input.body.replace(/\r\n?/g, "\n").replace(/^\n+/, "").replace(/\s+$/, "");
   const version = input.version ?? DEFAULT_USER_SKILL_VERSION;
-  return `---\nname: ${input.name}\ndescription: ${JSON.stringify(description)}\nmetadata:\n  version: "${version}"\n---\n\n${body}\n`;
+  return `---\nname: ${input.name}\ndescription: ${JSON.stringify(description)}\nmetadata:\n  version: "${version}"\n  category: "user"\n---\n\n${body}\n`;
 }
 
 /**
@@ -127,7 +133,9 @@ export function saveUserSkill(userDir: string | null, input: SaveSkillInput): Sa
   if (userDir === null) return { ok: false, message: "The folder for user Skills is not known (the bridge state folder is unknown)." };
   const name = input.name.trim();
   if (!NAME_PATTERN.test(name)) return { ok: false, message: `Use only lowercase letters, digits and hyphens in name "${name}" (e.g. permit-date-update).` };
-  if (DEFAULT_SKILLS.some((s) => s.name === name)) return { ok: false, message: `${name} is the name of a built-in Skill. Use another name.` };
+  if (DEFAULT_SKILLS.some((s) => s.name === name) || isReservedSkillName(name)) {
+    return { ok: false, message: "Names starting with mxstage are reserved for built-in Skills. Use another name (for example <customer>-<task>)." };
+  }
   const dir = join(userDir, name);
   const file = join(dir, SKILL_FILE);
   const exists = existsSync(file);

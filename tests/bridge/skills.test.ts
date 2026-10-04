@@ -66,7 +66,17 @@ describe("Skill の一覧", () => {
     const catalog = readSkillCatalog(dir);
     expect(catalog.skills.filter((s) => s.name === name)).toHaveLength(1);
     expect(catalog.skills.find((s) => s.name === name)?.origin).toBe("default");
-    expect(catalog.problems).toEqual([expect.objectContaining({ name, level: "error", message: expect.stringContaining("name of a built-in Skill") })]);
+    expect(catalog.problems).toEqual([expect.objectContaining({ name, level: "error", message: expect.stringContaining("reserved for built-in Skills") })]);
+  });
+
+  it("mxstage で始まる名前は既定の Skill 専用で、利用者の Skill としては読み込まない", async () => {
+    await put("mxstage-my-task", skillText("mxstage-my-task"));
+    await put("mxstagefoo", skillText("mxstagefoo"));
+    const catalog = readSkillCatalog(dir);
+    expect(catalog.skills.find((s) => s.name === "mxstage-my-task")).toBeUndefined();
+    expect(catalog.problems).toEqual([expect.objectContaining({ name: "mxstage-my-task", level: "error", message: expect.stringContaining("reserved") })]);
+    // 頭が同じでもハイフンで区切らない名前は別の名前
+    expect(catalog.skills.find((s) => s.name === "mxstagefoo")?.category).toBe("user");
   });
 
   it("壊れた Skill は読み込まず、理由を返す", async () => {
@@ -138,7 +148,8 @@ describe("利用者の Skill を保存する（save_skill）", () => {
 
   it("アプリ既定と同じ名前・名前の決まりに合わない・書き方の誤り（description の < >）は保存しない", () => {
     const primary = DEFAULT_SKILLS[0]!.name;
-    expect(saveUserSkill(dir, { ...input, name: primary })).toMatchObject({ ok: false, message: expect.stringContaining("name of a built-in Skill") });
+    expect(saveUserSkill(dir, { ...input, name: primary })).toMatchObject({ ok: false, message: expect.stringContaining("reserved for built-in Skills") });
+    expect(saveUserSkill(dir, { ...input, name: "mxstage-plant-a" })).toMatchObject({ ok: false, message: expect.stringContaining("reserved for built-in Skills") });
     expect(saveUserSkill(dir, { ...input, name: "../escape" })).toMatchObject({ ok: false });
     expect(saveUserSkill(dir, { ...input, name: "Permit_Date" })).toMatchObject({ ok: false });
     const bad = saveUserSkill(dir, { ...input, description: "<b>太字</b> の説明" });

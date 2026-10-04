@@ -1111,6 +1111,13 @@ body.resizing-row * {
   margin: 2px 0 0;
 }
 
+/* アプリ既定の Skill の層（目次・基本動作・標準オブジェクト）の見出し */
+.skill-group h4 {
+  margin: var(--cds-spacing-05) 0 var(--cds-spacing-03);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
 /* 保存した接続先（設定 → 接続）。名前と接続先を左、操作を右に。狭ければ操作は下に回る */
 .saved-connections {
   margin: var(--cds-spacing-05) 0;

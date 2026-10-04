@@ -126,8 +126,8 @@ describe("stdio の MCP サーバ", () => {
     const withoutUpdates = (content: ToolCallResult["content"]) => content.filter((c) => !c.text.startsWith("[MX Stage updates]"));
     const firstContent = withoutUpdates((open.result as ToolCallResult).content);
     expect(firstContent).toHaveLength(2);
-    expect(firstContent[1]!.text).toContain("MX Stage basic procedure and rules");
-    expect(firstContent[1]!.text).toContain("# MX Stage basic procedure");
+    expect(firstContent[1]!.text).toContain("MX Stage rules and Skill index");
+    expect(firstContent[1]!.text).toContain("# MX Stage: rules and Skill index");
     expect(firstContent[1]!.text).toContain("save_skill");
 
     // タブが無いときの get_status は「つながっていない」と答える（エラーにしない）。2 回目からは添えない

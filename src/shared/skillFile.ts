@@ -15,7 +15,21 @@ export const DESCRIPTION_MAX_CHARS = 200;
 export const BODY_MAX_BYTES = 8000;
 export const VERSION_PATTERN = /^\d+\.\d+\.\d+$/;
 export const ALLOWED_KEYS = new Set(["name", "description", "metadata"]);
-export const ALLOWED_METADATA_KEYS = new Set(["version"]);
+export const ALLOWED_METADATA_KEYS = new Set(["version", "category"]);
+/**
+ * Skill の層（metadata.category）。index: 目次（共通の決まりと一覧）/ core: どのオブジェクトにも共通の基本動作 /
+ * object: Maximo の標準オブジェクトごとの振る舞い / user: 利用者が客先の環境ごとに作る Skill。
+ * 既定の Skill（リポジトリの skills/）は index・core・object のどれかを必ず持つ。利用者の Skill は省くか user
+ */
+export const SKILL_CATEGORIES = ["index", "core", "object", "user"] as const;
+export type SkillCategory = (typeof SKILL_CATEGORIES)[number];
+/** 既定の Skill の名前の頭。利用者の Skill には使えない（既定の Skill と取り違えないため） */
+export const RESERVED_NAME_PREFIX = "mxstage";
+
+/** 既定の Skill のために取ってある名前か（mxstage・mxstage-*） */
+export function isReservedSkillName(name: string): boolean {
+  return name === RESERVED_NAME_PREFIX || name.startsWith(`${RESERVED_NAME_PREFIX}-`);
+}
 /** Claude の Skill アップロードで name に使えない語 */
 export const RESERVED_NAME_WORDS = ["anthropic", "claude"];
 /** ツール名らしき snake_case 名（英小文字と数字を _ でつないだ語） */
@@ -46,6 +60,8 @@ export interface SkillSource {
   version: string;
   /** frontmatter を除いた本文 */
   body: string;
+  /** metadata.category（無ければ null） */
+  category: SkillCategory | null;
   /** 配布用の SKILL.md 全体（BOM を除き、改行を LF にそろえたもの） */
   text: string;
 }
@@ -178,7 +194,7 @@ export function validateSkill(
   const { frontmatter, body } = parsed;
 
   for (const key of [...frontmatter.scalars.keys(), ...frontmatter.maps.keys()]) {
-    if (!ALLOWED_KEYS.has(key)) errors.push(`the frontmatter key ${key} is not allowed (only name, description and metadata.version)`);
+    if (!ALLOWED_KEYS.has(key)) errors.push(`the frontmatter key ${key} is not allowed (only name, description, metadata.version and metadata.category)`);
   }
 
   const nameScalar = frontmatter.scalars.get("name");
@@ -208,13 +224,20 @@ export function validateSkill(
   }
 
   let version = "";
+  let category: SkillCategory | null = null;
   if (frontmatter.scalars.has("metadata")) errors.push("metadata must be a map with version");
   const metadata = frontmatter.maps.get("metadata");
   if (!metadata) {
     if (!frontmatter.scalars.has("metadata")) errors.push("metadata.version is missing");
   } else {
     for (const key of metadata.keys()) {
-      if (!ALLOWED_METADATA_KEYS.has(key)) errors.push(`the metadata key ${key} is not allowed (only version)`);
+      if (!ALLOWED_METADATA_KEYS.has(key)) errors.push(`the metadata key ${key} is not allowed (only version and category)`);
+    }
+    const categoryScalar = metadata.get("category");
+    if (categoryScalar) {
+      const value = categoryScalar.value;
+      if ((SKILL_CATEGORIES as readonly string[]).includes(value)) category = value as SkillCategory;
+      else errors.push(`metadata.category "${value}" must be one of ${SKILL_CATEGORIES.join(", ")}`);
     }
     const versionScalar = metadata.get("version");
     if (!versionScalar) {
@@ -251,6 +274,6 @@ export function validateSkill(
     }
   }
 
-  return { name, description, version, body, text };
+  return { name, description, version, body, category, text };
 }
 

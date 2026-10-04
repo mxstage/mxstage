@@ -369,7 +369,7 @@ export async function startBridgeServer(opts: BridgeServerOptions): Promise<Brid
       sendJson(res, 200, {
         ok: true,
         userSkillsDir: catalog.userDir,
-        skills: catalog.skills.map((s) => ({ name: s.name, version: s.version, description: s.description, origin: s.origin })),
+        skills: catalog.skills.map((s) => ({ name: s.name, version: s.version, description: s.description, origin: s.origin, category: s.category })),
         problems: catalog.problems,
       });
       return;

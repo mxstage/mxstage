@@ -1,7 +1,8 @@
 // MCP サーバ（stdio）。TOOL_DEFS の全ツールを登録し、runAt:"tab" のツールはローカル Hub 経由で
 // 作業タブへ中継する。runAt:"worker" のツール（open_grid / list_skills / get_skill / save_skill /
 // create_import_session）は橋渡しの中で完結させる。
-// 会話（MCP のセッション）で最初のツール呼び出しの結果には、基本手順の Skill と利用者の Skill の一覧を添える（sessionGuide）。
+// 会話（MCP のセッション）で最初のツール呼び出しの結果には、目次の Skill と、既定・利用者の Skill の一覧を添える（sessionGuide）。
+// 読み込み・変更・取り込み・反映などの入口のツールの結果には、その段階で読む既定の Skill の名前を添える（skillHints.ts）。
 // get_status と最初のツール呼び出しの結果には、古くなっているもの（橋渡しのコード・作業画面のビルド・配った Skill の写し）と
 // 直し方も添える（src/bridge/freshness.ts）。
 
@@ -15,6 +16,8 @@ import type { ToolName } from "../shared/toolDefs.ts";
 import { updatesText } from "./freshness.ts";
 import type { UpdateNotice } from "./freshness.ts";
 import { readSkillCatalog, saveUserSkill } from "./skills.ts";
+import type { SkillEntry } from "./skills.ts";
+import { skillHintText, skillsForCall } from "./skillHints.ts";
 import { createProgressForwarder, progressTokenOf } from "./progress.ts";
 import { IMPORT_MAX_BYTES } from "./importUpload.ts";
 import type { ImportTicket } from "./importUpload.ts";
@@ -27,7 +30,7 @@ import type { TicketIssuer } from "./peer.ts";
  */
 export const SERVER_INSTRUCTIONS =
   "MX Stage is a local workbench for correcting IBM Maximo data in a work screen (a browser tab). Call get_status first; if no tab is open, give the user the URL from open_grid. " +
-  "The result of your first tool call includes the MX Stage basic procedure and rules (a Skill). Read it and follow it. Task procedures saved by the user (user Skills) can be read with list_skills and get_skill. " +
+  "The result of your first tool call includes the MX Stage rules and the index of Skills (procedures for basic operations, standard Maximo objects and the user's own tasks). Read it and follow it; read the Skills it names with get_skill before those steps. " +
   "Always load Maximo data into work screen sheets (load_sheet, load_master, scope_options) and read it from the sheets (query_rows, aggregate), so that the user can see and check the same data in the work screen. " +
   "If the user wants to keep a procedure, show it to them, get their agreement, then save it as a user Skill with save_skill. " +
   "Maximo is written to only when the user approves in the work screen. If a commit is blocked because a license is needed, tell the user what the work screen says and do not retry. Never ask for API keys in the chat. " +
@@ -40,20 +43,47 @@ export const SERVER_INSTRUCTIONS =
  */
 export function sessionGuide(userSkillsDir: string | null): string {
   const catalog = readSkillCatalog(userSkillsDir);
-  const primary = catalog.skills.find((s) => s.origin === "default");
-  const users = catalog.skills.filter((s) => s.origin === "user");
+  const index = catalog.skills.find((s) => s.category === "index");
   const parts = [
-    "[MX Stage basic procedure and rules (Skill: " +
-      (primary?.name ?? "mxstage-workbench") +
+    "[MX Stage rules and Skill index (Skill: " +
+      (index?.name ?? "mxstage-workbench") +
       "). Attached only to the result of the first tool call in this conversation. Follow it for the rest of the work.]",
   ];
-  if (primary !== undefined) parts.push(primary.body);
-  parts.push(
-    users.length > 0
-      ? `## User Skills on this PC (for a matching task, read the body with get_skill before starting and follow it)\n\n${users.map((u) => `- ${u.name}: ${u.description}`).join("\n")}`
-      : "## User Skills on this PC\n\nNone yet. If the user wants to keep a procedure, show it to them, get their agreement, then save it with save_skill.",
-  );
+  if (index !== undefined) parts.push(index.body);
+  parts.push(skillCatalogText(catalog.skills));
   return parts.join("\n\n");
+}
+
+/**
+ * 目次の一覧: 既定の Skill を層ごとに（基本動作・標準オブジェクト）、続けて利用者の Skill。
+ * 各 Skill の name と description から作る（目次の本文に手で二重に書かない）。最初の結果と、get_skill で目次を読んだときに添える
+ */
+export function skillCatalogText(skills: readonly SkillEntry[]): string {
+  const line = (s: SkillEntry) => `- ${s.name}: ${s.description}`;
+  const core = skills.filter((s) => s.category === "core");
+  const objects = skills.filter((s) => s.category === "object");
+  const users = skills.filter((s) => s.origin === "user");
+  const parts = [
+    "## Built-in Skills (read the matching ones with get_skill before that step; tool results also name them)",
+    `### Basic operations (any object)\n\n${core.map(line).join("\n")}`,
+    `### Standard Maximo objects\n\n${objects.map(line).join("\n")}`,
+    users.length > 0
+      ? "## User Skills on this PC (made for this customer's environment; read a matching one with get_skill before starting. " +
+        `It may replace steps of the built-in Skills, never the rules)\n\n${users.map(line).join("\n")}`
+      : "## User Skills on this PC\n\nNone yet. When a procedure is worth keeping, follow mxstage-core-skills.",
+  ];
+  return parts.join("\n\n");
+}
+
+/**
+ * この呼び出しで知らせる既定の Skill。この会話でまだ読んでも知らせてもいないもので、同梱されているものだけ。
+ * 知らせたものは hinted に足す
+ */
+export function nextSkillHints(tool: ToolName, args: Record<string, unknown>, hinted: Set<string>): string[] {
+  const builtIn = new Set(readSkillCatalog(null).skills.map((s) => s.name));
+  const names = skillsForCall(tool, args).filter((n) => builtIn.has(n) && !hinted.has(n));
+  for (const n of names) hinted.add(n);
+  return names;
 }
 
 /** 結果に案内を足す（structuredContent は変えず、文字の内容の後ろに足す） */
@@ -206,7 +236,7 @@ export async function runWorkerTool(deps: BridgeMcpDeps, name: ToolName, args: R
       // origin: default（アプリ既定）/ user（利用者の Skill）。読み込めなかった利用者の Skill は problems に出す
       const catalog = readSkillCatalog(deps.userSkillsDir ?? null);
       const value: Record<string, unknown> = {
-        skills: catalog.skills.map((s) => ({ name: s.name, description: s.description, version: s.version, origin: s.origin })),
+        skills: catalog.skills.map((s) => ({ name: s.name, description: s.description, version: s.version, origin: s.origin, category: s.category })),
       };
       if (catalog.userDir !== null) value.userSkillsDir = catalog.userDir;
       if (catalog.problems.length > 0) value.problems = catalog.problems;
@@ -223,7 +253,9 @@ export async function runWorkerTool(deps: BridgeMcpDeps, name: ToolName, args: R
           { available: catalog.skills.map((s) => s.name) },
         );
       }
-      return jsonResult({ name: skill.name, version: skill.version, description: skill.description, origin: skill.origin, body: skill.body });
+      // 目次は、本文に Skill の一覧を足して返す（一覧は各 Skill の説明から作るので、本文には書いていない）
+      const body = skill.category === "index" ? `${skill.body}\n\n${skillCatalogText(catalog.skills)}` : skill.body;
+      return jsonResult({ name: skill.name, version: skill.version, description: skill.description, origin: skill.origin, category: skill.category, body });
     }
 
     case "save_skill": {
@@ -281,6 +313,8 @@ export function buildBridgeMcpServer(deps: BridgeMcpDeps): McpServer {
   const server = new McpServer({ name: "mxstage", version: deps.version }, { instructions: SERVER_INSTRUCTIONS });
   // この会話（MCP のセッション。橋渡しのプロセス 1 つが 1 つを受け持つ）で、基本手順をもう添えたか
   let guided = false;
+  // この会話で読んだ・知らせた既定の Skill（同じ Skill を何度も知らせない）
+  const hinted = new Set<string>();
   for (const name of TOOL_NAMES) {
     const def = TOOL_DEFS[name];
     // 既定値を外した形で公開する（既定値は作業タブが入れる。src/shared/toolDefs.ts の publishedInputSchema）
@@ -299,7 +333,10 @@ export function buildBridgeMcpServer(deps: BridgeMcpDeps): McpServer {
           const text = updatesText(await collectUpdates(deps));
           if (text !== null) result = withGuide(result, text);
         }
-        return first ? withGuide(result, sessionGuide(deps.userSkillsDir ?? null)) : result;
+        if (first) result = withGuide(result, sessionGuide(deps.userSkillsDir ?? null));
+        if (name === "get_skill" && typeof args.name === "string") hinted.add(args.name);
+        const hint = skillHintText(nextSkillHints(name, args, hinted));
+        return hint === null ? result : withGuide(result, hint);
       },
     );
   }

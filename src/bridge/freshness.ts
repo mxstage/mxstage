@@ -11,7 +11,7 @@ import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, relative } from "node:path";
-import { NAME_PATTERN, SKILL_FILE, normalizeText } from "../shared/skillFile.ts";
+import { isReservedSkillName, NAME_PATTERN, SKILL_FILE, normalizeText } from "../shared/skillFile.ts";
 
 /** 橋渡しが起動したときに読み込むコード（リポジトリの根からの位置）。ここが変わったら、起動し直すまで古い */
 export const BRIDGE_CODE_PATHS: readonly string[] = ["src/bridge", "src/shared", "package.json"];
@@ -227,7 +227,7 @@ export function sourceSkills(repoRoot: string, userSkillsDir: string | null): Ma
   const skills = skillsIn(join(repoRoot, "skills"));
   if (userSkillsDir !== null) {
     for (const [name, text] of skillsIn(userSkillsDir)) {
-      if (!skills.has(name) && frontmatterName(text) === name) skills.set(name, text);
+      if (!skills.has(name) && !isReservedSkillName(name) && frontmatterName(text) === name) skills.set(name, text);
     }
   }
   return skills;

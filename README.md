@@ -116,10 +116,13 @@ A Skill is a procedure the AI assistant follows.
 
 | | Location | Contents | Updates |
 |---|---|---|---|
-| Built-in | `skills/` in this repository (`mxstage-workbench`) | The basic procedure and rules for every task | Replaced with MX Stage updates; do not edit |
-| Yours | `~/.config/mxstage/skills/<name>/SKILL.md` | Procedures for your tasks or customers | Yours; kept across updates and never sent anywhere |
+| Built-in: index | `skills/mxstage-workbench` | The rules for every task and which Skill to read when | Replaced with MX Stage updates; do not edit |
+| Built-in: basic operations | `skills/mxstage-core-*` (8) | Loading, analysing, changing, matching, importing, committing, the work screen, writing Skills | Same |
+| Built-in: standard Maximo objects | `skills/mxstage-obj-*` (8) | Assets and meters, locations, classifications and specifications, work orders, PMs and job plans, items and inventory, purchasing, reference data: what Maximo does with them, what MX Stage can change and the traps | Same |
+| Yours | `~/.config/mxstage/skills/<name>/SKILL.md` | Each customer's environment (custom objects, attributes, rules) and your repeated tasks | Yours; kept across updates and never sent anywhere. Names starting with `mxstage` are reserved |
 
-- **Every assistant gets the basic procedure**: it is attached to the result of the first tool call in each conversation, so assistants that cannot load Skill files (Claude Desktop chat, for example) follow the same rules.
+- **Every assistant gets the index**: it is attached, with the list of all Skills, to the result of the first tool call in each conversation, so assistants that cannot load Skill files (Claude Desktop chat, for example) follow the same rules. Tool results name the Skills for each step (for example the asset and classification Skills when asset specifications are loaded), and the AI reads them with `get_skill`.
+- **Your Skills come first for their customer**: they may replace steps of the built-in Skills, never the rules of the index.
 - **Create Skills from the chat**: say "save this procedure as a Skill". The AI shows the name, description and body, and saves it after you agree.
 - Run the installer again to copy new or changed Skills to each assistant.
 
@@ -137,7 +140,7 @@ The detailed guides are in Japanese for now:
 npm run typecheck      # tsc (app and bridge)
 npx vitest run         # tests (app and bridge)
 npm run test:setup     # installer tests (write only to temporary folders)
-npm run build          # build the built-in Skill and the work screen (dist/app)
+npm run build          # build the built-in Skills and the work screen (dist/app)
 npm run dev:app        # dev server for the work screen (http://localhost:5173/app?demo=1 shows sample data; relays to the dev bridge on 8790)
 npm run dev:fake-maximo  # a fake Maximo at https://127.0.0.1:9797 (API key: test-api-key)
 npm run dev:bridge     # a bridge on port 8790 that accepts the development license for the fake Maximo

@@ -2498,13 +2498,14 @@ export function skillFrontmatterName(text) {
 
 /**
  * 利用者の Skill（~/.config/mxstage/skills/<name>/SKILL.md）。
- * 既定と同じ名前、frontmatter の name がフォルダ名と違うものは入れない（problems に理由を返す）。
+ * 既定と同じ名前、mxstage で始まる名前、frontmatter の name がフォルダ名と違うものは入れない（problems に理由を返す）。
  */
 export function readUserSkills(stateDir, defaultNames) {
   const skills = [];
   const problems = [];
   for (const skill of readSkillsIn(path.join(stateDir, USER_SKILLS_DIR_NAME))) {
     if (defaultNames.has(skill.name)) problems.push(`${skill.name}（アプリ既定と同じ名前）`);
+    else if (skill.name === "mxstage" || skill.name.startsWith("mxstage-")) problems.push(`${skill.name}（mxstage で始まる名前はアプリ既定の Skill 専用）`);
     else if (skillFrontmatterName(skill.text) !== skill.name) problems.push(`${skill.name}（frontmatter の name がフォルダ名と違う）`);
     else skills.push(skill);
   }

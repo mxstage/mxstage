@@ -292,7 +292,7 @@ describe("MCP の結果に添える", () => {
     });
     const first = await client.callTool({ name: "open_grid", arguments: {} });
     expect(texts(first)).toMatch(/\[MX Stage updates\]/);
-    expect(texts(first)).toMatch(/\[MX Stage basic procedure and rules/);
+    expect(texts(first)).toMatch(/\[MX Stage rules and Skill index/);
     expect(first.structuredContent).not.toHaveProperty("updates");
 
     const second = await client.callTool({ name: "open_grid", arguments: {} });

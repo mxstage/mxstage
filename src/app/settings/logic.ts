@@ -243,7 +243,12 @@ export interface SkillListEntry {
   version: string;
   description: string;
   origin: SkillOrigin;
+  /** index / core / object / user。古い橋渡しは返さないので null */
+  category: SkillListCategory | null;
 }
+
+export type SkillListCategory = "index" | "core" | "object" | "user";
+const SKILL_LIST_CATEGORIES: readonly string[] = ["index", "core", "object", "user"];
 
 export interface SkillListProblem {
   name: string;
@@ -266,10 +271,16 @@ export function parseSkillList(json: unknown): SkillList {
   const skills: SkillListEntry[] = [];
   for (const item of Array.isArray(obj.skills) ? obj.skills : []) {
     if (typeof item !== "object" || item === null) continue;
-    const { name, version, description, origin } = item as Record<string, unknown>;
+    const { name, version, description, origin, category } = item as Record<string, unknown>;
     if (typeof name !== "string" || !SKILL_NAME.test(name)) continue;
     if (origin !== "default" && origin !== "user") continue;
-    skills.push({ name, version: typeof version === "string" ? version : "", description: typeof description === "string" ? description : "", origin });
+    skills.push({
+      name,
+      version: typeof version === "string" ? version : "",
+      description: typeof description === "string" ? description : "",
+      origin,
+      category: typeof category === "string" && SKILL_LIST_CATEGORIES.includes(category) ? (category as SkillListCategory) : null,
+    });
   }
   const problems: SkillListProblem[] = [];
   for (const item of Array.isArray(obj.problems) ? obj.problems : []) {

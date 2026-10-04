@@ -9,7 +9,7 @@
 | 作業画面 | `src/app/` | ブラウザのタブ。シート（正本）・グリッド・反映パネル・設定・オブジェクト構造の画面。ツールはここで実行する |
 | 橋渡し | `src/bridge/` | この PC の Node のプロセス 1 つ。画面の配信・stdio の MCP サーバ・タブへの中継（`/ws`）・Maximo への中継（`/mx`）・取り込み（`/import`）・状態と Skill の一覧（`/_mxstage`） |
 | 共有 | `src/shared/` | ツールの定義・中継の取り決め・シートの型・SKILL.md の読み取りと検証 |
-| アプリ既定の Skill | `skills/` | 基本手順（`mxstage-workbench`）。ビルドで `src/bridge/defaultSkills.ts` に同梱する |
+| アプリ既定の Skill | `skills/` | 目次（`mxstage-workbench`）・基本動作 8 本（`mxstage-core-*`）・標準オブジェクト 8 本（`mxstage-obj-*`）。層は `metadata.category`。ビルドで `src/bridge/defaultSkills.ts` に同梱する（仕様は `docs/skills-spec.md`） |
 | 導入 | `scripts/setup-local.mjs`・`mxstage.cmd` | 依存とビルド・橋渡しの起動・Claude への登録・Skill の配置・自動起動とショートカット |
 
 ## 実装済み
@@ -121,8 +121,8 @@
 - **利用者の Skill**: `~/.config/mxstage/skills/<名前>/SKILL.md`。橋渡しが読むたびに既定と同じ規則で検証します
   （ツール名に無い語は注意にとどめ、読み込みは止めません）。アプリ既定と同じ名前は読み込みません。
 - `list_skills` / `get_skill` と作業画面の設定は、どちらの Skill かを `origin`（`default` / `user`）で示します。
-- **どのクライアントにも届けます。** 会話（MCP のセッション）で最初のツール呼び出しの結果に、基本手順（`mxstage-workbench`）の本文と
-  利用者の Skill の一覧を添えます（`sessionGuide`）。Skill 機能の無いクライアント（Claude Desktop のチャット・Gemini など）にも、
+- **どのクライアントにも届けます。** 会話（MCP のセッション）で最初のツール呼び出しの結果に、目次（`mxstage-workbench`）の本文と
+  既定・利用者の Skill の一覧（層ごと）を添えます（`sessionGuide`）。入口のツールの結果には、その段階で読む既定の Skill の名前を添えます（`src/bridge/skillHints.ts`）。Skill 機能の無いクライアント（Claude Desktop のチャット・Gemini など）にも、
   LLM がどのツールから始めても届きます。MCP の案内（`SERVER_INSTRUCTIONS`）にも同じ決まりの要点を書いています。
 - **チャットから保存できます**（`save_skill`）。会話でまとまった手順を、利用者の了承を得て `~/.config/mxstage/skills/<名前>/SKILL.md` に保存します。
   読むときと同じ規則で検証し、通らなければ保存しません。アプリ既定と同じ名前・無断の上書き（`overwrite` なし）はしません。

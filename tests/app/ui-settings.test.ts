@@ -243,8 +243,10 @@ describe("設定画面のフォーム", () => {
       async (): Promise<SkillList> => ({
         userSkillsDir: "/home/u/.config/mxstage/skills",
         skills: [
-          { name: "mxstage-workbench", version: "0.7.0", description: "基本手順", origin: "default" },
-          { name: "my-flow", version: "0.1.0", description: "業務の手順", origin: "user" },
+          { name: "mxstage-workbench", version: "2.0.0", description: "目次", origin: "default", category: "index" },
+          { name: "mxstage-core-load", version: "1.0.0", description: "読み込み", origin: "default", category: "core" },
+          { name: "mxstage-obj-asset", version: "1.0.0", description: "資産", origin: "default", category: "object" },
+          { name: "my-flow", version: "0.1.0", description: "業務の手順", origin: "user", category: "user" },
         ],
         problems: [{ name: "broken", level: "error", message: "SKILL.md がありません。" }],
       }),
@@ -261,6 +263,11 @@ describe("設定画面のフォーム", () => {
     // 既定の見出しの後に既定の Skill、利用者の見出しの後に利用者の Skill が並ぶ
     expect(text.indexOf("mxstage-workbench")).toBeGreaterThan(text.indexOf("アプリ既定"));
     expect(text.indexOf("my-flow")).toBeGreaterThan(text.indexOf("利用者の Skill"));
+    // 既定の Skill は層ごとに分ける（目次・基本動作・標準オブジェクト）
+    expect(text.indexOf("mxstage-workbench")).toBeGreaterThan(text.indexOf("目次（"));
+    expect(text.indexOf("mxstage-core-load")).toBeGreaterThan(text.indexOf("基本動作"));
+    expect(text.indexOf("mxstage-obj-asset")).toBeGreaterThan(text.indexOf("Maximo の標準オブジェクト"));
+    expect(text.indexOf("基本動作")).toBeGreaterThan(text.indexOf("mxstage-workbench"));
     expect(text).toContain("/home/u/.config/mxstage/skills");
     expect(text).toContain("broken");
     expect(text).toContain("読み込めません");

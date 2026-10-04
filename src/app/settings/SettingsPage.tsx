@@ -280,7 +280,26 @@ function SkillsSection({ load }: { load: () => Promise<SkillList> }) {
         <>
           <h3>{t.defaultsTitle}</h3>
           <p className="muted small">{t.defaultsHelp}</p>
-          <SkillItems items={defaults} empty={t.defaultsEmpty} />
+          {defaults.some((s) => typeof s.category === "string") ? (
+            // 層ごとに分ける（目次・基本動作・標準オブジェクト）。層を返さない古い橋渡しなら 1 つの一覧
+            (
+              [
+                ["index", t.groupIndex],
+                ["core", t.groupCore],
+                ["object", t.groupObject],
+              ] as const
+            ).map(([category, label]) => {
+              const items = defaults.filter((s) => s.category === category);
+              return items.length === 0 ? null : (
+                <div key={category} className="skill-group">
+                  <h4>{label}</h4>
+                  <SkillItems items={items} empty={t.defaultsEmpty} />
+                </div>
+              );
+            })
+          ) : (
+            <SkillItems items={defaults} empty={t.defaultsEmpty} />
+          )}
           <h3>{t.userTitle}</h3>
           <p className="muted small">
             {t.userIntro}

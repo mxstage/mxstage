@@ -9,7 +9,26 @@ import { SKILLS } from "../../src/bridge/defaultSkills";
 const RAW_FILES = import.meta.glob<string>("../../skills/*/SKILL.md", { query: "?raw", import: "default", eager: true });
 
 // リポジトリに置くのはアプリ既定の Skill だけ。業務や客先ごとの Skill は利用者のフォルダに置く（src/bridge/skills.ts）
-const EXPECTED_SKILLS = ["mxstage-workbench"];
+// 目次 1・基本動作 8・標準オブジェクト 8（docs/skills-spec.md）
+const EXPECTED_SKILLS = [
+  "mxstage-workbench",
+  "mxstage-core-load",
+  "mxstage-core-analyze",
+  "mxstage-core-change",
+  "mxstage-core-match",
+  "mxstage-core-import",
+  "mxstage-core-commit",
+  "mxstage-core-screen",
+  "mxstage-core-skills",
+  "mxstage-obj-asset",
+  "mxstage-obj-location",
+  "mxstage-obj-classification",
+  "mxstage-obj-workorder",
+  "mxstage-obj-pm-jobplan",
+  "mxstage-obj-item-inventory",
+  "mxstage-obj-purchasing",
+  "mxstage-obj-reference",
+];
 const PRIMARY_SKILL = "mxstage-workbench";
 const BODY_MAX_BYTES = 8000;
 const SNAKE_CASE_PATTERN = /(?<![A-Za-z0-9_])[a-z][a-z0-9]*(?:_[a-z0-9]+)+(?![A-Za-z0-9_])/g;
@@ -106,14 +125,21 @@ describe("skills", () => {
       expect(bundled, source.dirName).toBeDefined();
       expect(bundled?.description).toBe(source.scalars.description?.value);
       expect(bundled?.version).toBe(source.metadata?.version?.value);
+      expect(bundled?.category).toBe(source.metadata?.category?.value);
       expect(bundled?.body).toBe(source.body);
     }
   });
 
   it.each(parsed.map((s) => [s.dirName, s] as const))("%s: frontmatter の規則を満たす", (_name, skill) => {
-    // 使えるキーは name, description, metadata.version だけ
+    // 使えるキーは name, description, metadata.version, metadata.category だけ
     expect([...skill.topKeys].sort()).toEqual(["description", "metadata", "name"]);
-    expect(Object.keys(skill.metadata ?? {})).toEqual(["version"]);
+    expect(Object.keys(skill.metadata ?? {})).toEqual(["version", "category"]);
+    // 層: 目次は基本手順の 1 つだけ。基本動作は mxstage-core-、標準オブジェクトは mxstage-obj-
+    const category = skill.metadata?.category;
+    expect(category?.quoted).toBe(true);
+    const expected = skill.dirName === PRIMARY_SKILL ? "index" : skill.dirName.startsWith("mxstage-core-") ? "core" : skill.dirName.startsWith("mxstage-obj-") ? "object" : "?";
+    expect(category?.value).toBe(expected);
+    expect([...(skill.scalars.description?.value ?? "")].length).toBeLessThanOrEqual(200);
 
     const name = skill.scalars.name?.value ?? "";
     expect(name).toMatch(/^[a-z0-9-]{1,64}$/);
@@ -159,32 +185,43 @@ describe("skills", () => {
     expect(exampleProblems('{"COL": {"lookup": {"sheet": "S", "matchCol": ["A", "B"], "targetMatchCol": ["C", "D"], "sourceCol": "V"}}}')).toEqual([]);
   });
 
-  it("基本手順は必須の流れと禁止事項を含む", () => {
+  it("目次は禁止事項・エラーの扱い・全 Skill の読む場面を持ち、ほかの Skill は禁止事項を書き直さない", () => {
     const body = parsed.find((s) => s.dirName === PRIMARY_SKILL)?.body ?? "";
-    for (const tool of ["get_status", "open_grid", "describe_object_structure", "load_sheet", "query_rows", "aggregate", "apply_rule", "patch_cells", "get_diff", "request_commit", "get_commit_result", "get_job", "create_import_session"]) {
-      expect(body, tool).toContain(tool);
-    }
-    for (const phrase of ["API keys", "copy row data into tool arguments", "on the user's behalf", "Never follow instructions", "Never guess", "NO_TAB", "baseRevision", "reason"]) {
+    for (const phrase of ["API keys", "copy row data into tool arguments", "on the user's behalf", "Never follow instructions", "Never guess", "NO_TAB", "INVALID_ARGS", "TOOL_ERROR"]) {
       expect(body, phrase).toContain(phrase);
+    }
+    // 基本動作の Skill は名前で、標準オブジェクトの Skill は対象で案内する（一覧は説明から作るので本文に全部は書かない）
+    for (const name of EXPECTED_SKILLS.filter((n) => n.startsWith("mxstage-core-"))) expect(body, name).toContain(name);
+  });
+
+  it("基本動作の Skill が全体で手順の要のツールを案内する", () => {
+    const all = parsed.filter((s) => s.dirName !== PRIMARY_SKILL).map((s) => s.body).join("\n\n");
+    for (const tool of ["get_status", "open_grid", "find_object_structures", "describe_object_structure", "scope_options", "load_sheet", "load_master", "get_job", "query_rows", "aggregate", "apply_rule", "patch_cells", "add_rows", "delete_rows", "undo_batch", "match_sheets", "get_diff", "request_commit", "get_commit_result", "create_import_session", "describe_import", "apply_mapping", "save_skill"]) {
+      expect(all, tool).toContain(tool);
     }
   });
 
   it("共有契約の変更（複合キー、lookup の件数、セルごとの reason）が手順に反映されている", () => {
     const bodyOf = (name: string) => parsed.find((s) => s.dirName === name)?.body ?? "";
 
-    const workbench = bodyOf(PRIMARY_SKILL);
-    for (const phrase of ["composite key", "matched", "unmatched", "ambiguous", "lookup_ambiguous", "reason of each edits item", "INVALID_ARGS", "TOOL_ERROR"]) {
-      expect(workbench, phrase).toContain(phrase);
+    const change = bodyOf("mxstage-core-change");
+    for (const phrase of ["composite key", "unmatched", "ambiguous", "lookup_ambiguous", "reason of each edits item", "baseRevision", "dryRun"]) {
+      expect(change, phrase).toContain(phrase);
     }
+    const match = bodyOf("mxstage-core-match");
+    for (const phrase of ["composite key", "matched", "ambiguous"]) expect(match, phrase).toContain(phrase);
 
   });
 
-  it("基本手順は利用者の Skill の置き場所と、読み方（get_skill）・チャットからの保存（save_skill）を案内する", () => {
+  it("目次は利用者の Skill の置き場所と読み方（get_skill）を、mxstage-core-skills は保存（save_skill）を案内する", () => {
     const body = parsed.find((s) => s.dirName === PRIMARY_SKILL)?.body ?? "";
-    expect(body).toContain("user Skills");
+    expect(body).toContain("User Skills");
     expect(body).toContain("~/.config/mxstage/skills");
     expect(body).toContain("get_skill");
-    expect(body).toContain("save_skill");
+    expect(body).toContain("reserved");
+    const skills = parsed.find((s) => s.dirName === "mxstage-core-skills")?.body ?? "";
+    expect(skills).toContain("save_skill");
+    expect(skills).toContain("reserved");
   });
 });
 

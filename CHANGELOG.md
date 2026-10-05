@@ -4,6 +4,14 @@ All notable changes to MX Stage are listed here. Versions follow [Semantic Versi
 
 ## Unreleased
 
+### Changed
+
+- The link to the object structures in the top bar is now an icon (with its name as a tooltip), next to Settings. While the definitions load, the count appears beside it.
+
+### Fixed
+
+- Settings → Updates: the **Update automatically** switch was shown without its styles (as a bare checkbox). The language choices and multi-line text boxes had the same problem.
+
 ## 0.2.6 — 2026-10-05
 
 ### Added

@@ -306,6 +306,17 @@ button.link:hover {
   align-items: center;
 }
 
+/* オブジェクト構造へのアイコン。読み込み中だけ件数を横に出す */
+.structures-link {
+  display: inline-flex;
+  align-items: center;
+}
+
+.structures-progress {
+  margin-left: var(--cds-spacing-01);
+  white-space: nowrap;
+}
+
 /* パネルを隠している間に「最終」以外を見ているときの表示名 */
 .view-hint {
   font-size: var(--cds-label-01-font-size);

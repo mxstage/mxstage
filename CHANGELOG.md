@@ -25,6 +25,7 @@ All notable changes to MX Stage are listed here. Versions follow [Semantic Versi
 - Settings → Updates: the **Update automatically** switch was shown without its styles (as a bare checkbox). The language choices and multi-line text boxes had the same problem.
 - The results by row in the commit panel no longer wrap one character per line in the narrow side panel.
 - After a commit, the commit panel says there are no changes to commit instead of "There are reasons this cannot be committed".
+- Claude Desktop could report "Couldn't start for Cowork and Code sessions" right after installing or updating the extension (it reconnected about 10 seconds later). Claude starts MX Stage several times at once and stops the trial one; a copy that saw the stopping one took it for another app on port 8788 and quit. MX Stage now asks again for up to about 1.5 seconds before deciding the port belongs to another app.
 
 ## 0.2.6 — 2026-10-05
 

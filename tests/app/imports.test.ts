@@ -527,6 +527,117 @@ describe("describe_import / apply_mapping", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// 帳票の読み取り・fillDown・unpivot（ツール）
+// ---------------------------------------------------------------------------
+
+/** 行番号 → 値の配列から sheetData を作る（文字はインラインの文字列） */
+function sheetRows(rows: Record<number, Array<string | number | null>>): string {
+  const esc = (v: string) => v.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  return Object.entries(rows)
+    .map(([r, cells]) => {
+      const cs = cells
+        .map((v, i) => {
+          if (v === null) return "";
+          const ref = `${columnLetter(i)}${r}`;
+          return typeof v === "number" ? `<c r="${ref}"><v>${v}</v></c>` : `<c r="${ref}" t="inlineStr"><is><t xml:space="preserve">${esc(v)}</t></is></c>`;
+        })
+        .join("");
+      return `<row r="${r}">${cs}</row>`;
+    })
+    .join("");
+}
+
+/** 作業日報が 3 枚並んだシート（帳票の表題・上の欄・明細・特記事項） */
+function dailyReportRows(): Record<number, Array<string | number | null>> {
+  const rows: Record<number, Array<string | number | null>> = {};
+  const lines = [
+    [["巡視点検", "場内巡視 異常なし", 1], ["故障修理", "2号の誘引 IDF 異音 給脂", 2.5], ["〃", "同上 経過観察", 0.5]],
+    [["定期点検", "1号炉 押込送風機 定期点検", 1]],
+    [["修理", "汚水移送P No.2 漏れ 増締め", 0.5], ["清掃", "灰押出機まわり 清掃", 2]],
+  ] as const;
+  lines.forEach((ls, k) => {
+    const b = 1 + k * 20;
+    rows[b] = ["北部クリーンセンター", null, "作　業　日　報"];
+    rows[b + 1] = [`No. 4-0${k + 1}`];
+    rows[b + 3] = ["委託契約工事名", null, "令和8年度 設備保守点検業務委託"];
+    rows[b + 4] = ["受注者", null, "設備保守業者Ｃ", null, null, "作業日", `R8.4.${k + 1}`];
+    rows[b + 6] = ["No.", "作業区分", "作業内容", null, null, null, "時間"];
+    for (let i = 0; i < 6; i++) {
+      const l = ls[i];
+      rows[b + 7 + i] = l ? [i + 1, l[0], l[1], null, null, null, l[2]] : [i + 1];
+    }
+    rows[b + 14] = ["特記事項", null, k === 1 ? null : "特になし"];
+  });
+  return rows;
+}
+
+describe("帳票の読み取り・fillDown・unpivot（ツール）", () => {
+  it("describe_import: 帳票が並んだシートは formHint で知らせ、結合したセルも出す", async () => {
+    const h = harness();
+    const bytes = await makeXlsx({ sheets: [{ name: "4月", rows: sheetRows(dailyReportRows()), merges: ["C1:E1", "C21:E21", "C41:E41"] }] });
+    h.imports.add({ importId: "d1", fileName: "作業日報.xlsx", contentType: "", bytes, sha256: "" });
+    const d = await h.call("describe_import", { importId: "d1" });
+    expect(d.sheets[0]).toMatchObject({ formHint: { forms: 3, firstRows: [1, 21, 41] }, merges: { count: 3, first: ["C1:E1", "C21:E21", "C41:E41"] } });
+    expect(d.sheets[0].formNote).toContain("form in apply_mapping");
+    expect(d.next).toContain("form");
+  });
+
+  it("apply_mapping の form: 1 明細 1 行のシートにし、帳票の上の欄を各行に付ける", async () => {
+    const h = harness();
+    const bytes = await makeXlsx({ sheets: [{ name: "4月", rows: sheetRows(dailyReportRows()) }] });
+    h.imports.add({ importId: "d1", fileName: "作業日報.xlsx", contentType: "", bytes, sha256: "" });
+    const r = await h.call("apply_mapping", {
+      importId: "d1",
+      sourceSheet: "4月",
+      name: "作業日報 4月",
+      form: { start: ["作業日報"], fields: { NO: "No.", CONTRACT: "委託契約工事名", WORKDATE: "作業日", NOTES: "特記事項" }, items: { header: "作業内容", until: ["特記事項"] } },
+      fillDown: { columns: ["作業区分"] },
+      rename: { 作業内容: "DESCRIPTION" },
+    });
+    expect(r).toMatchObject({ sheet: "作業日報 4月", rowCount: 6, forms: 3, missingFields: { NOTES: 1 }, filledDown: { 作業区分: 1 }, keyColumns: ["SOURCE_ROW"] });
+    expect(r.columns).toEqual(["SOURCE_ROW", "BLOCK", "NO", "CONTRACT", "WORKDATE", "NOTES", "No.", "作業区分", "DESCRIPTION", "時間"]);
+    expect(r.formNote).toContain("BLOCK");
+    const rows = await h.call("query_rows", { sheet: "作業日報 4月", columns: ["BLOCK", "NO", "WORKDATE", "作業区分", "DESCRIPTION"] });
+    expect(rows.rows.map((x: { values: Record<string, unknown> }) => x.values)).toEqual([
+      { BLOCK: 1, NO: "4-01", WORKDATE: "R8.4.1", 作業区分: "巡視点検", DESCRIPTION: "場内巡視 異常なし" },
+      { BLOCK: 1, NO: "4-01", WORKDATE: "R8.4.1", 作業区分: "故障修理", DESCRIPTION: "2号の誘引 IDF 異音 給脂" },
+      { BLOCK: 1, NO: "4-01", WORKDATE: "R8.4.1", 作業区分: "故障修理", DESCRIPTION: "同上 経過観察" },
+      { BLOCK: 2, NO: "4-02", WORKDATE: "R8.4.2", 作業区分: "定期点検", DESCRIPTION: "1号炉 押込送風機 定期点検" },
+      { BLOCK: 3, NO: "4-03", WORKDATE: "R8.4.3", 作業区分: "修理", DESCRIPTION: "汚水移送P No.2 漏れ 増締め" },
+      { BLOCK: 3, NO: "4-03", WORKDATE: "R8.4.3", 作業区分: "清掃", DESCRIPTION: "灰押出機まわり 清掃" },
+    ]);
+  });
+
+  it("apply_mapping の unpivot: 年度の列を行にし、SOURCE_CELL を付ける", async () => {
+    const h = harness();
+    const rows = { 1: ["機器名称", "区分", "年度"], 2: [null, null, 2006, 2007], 3: ["押込送風機", "実績", "○", "○◎"], 4: ["誘引送風機", "実績", null, "△"] };
+    h.imports.add({ importId: "s1", fileName: "星取表.xlsx", contentType: "", bytes: await makeXlsx({ sheets: [{ name: "通風", rows: sheetRows(rows) }] }), sha256: "" });
+    const r = await h.call("apply_mapping", { importId: "s1", sourceSheet: "通風", headerRow: 1, name: "星取表", unpivot: { columns: ["C:D"], labelRow: 2, labelColumn: "FY", valueColumn: "MARK", tokens: ["○", "◎", "△"] } });
+    expect(r).toMatchObject({ rowCount: 4, keyColumns: ["SOURCE_CELL", "MARK"], unpivot: { columns: ["C", "D"], rows: 4, skippedEmptyCells: 1 } });
+    expect(r.rowKeyNote).toContain("SOURCE_CELL");
+    const q = await h.call("query_rows", { sheet: "星取表", columns: ["機器名称", "FY", "MARK", "SOURCE_CELL"] });
+    expect(q.rows.map((x: { values: Record<string, unknown> }) => Object.values(x.values))).toEqual([
+      ["押込送風機", 2006, "○", "C3"],
+      ["押込送風機", 2007, "○", "D3"],
+      ["押込送風機", 2007, "◎", "D3"],
+      ["誘引送風機", 2007, "△", "D4"],
+    ]);
+  });
+
+  it("headerRow も form も無い・指定の誤りは INVALID_ARGS で理由を添える", async () => {
+    const h = harness();
+    h.imports.add({ importId: "d1", fileName: "作業日報.xlsx", contentType: "", bytes: await makeXlsx({ sheets: [{ name: "4月", rows: sheetRows(dailyReportRows()) }] }), sha256: "" });
+    const e1 = await h.fail("apply_mapping", { importId: "d1", sourceSheet: "4月", name: "x" });
+    expect(e1.code).toBe(RelayErrorCode.INVALID_ARGS);
+    expect(e1.message).toContain("form");
+    const e2 = await h.fail("apply_mapping", { importId: "d1", sourceSheet: "4月", name: "x", form: { start: ["点検報告書"], fields: { D: "作業日" } } });
+    expect(e2.message).toContain("form.start");
+    const e3 = await h.fail("apply_mapping", { importId: "d1", sourceSheet: "4月", name: "x", form: { start: ["作業日報"], fields: { D: "作業日" } }, rename: { 日付: "X" } });
+    expect(e3.message).toContain("is not a column of the shaped sheet");
+  });
+});
+
 describe("ImportStore", () => {
   it("新しい順に 5 つまで持ち、読み取りは 1 回だけ", async () => {
     const store = new ImportStore();

@@ -7,7 +7,7 @@
 import type { CellValue } from "../../shared/model";
 import { readZipDirectory, readZipEntry, ZipError, type ZipEntry } from "./zip";
 import { attrsOf, decodeXml, elementRe, NS, richText } from "./xml";
-import { columnIndex, IMPORT_MAX_COLUMNS, IMPORT_MAX_ROWS, ImportError, type ImportWorkbook, type RawRow, type RawTable } from "./table";
+import { columnIndex, IMPORT_MAX_COLUMNS, IMPORT_MAX_ROWS, ImportError, type ImportWorkbook, type MergeRange, type RawRow, type RawTable } from "./table";
 
 /** XML 1 つを展開したときの上限 */
 export const XLSX_MAX_PART_BYTES = 160 * 1024 * 1024;
@@ -235,6 +235,28 @@ const SHEET_DATA_RE = new RegExp(`<${NS}sheetData\\b[^>]*?(?:/>|>([\\s\\S]*)</${
 const ROW_RE = elementRe("row");
 const CELL_RE = elementRe("c");
 const REF_RE = /^([A-Za-z]{1,3})(\d+)$/;
+const MERGE_RE = elementRe("mergeCell");
+const RANGE_RE = /^([A-Za-z]{1,3})(\d+):([A-Za-z]{1,3})(\d+)$/;
+/** 読む結合の数の上限 */
+const MAX_MERGES = 100_000;
+
+/** 結合したセル（<mergeCells> の <mergeCell ref="A1:C2"/>） */
+function parseMerges(xml: string): MergeRange[] {
+  const out: MergeRange[] = [];
+  if (xml.indexOf("mergeCell") < 0) return out;
+  for (const m of xml.matchAll(MERGE_RE)) {
+    const ref = RANGE_RE.exec(attrsOf(m[1] ?? "").get("ref") ?? "");
+    if (ref === null) continue;
+    const c1 = columnIndex(ref[1] as string);
+    const c2 = columnIndex(ref[3] as string);
+    const r1 = Number(ref[2]);
+    const r2 = Number(ref[4]);
+    if (c1 < 0 || c2 < 0 || r1 < 1 || r2 < r1 || c2 < c1) continue;
+    out.push({ r1, c1, r2, c2 });
+    if (out.length >= MAX_MERGES) break;
+  }
+  return out;
+}
 
 function parseSheet(name: string, hidden: boolean, xml: string, ctx: CellContext, limits: XlsxLimits): RawTable {
   const table: RawTable = { name, hidden, rows: [], columnCount: 0, truncatedRows: false, truncatedColumns: false };
@@ -277,6 +299,8 @@ function parseSheet(name: string, hidden: boolean, xml: string, ctx: CellContext
   }
   // 行の順（r が前後するファイルに備える）
   table.rows.sort((a, b) => a.row - b.row);
+  const merges = parseMerges(xml);
+  if (merges.length > 0) table.merges = merges;
   return table;
 }
 

@@ -10,6 +10,8 @@ All notable changes to MX Stage are listed here. Versions follow [Semantic Versi
 - Five sample Excel files to merge with the demo (purchase orders without work order numbers, a legacy equipment register, daily work reports printed as A4 forms (a repair log table in the English data), an equipment register ahead of Maximo, a star chart). **Load into work screen** adds one as if you had dropped it there.
 - A purple **Demo** badge in the top bar while connected to the demo. get_status and open_grid tell the AI about the demo.
 - `--no-demo` turns the demo off.
+- **Reading printed forms.** apply_mapping reads a sheet of repeated forms, such as one daily work report per printed page: it finds each form by its title, takes header values by their labels (so inserted rows do not matter) and makes one row per item line, with the form's values on every row. describe_import points out such sheets (formHint) and merged cells.
+- **fillDown and unpivot.** apply_mapping fills merged cells and ditto marks with the value above, and turns columns such as years into rows (one row per mark, with several marks in one cell split and a quantity split into units). The work screen moves the values; the AI only says how to read the file.
 
 ### Changed
 

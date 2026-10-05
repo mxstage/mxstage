@@ -351,7 +351,7 @@ export const TOOL_DEFS = {
     name: "describe_import",
     title: "Describe an import",
     description:
-      "Describes a file that reached the work screen (each sheet of an Excel file, or the single table of a CSV file): row count, likely header rows, columns (column letter, type, rows with values), sample rows from the top, and whether it is in MXLoader format. With sheet and headerRow, it rebuilds the columns from that header row.",
+      "Describes a file that reached the work screen (each sheet of an Excel file, or the single table of a CSV file): row count, likely header rows, columns (column letter, type, rows with values), sample rows from the top, merged cells, whether it is in MXLoader format, and formHint when the sheet repeats the same labels (one form after another, such as daily reports). With sheet and headerRow, it rebuilds the columns from that header row.",
     inputSchema: z.strictObject({
       importId: z.string().min(1).describe("importId from create_import_session or from imports in get_status"),
       sheet: z.string().optional().describe("Look at this sheet only (for CSV, the file name)"),
@@ -365,14 +365,52 @@ export const TOOL_DEFS = {
     name: "apply_mapping",
     title: "Turn an import into a sheet",
     description:
-      "Turns a sheet of an imported file, with the given header row, into a work screen sheet. rename changes column names (the original headers stay as display names). rowKey and the SOURCE_ROW column are row numbers in the original file. This sheet cannot be committed to Maximo (it is reference data for matching).",
+      "Turns a sheet of an imported file into a work screen sheet. For an ordinary table give headerRow. For a sheet of repeated forms (for example one daily report per printed page) give form instead: one sheet row per item row of each form, with the form's header values on every row. fillDown fills empty cells (or only merged cells) and ditto marks with the value above, within one form. unpivot turns columns such as years into rows (one row per non-empty cell), splitting several marks in one cell (tokens) or a quantity into units (repeat). The work screen moves the values; never copy them into arguments. rename changes column names (the original headers or labels stay as display names). rowKey and SOURCE_ROW are row numbers in the original file (unpivot adds SOURCE_CELL). This sheet cannot be committed to Maximo (it is reference data for matching).",
     inputSchema: z.strictObject({
       importId: z.string().min(1),
       sourceSheet: z.string().describe("sheets[].name from describe_import (for CSV, the file name)"),
-      headerRow: z.number().int().min(1).max(50),
+      headerRow: z.number().int().min(1).max(50).optional().describe("Header row of an ordinary table (required unless form is given)"),
       name: sheetName.describe("Name of the new sheet (e.g. Inspection results)"),
       rename: z.record(z.string(), z.string()).optional().describe('Column name from describe_import → column name in the sheet (e.g. {"Asset No.":"ASSETNUM"})'),
-      keyColumns: z.array(z.string()).max(5).optional().describe("Key columns pinned on screen (names after rename; default SOURCE_ROW)"),
+      keyColumns: z.array(z.string()).max(5).optional().describe("Key columns pinned on screen (names after rename; default SOURCE_ROW, or SOURCE_CELL with unpivot)"),
+      form: z
+        .strictObject({
+          start: z.array(z.string().min(1).max(50)).min(1).max(5).describe("Text in the first row of each form, such as its title (spaces are ignored; a cell containing it starts a form)"),
+          fields: z
+            .record(z.string().min(1).max(64), z.union([z.string().min(1).max(50), z.strictObject({ label: z.string().min(1).max(50), below: z.boolean().optional() })]))
+            .optional()
+            .describe('Column name → label in the form header, e.g. {"WORKDATE":"Work date","CONTRACT":"Contract"}. The value is the first non-empty cell right of the label ({label, below:true}: below it). If the label cell itself goes on (e.g. "No. 4-04"), the rest is the value'),
+          items: z
+            .strictObject({
+              header: z.string().min(1).max(50).describe("Text in the header row of the item table in each form, e.g. Work done"),
+              until: z.array(z.string().min(1).max(50)).max(5).optional().describe("Text in the first row after the items, e.g. Remarks"),
+            })
+            .optional()
+            .describe("Item table of each form: one sheet row per item row; empty rows and rows with only a line number are skipped. Without items, one sheet row per form"),
+        })
+        .optional()
+        .describe("Read repeated forms instead of a table (check formHint in describe_import). Cannot be combined with unpivot"),
+      fillDown: z
+        .strictObject({
+          columns: z.array(z.string()).min(1).max(50).describe("Column names, original headers or letters"),
+          mode: z.enum(["blank", "merged"]).default("blank").describe("blank: every empty cell; merged: only cells inside a merged range"),
+          ditto: z.boolean().default(true).describe("Also replace ditto marks (including the Japanese ones) with the value above"),
+        })
+        .optional(),
+      unpivot: z
+        .strictObject({
+          columns: z.array(z.string()).min(1).max(20).describe('Columns to turn into rows: names, letters or ranges such as "F:Q"'),
+          labelRow: z.number().int().min(1).max(50).optional().describe("Row whose cells name those columns (e.g. the row of western years); default the header row"),
+          labelColumn: z.string().min(1).max(64).default("PERIOD"),
+          valueColumn: z.string().min(1).max(64).default("VALUE"),
+          keepEmpty: z.boolean().default(false),
+          tokens: z.array(z.string().min(1).max(10)).max(20).optional().describe("Marks split into one row each (e.g. ○ ◎ ● △ ★); the rest of the cell goes to <valueColumn>_NOTE"),
+          repeat: z
+            .strictObject({ countColumn: z.string(), labels: z.array(z.string().min(1).max(20)).min(2).max(10), column: z.string().min(1).max(64).default("UNIT") })
+            .optional()
+            .describe("Split a row whose quantity (countColumn) is 2 or more into one row per label (e.g. A, B), named in column"),
+        })
+        .optional(),
     }),
     annotations: EDIT,
     runAt: "tab",

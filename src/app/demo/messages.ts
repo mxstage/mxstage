@@ -56,9 +56,9 @@ export const demoMessages = defineMessages(
     excel: {
       "purchase-orders": "Fill in order amounts, dates and vendors on outsourced work orders. The list has no work order numbers, so it is matched by subject, plant and period.",
       "legacy-register": "Fill in serial numbers, install dates and manufacturers left blank or temporary when the data moved to Maximo in 2018.",
-      "repair-log": "Add failure codes to corrective work orders from repair records, and find repairs missing from Maximo. The Japanese data has printable daily work reports (one A4 form per day); reading forms comes in a later version. The English data is a simple table.",
+      "repair-log": "Add failure codes to corrective work orders from repair records, and find repairs missing from Maximo. The Japanese data has printable daily work reports (one A4 form per day), which the work screen reads form by form. The English data is a simple table.",
       "east-register": "Merge an equipment register kept by the plant that is ahead of Maximo (added, replaced and removed equipment). Some steps come in a later version.",
-      "star-chart": "Register maintenance history from before Maximo (a star chart) as closed work orders. Some steps come in a later version.",
+      "star-chart": "Register maintenance history from before Maximo (a star chart) as closed work orders. The chart can be turned into one row per mark; registering closed work orders comes in a later version.",
     } as Record<string, string>,
     loadIntoApp: "Load into work screen",
     loadedIntoApp: (name: string) => `${name} is in the work screen. Ask the AI to use it.`,
@@ -126,9 +126,9 @@ export const demoMessages = defineMessages(
     excel: {
       "purchase-orders": "外注の作業指示に、発注金額・日付・業者を入れます。作業指示の番号は無いので、件名・施設・時期で突き合わせます。",
       "legacy-register": "2018 年に Maximo へ移したときに空や仮の値のままになった、製造番号・設置日・メーカーを埋めます。",
-      "repair-log": "修理の記録から是正保全の作業指示に故障コードを付け、Maximo に無い修理を見つけます。日本語のデータは印刷用の作業日報（A4 の帳票、1 日 1 枚）で、帳票の読み取りは今後の版で使えるようになります。英語のデータは表です。",
+      "repair-log": "修理の記録から是正保全の作業指示に故障コードを付け、Maximo に無い修理を見つけます。日本語のデータは印刷用の作業日報（A4 の帳票、1 日 1 枚）で、作業画面が帳票を 1 枚ずつ読み取ります。英語のデータは表です。",
       "east-register": "現場で更新していて Maximo より先に進んだ機器台帳（追加・取替・撤去）をマージします。一部の手順は今後の版で使えるようになります。",
-      "star-chart": "Maximo 導入前の保全履歴（星取表）を、完了した作業指示として登録します。一部の手順は今後の版で使えるようになります。",
+      "star-chart": "Maximo 導入前の保全履歴（星取表）を、完了した作業指示として登録します。星取表を印 1 つ 1 行の表にはできます。完了した作業指示としての登録は今後の版で使えるようになります。",
     },
     loadIntoApp: "作業画面に取り込む",
     loadedIntoApp: (name) => `${name} を作業画面に入れました。AI に使うよう頼んでください。`,

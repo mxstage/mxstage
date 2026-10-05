@@ -4,6 +4,14 @@
 import type { CellValue, ColumnSchema, ColumnType, SheetSource } from "../../shared/model";
 import type { SheetMeta, SheetRow } from "../../shared/sheet";
 
+/** 結合したセルの範囲（行は 1 始まり、列は 0 始まり。値は左上のセルにだけある） */
+export interface MergeRange {
+  r1: number;
+  c1: number;
+  r2: number;
+  c2: number;
+}
+
 /** 1 行。cells[i] は i 列目（0 始まり。A 列 = 0）。値の無いセルは null */
 export interface RawRow {
   /** 元のファイルの行番号（1 始まり。Excel の行番号、CSV のレコード番号） */
@@ -23,6 +31,8 @@ export interface RawTable {
   truncatedRows: boolean;
   /** 列数の上限で打ち切った */
   truncatedColumns: boolean;
+  /** 結合したセル（Excel だけ） */
+  merges?: MergeRange[];
 }
 
 export interface ImportWorkbook {
@@ -70,7 +80,7 @@ export function columnIndex(letters: string): number {
   return n - 1;
 }
 
-function isBlank(v: CellValue | undefined): boolean {
+export function isBlank(v: CellValue | undefined): boolean {
   return v === null || v === undefined || (typeof v === "string" && v.trim() === "");
 }
 
@@ -80,7 +90,7 @@ export function headerText(v: CellValue | undefined): string {
   return String(v).replace(/\s+/g, " ").trim();
 }
 
-function rowAt(t: RawTable, row: number): RawRow | undefined {
+export function rowAt(t: RawTable, row: number): RawRow | undefined {
   // rows は行番号の順。見出しは先頭近くにあるので前から探す
   for (const r of t.rows) {
     if (r.row === row) return r;
@@ -170,7 +180,7 @@ export interface ImportColumn {
   filled: number;
 }
 
-function inferType(values: readonly CellValue[]): ColumnType {
+export function inferType(values: readonly CellValue[]): ColumnType {
   let kind: ColumnType | null = null;
   let allInteger = true;
   for (const v of values) {
@@ -224,7 +234,7 @@ export function importColumns(t: RawTable, headerRow: number): ImportColumn[] {
 }
 
 /** 型が文字の列に混ざった数値・真偽値は文字にそろえる（突合と絞り込みで型の違いに悩まない） */
-function cellFor(v: CellValue | undefined, type: ColumnType): CellValue {
+export function cellFor(v: CellValue | undefined, type: ColumnType): CellValue {
   if (isBlank(v)) return null;
   if (type === "string" && typeof v !== "string") return typeof v === "boolean" ? (v ? "TRUE" : "FALSE") : String(v);
   return v as CellValue;

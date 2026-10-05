@@ -1,8 +1,8 @@
 ---
 name: mxstage-core-import
-description: "MX Stage basic operation: receive Excel or CSV files (including MXLoader sheets), choose the header row, map columns to Maximo attributes and reconcile the file with Maximo sheets."
+description: "MX Stage basic operation: receive Excel or CSV files (MXLoader sheets, printed forms, merged cells, years across columns), read them into a sheet, map columns and reconcile with Maximo."
 metadata:
-  version: "1.1.0"
+  version: "1.2.0"
   category: "core"
 ---
 
@@ -17,14 +17,22 @@ An imported file becomes a reference sheet. It cannot be committed itself; its v
 
 ## 2. Look
 
-describe_import shows each sheet (or the CSV table): row count, likely header rows, columns with letters and types, sample rows, and whether it is an MXLoader file.
+describe_import shows each sheet (or the CSV table): row count, likely header rows, columns with letters and types, sample rows, merged cells, whether it is an MXLoader file, and formHint when the same labels repeat (one printed form after another).
 
 - Confirm the header row with the user (row 2 in MXLoader files; title rows and notes are common above the header).
 - Check Excel damage: dates turned into numbers, leading zeros lost in codes, long numbers in exponent form, merged cells, totals rows at the bottom.
 
 ## 3. Make a sheet
 
-apply_mapping with the sheet and headerRow.
+apply_mapping with the sheet and headerRow for an ordinary table. Agree with the user how to read other shapes; the work screen moves the values, so never read cells and copy them yourself.
+
+- Repeated forms (formHint, for example one daily work report per printed page): give form instead of headerRow.
+  - start: text on the first row of every form, usually its title (spaces are ignored). Give every title used in the file.
+  - fields: column name to label in the form header. The value is the first cell right of the label (below with below true); a cell such as "No. 4-04" gives the rest after the label. Check missingFields.
+  - items: header is text in the header row of the item table, until is text of the first row after it. Each item row becomes a row carrying the fields; BLOCK numbers the forms. Without items you get one row per form.
+- Merged cells or ditto marks: fillDown with the columns and mode merged (only cells inside merged ranges) or blank (every empty cell). Ditto marks are filled too. It never crosses forms.
+- Years or months across columns (maintenance star charts, inspection matrices): unpivot with the columns (for example H:S), labelRow (the row holding the years), labelColumn and valueColumn. tokens splits several marks in one cell into rows (the rest goes to the note column); repeat splits a quantity of 2 or more into units such as A and B. Then agree which rows to keep (for example actual, not planned). Check repeatNote and skippedEmptyCells.
+- Show the user a few rows next to the original file (SOURCE_ROW, SOURCE_CELL) before using them.
 
 - rename columns so they equal the Maximo attribute names you will match or copy (for example Asset No. to ASSETNUM). The original headers stay as display names.
 - keyColumns pins columns on screen; the default is SOURCE_ROW.

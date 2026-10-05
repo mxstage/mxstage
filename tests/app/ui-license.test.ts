@@ -167,7 +167,7 @@ describe("設定の「ライセンス」", () => {
     expect(window.location.hash).toBe("#license");
     expect(panel.querySelector("h2")?.textContent).toBe("ライセンス");
     expect(panel.textContent).toContain("この PC にライセンスキーはありません");
-    expect(panel.querySelector('a[href="https://mxstage.tsunagi.app/pricing"]')).not.toBeNull();
+    expect(panel.querySelector('a[href="https://mxstage.tsunagi.app/ja/license"]')).not.toBeNull();
 
     const area = panel.querySelector<HTMLTextAreaElement>("#license-key")!;
     await act(async () => setValue(area, "MXS1.bad"));
@@ -250,7 +250,7 @@ describe("上部バーの環境の札と get_status", () => {
     client.declare("https://prod2.test", "production");
     const view = licenseStatusView(client, "https://prod2.test") as { license: { note: string } };
     expect(view).toMatchObject({ environment: "production", license: { status: "not_licensed", productionWrites: false } });
-    expect(view.license.note).toContain("https://mxstage.tsunagi.app/pricing");
+    expect(view.license.note).toMatch(/https:\/\/mxstage\.tsunagi\.app\/(ja\/)?license/);
     expect(JSON.stringify(licenseStatusView(client, "https://maximo.acme.test"))).not.toContain("ACME");
   });
 });

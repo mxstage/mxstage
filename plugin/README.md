@@ -20,8 +20,9 @@ Chat in claude.ai and the Claude desktop app does not start local servers; there
 ## Data
 
 - **Skills**: Markdown only. They store and send nothing.
-- **MCP server**: npx downloads the pinned `@mxstage/mxstage` package from the npm registry (registry.npmjs.org) and runs it on your PC. It serves the work screen at `127.0.0.1:8788` and connects only to the Maximo URL you enter. Maximo data you load reaches Claude as tool results, like any MCP tool. Your Maximo API key and settings stay on your PC (the key encrypted with Windows DPAPI or the macOS Keychain, under `~/.config/mxstage`) and are never sent to us or to the browser. License keys are checked offline.
+- **MCP server**: npx downloads the pinned `@mxstage/mxstage` package from the npm registry (registry.npmjs.org) and runs it on your PC. It serves the work screen at `127.0.0.1:8788` and connects only to the Maximo URL you enter. Maximo data you load reaches Claude as tool results, like any MCP tool. Your Maximo API key and settings stay on your PC (the key encrypted with Windows DPAPI under `~/.config/mxstage`; macOS is untested) and are never sent to us or to the browser. License keys are checked offline.
 - **Updates**: only if you turn on Settings → Updates → Update automatically (off by default), it asks GitHub (api.github.com) once a day for the latest version number; nothing about you or your data is sent.
+- **Demo data**: only when you choose Settings → Demo → Download data and connect, it downloads fictional sample data once from mxstage-demo.pages.dev (nothing is sent).
 - There is no MX Stage cloud and no telemetry. Privacy policy: https://mxstage.tsunagi.app/privacy
 
 ## License

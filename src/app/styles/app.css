@@ -906,6 +906,7 @@ body.resizing-row * {
 
 .commit-status {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   gap: var(--cds-spacing-03);
@@ -918,6 +919,46 @@ body.resizing-row * {
 .commit-message {
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* 行ごとの結果: 横幅の狭い右のパネルで文字が 1 字ずつ折り返さないよう、アコーディオンの余白（右は既定 25%）を外し、
+   1 行目にキーと状態、2 行目に HTTP と Maximo のメッセージを置く（確認済みの行は 2 行目を出さない）。全文は title で出す */
+.commit-panel .results .cds--accordion__content {
+  padding-inline: 0;
+}
+
+.commit-panel .results tr {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: var(--cds-spacing-04);
+}
+
+.commit-panel .results td {
+  block-size: auto;
+  padding-inline: 0;
+}
+
+.commit-panel .results td:nth-child(1) {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.commit-panel .results td:nth-child(2) {
+  flex: 1 1 0;
+  min-inline-size: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.commit-panel .results td:nth-child(3) {
+  flex: 1 0 100%;
+  word-break: break-word;
+}
+
+.commit-panel .results tr.result-verified td:nth-child(3) {
+  display: none;
 }
 
 .result-verified td:nth-child(2) {

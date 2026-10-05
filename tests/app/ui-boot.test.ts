@@ -58,6 +58,7 @@ function fakeController(): CommitController {
     subscribe: () => () => undefined,
     writeLog: () => [],
     writeLogCsv: () => "",
+    lastRun: () => null,
   };
 }
 

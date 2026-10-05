@@ -5,7 +5,8 @@ import { Button, Layer, Tag, TextArea } from "@carbon/react";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import type { LicenseEntry } from "../../shared/license";
 import type { LicenseClient } from "../license/client";
-import { PRICING_URL, licenseMessages as m } from "../license/messages";
+import { getLocale } from "../../shared/i18n";
+import { LICENSE_URL, licenseMessages as m } from "../license/messages";
 import { Notice } from "../ui/Notice";
 
 function formatDate(iso: string | undefined): string {
@@ -131,7 +132,7 @@ export function LicenseSection({ license, confirm }: { license: LicenseClient; c
         <Button kind="primary" onClick={() => void add()} disabled={busy || text.trim() === ""}>
           {busy ? s.saving : s.save}
         </Button>
-        <Button kind="tertiary" href={PRICING_URL} target="_blank" rel="noopener noreferrer">
+        <Button kind="tertiary" href={LICENSE_URL[getLocale()]} target="_blank" rel="noopener noreferrer">
           {s.buy}
         </Button>
       </div>

@@ -2,7 +2,10 @@
 
 import { Accordion, AccordionItem, Button, Checkbox, ListItem, Table, TableBody, TableCell, TableRow, UnorderedList } from "@carbon/react";
 import { useEffect, useId, useMemo, useState } from "react";
+import { diffReportFileName, diffReportMessages, diffReportXlsx, takeReportSnapshot } from "../commit/diffReport";
 import { commitMessages } from "../commit/messages";
+import type { LicenseClient } from "../license/client";
+import type { Workspace } from "../store";
 import type { CommitController, CommitPanelState } from "../runtime/contracts";
 import { Dialog } from "../ui/Dialog";
 import { Notice } from "../ui/Notice";
@@ -30,6 +33,10 @@ export interface CommitPanelProps {
   connected: boolean;
   locked: boolean;
   onMessage: (text: string, tone: "info" | "error") => void;
+  /** 差分レポート（Excel）を作るのに使う。無ければボタンを出さない */
+  workspace?: Workspace;
+  /** 差分レポートに環境（テスト・本番）を書くのに使う */
+  license?: LicenseClient;
 }
 
 const MAX_RESULT_ROWS = 200;
@@ -43,7 +50,10 @@ function safePanel(commits: CommitController, sheet: string): CommitPanelState |
 }
 
 function downloadText(text: string, fileName: string): void {
-  const blob = new Blob([text], { type: "text/csv;charset=utf-8" });
+  downloadBlob(new Blob([text], { type: "text/csv;charset=utf-8" }), fileName);
+}
+
+function downloadBlob(blob: Blob, fileName: string): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -54,7 +64,7 @@ function downloadText(text: string, fileName: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
-export function CommitPanel({ commits, sheet, version, connected, locked, onMessage }: CommitPanelProps) {
+export function CommitPanel({ commits, sheet, version, connected, locked, onMessage, workspace, license }: CommitPanelProps) {
   const [confirming, setConfirming] = useState(false);
   const [checks, setChecks] = useState<ConfirmChecks>({ deletes: false, nulls: false });
   const checkId = useId();
@@ -96,6 +106,31 @@ export function CommitPanel({ commits, sheet, version, connected, locked, onMess
       onMessage(outcome.text, outcome.tone);
     } catch (e) {
       onMessage(t.runFailed(errorText(e)), "error");
+    }
+  };
+
+  // 差分レポート（Excel）。作業画面のメモリにある差分だけから作り、どこにも送らない。
+  // 反映の後に編集が無ければ、反映した回の写しとその回の書き込みログ（反映した行は差分から消えているため）。
+  // それ以外は今の差分（反映の前の承認の証跡）
+  const hasDiff = c.changedCells + c.addedRows + c.deletedRows > 0;
+  const last = commits.lastRun(sheet);
+  const lastFresh = workspace !== undefined && last !== null && last.endRevision !== null && last.endRevision === workspace.revision;
+  const saveReport = () => {
+    if (workspace === undefined) return;
+    try {
+      const now = new Date();
+      const env = panel.target?.baseUrl ? (license?.environmentOf(panel.target.baseUrl) ?? null) : null;
+      const r = diffReportMessages();
+      const bytes = diffReportXlsx({
+        ...(lastFresh && last !== null ? { snapshot: last.snapshot, writeLog: last.log } : { snapshot: takeReportSnapshot(workspace, sheet, panel, now.getTime()) }),
+        environment: env === null ? null : r.environments[env],
+        now: now.getTime(),
+      });
+      const name = diffReportFileName(sheet, now);
+      downloadBlob(new Blob([bytes as BlobPart], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), name);
+      onMessage(r.saved(name), "info");
+    } catch (e) {
+      onMessage(`${diffReportMessages().failed}: ${errorText(e)}`, "error");
     }
   };
 
@@ -181,6 +216,11 @@ export function CommitPanel({ commits, sheet, version, connected, locked, onMess
       </Button>
       <div className="commit-status">
         <span>{t.status(commitStateLabel(panel.state))}</span>
+        {workspace !== undefined && (hasDiff || lastFresh) && panel.state !== "running" && (
+          <Button kind="ghost" size="sm" className="report-link" title={diffReportMessages().buttonTitle} onClick={saveReport}>
+            {diffReportMessages().button}
+          </Button>
+        )}
         {hasLog && (
           <Button kind="ghost" size="sm" className="log-link" onClick={() => downloadText(withBom(commits.writeLogCsv()), writeLogFileName(new Date()))}>
             {t.writeLog}
@@ -207,9 +247,11 @@ export function CommitPanel({ commits, sheet, version, connected, locked, onMess
                 <TableBody>
                   {panel.results.slice(0, MAX_RESULT_ROWS).map((r, i) => (
                     <TableRow key={`${r.rowKey}-${i}`} className={`result-${r.status}`}>
-                      <TableCell className="mono">{displayRowKey(r.rowKey)}</TableCell>
-                      <TableCell>{resultStatusLabel(r.status)}</TableCell>
-                      <TableCell className="muted">
+                      <TableCell className="mono" title={displayRowKey(r.rowKey)}>
+                        {displayRowKey(r.rowKey)}
+                      </TableCell>
+                      <TableCell title={resultStatusLabel(r.status)}>{resultStatusLabel(r.status)}</TableCell>
+                      <TableCell className="muted" title={`${r.httpStatus ? `HTTP ${r.httpStatus}` : ""}${r.reasonCode ? ` ${r.reasonCode}` : ""}${r.message ? ` ${r.message}` : ""}`.trim()}>
                         {r.httpStatus ? `HTTP ${r.httpStatus}` : ""}
                         {r.reasonCode ? ` ${r.reasonCode}` : ""}
                         {r.message ? ` ${r.message}` : ""}

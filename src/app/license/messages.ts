@@ -4,8 +4,8 @@
 
 import { defineMessages } from "../../shared/i18n";
 
-/** 価格と購入のページ */
-export const PRICING_URL = "https://mxstage.tsunagi.app/pricing";
+/** 本番ライセンスの説明と購入のページ（作業画面の言語に合わせる） */
+export const LICENSE_URL = { en: "https://mxstage.tsunagi.app/license", ja: "https://mxstage.tsunagi.app/ja/license" } as const;
 
 export const licenseMessages = defineMessages(
   {
@@ -32,8 +32,8 @@ export const licenseMessages = defineMessages(
       noLicense: (host: string, licensed: readonly string[]) =>
         `Committing to a production Maximo needs a license. ${host} is not covered by a license key on this PC` +
         (licensed.length > 0 ? ` (licensed: ${licensed.join(", ")})` : "") +
-        `. Buy a license at ${PRICING_URL} and paste the key in Settings → License. Loading data, Skills and editing stay free.`,
-      expired: (host: string) => `The license for ${host} has expired. Paste the renewed key in Settings → License (${PRICING_URL}).`,
+        `. Buy a license at ${LICENSE_URL.en} and paste the key in Settings → License. Loading data, Skills and editing stay free.`,
+      expired: (host: string) => `The license for ${host} has expired. Paste the renewed key in Settings → License (${LICENSE_URL.en}).`,
       revoked: (host: string) => `The license for ${host} has been revoked. Contact mxstage@tsunagi.app.`,
       unavailable: "The license could not be checked because the bridge did not answer. Commits to production are paused; test environments are not affected.",
     },
@@ -98,8 +98,8 @@ export const licenseMessages = defineMessages(
       noLicense: (host, licensed) =>
         `本番の Maximo への反映にはライセンスが要ります。${host} はこの PC のライセンスキーに含まれていません` +
         (licensed.length > 0 ? `（ライセンスの本番: ${licensed.join(", ")}）` : "") +
-        `。${PRICING_URL} で購入し、キーを設定の「ライセンス」に貼ってください。読み込み・Skill・編集はライセンス無しで続けられます`,
-      expired: (host) => `${host} のライセンスの期限が切れています。更新したキーを設定の「ライセンス」に貼ってください（${PRICING_URL}）`,
+        `。${LICENSE_URL.ja} で購入し、キーを設定の「ライセンス」に貼ってください。読み込み・Skill・編集はライセンス無しで続けられます`,
+      expired: (host) => `${host} のライセンスの期限が切れています。更新したキーを設定の「ライセンス」に貼ってください（${LICENSE_URL.ja}）`,
       revoked: (host) => `${host} のライセンスは取り消されています。mxstage@tsunagi.app にお問い合わせください`,
       unavailable: "橋渡しが応えないため、ライセンスを確かめられません。本番への反映は止めています（テスト環境には影響しません）",
     },

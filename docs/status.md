@@ -41,6 +41,8 @@
 - 反映パネル: 依頼の内容・件数・反映できない理由・確認が要る事項を出します。
   **Maximo への書き込みは、ここで利用者が [Maximo に反映] を押したときだけ**です。反映中は「反映を中止」で残りを送るのをやめられます。
 - 書き込みログを CSV で保存できます（キーと結果だけ。属性値は入りません）。
+- **差分レポート（Excel）**を反映パネルから保存できます（`src/app/commit/diffReport.ts`、xlsx は依存を足さずに書く `xlsxWriter.ts`）。変更 1 セル 1 行で、キー・列・変更前・変更後・作者・根拠・時刻。
+  概要のシートに接続先・環境・構造・依頼メモ・件数・列ごとの件数・作業の履歴、反映した後は書き込みログのシートも付けます。承認の証跡用で、属性値を含みます。
 - 上部バーに中継の状態と Maximo の接続状態を出します。「作業終了」で作業データを捨てて新しい作業を始められます。
 
 ### オブジェクト構造（`/structures`）
@@ -96,13 +98,14 @@
 ### 設定（`/settings`）
 
 - Maximo への接続（URL・接続方式 proxy / direct・接続名・API キー）。`whoami` で確かめてから接続します。
-- API キーは専用の Web Worker（keyvault）に渡し、メインスレッドには残しません。30 分操作が無ければ自動でロックします。
+- 「この PC に保存」を選んだ接続先は、橋渡しが API キーを AES-256-GCM で暗号化して保存します（鍵は DPAPI。`src/bridge/connections.ts`・`secretBox.ts`）。作業画面には渡しません。
+- 保存しないで接続した API キーは専用の Web Worker（keyvault）に渡し、メインスレッドには残しません。30 分操作が無ければ自動でロックします。
   **Claude のツール実行も「作業中」として数えます**（会話しながらの作業で途中でロックされないように）。
 - Claude Code への登録の状態と、Skill の一覧（アプリ既定と利用者の Skill を分けて。読み込めない利用者の Skill はその理由も）を出します。
 
 ### Claude が使えるツール
 
-`src/shared/toolDefs.ts` に 28 本を定義し、そのうち 26 本が動きます。
+`src/shared/toolDefs.ts` に 26 本を定義し、すべて動きます。
 
 - 作業タブで実行するもの（21 本、`src/app/tools/registry.ts`）: `get_status` / `find_object_structures` / `list_object_structures` /
   `describe_object_structure` / `scope_options` / `load_sheet` / `load_master` / `get_job` / `query_rows` / `aggregate` / `match_sheets` /
@@ -148,7 +151,7 @@
 
 ## 公開
 
-- まだ GitHub へは送っていません。最初のコミットに客先の情報が入っていたため、2026-09-27 に履歴を作り直しました
+- GitHub（mxstage/mxstage）で公開しています（0.2.0 から）。最初のコミットに客先の情報が入っていたため、公開の前の 2026-09-27 に履歴を作り直しました
   （古い履歴はローカルのブランチ `private/before-publish-2026-09-27` だけ）。
 - 送る前に `scripts/check-publish.mjs` が、送るコミットに客先の語（リポジトリの外の `~/.config/mxstage/publish-terms.txt`）が
   無いかを調べ、当たれば送りません（`.githooks/pre-push`。`git config core.hooksPath .githooks` で有効にする）。手順は [publish.md](publish.md)。

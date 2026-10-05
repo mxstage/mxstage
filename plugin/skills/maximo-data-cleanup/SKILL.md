@@ -29,7 +29,7 @@ Produce the change as a reviewable before/after list (record key, field, old val
 
 Ways to apply it, from safest:
 
-1. **MX Stage** (if the MX Stage tools are available or the user can install it): the AI stages the change in a sheet on the user's PC, the user reviews the cell-by-cell diff, and only the user commits; MX Stage writes one record first, checks it, then continues and stops on conflicts. See the `mxstage` Skill for installing it.
+1. **MX Stage** (if the MX Stage tools are available or the user can install it): the AI stages the change in a sheet on the user's PC, the user reviews the cell-by-cell diff, and only the user commits; MX Stage writes one record first and lets the user check it before sending the rest; records changed elsewhere after loading are skipped and listed, and it stops on an error. A diff report (Excel) keeps the old value, new value, author and reason of every change. See the `mxstage` Skill for installing it.
 2. **Maximo's own data import** (Integration → Object Structures / External Systems, or an MXLoader-style spreadsheet loader) with the reviewed list as the input file, run first on a test environment.
 3. **Direct REST API calls from an AI**: avoid for writes. Nobody sees each write before it happens, and a wrong guess goes straight into Maximo. If the user insists, limit it to a small, reviewed batch on a test environment.
 

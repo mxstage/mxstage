@@ -4,6 +4,8 @@
 import { inflateRawSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import { allExcel, type DailyRowTruth } from "../../dev/demo/excel/builders";
+import { buildDemoData } from "../../dev/demo/build";
+import { DEMO_DATA_VERSION, DEMO_MANIFEST_SHA256 } from "../../src/shared/demo";
 import { crc32, writeXlsx } from "../../dev/demo/excel/xlsx";
 import { filesToSeed, seedToFiles } from "../../src/demo/format";
 import { plantsSeed } from "../../dev/datasets/plants/index";
@@ -144,6 +146,12 @@ describe.each(["ja", "en"] as const)("Excel のサンプル（%s）", (lang) => 
 });
 
 describe("公開するデータのファイル", () => {
+  it("作ったデータの目録の版と SHA-256 が、製品に埋め込んだ値（src/shared/demo.ts）と同じ（データを変えたら埋め込みも直して公開する）", () => {
+    const built = buildDemoData([{ lang: "ja", ...sets.ja }, { lang: "en", ...sets.en }]);
+    expect(built.manifest.version).toBe(DEMO_DATA_VERSION);
+    expect(built.manifestSha256).toBe(DEMO_MANIFEST_SHA256);
+  });
+
   it("分けたファイルを読み戻すと、同じ偽の Maximo になる", async () => {
     const small = plantsSeed({ lang: "en", sites: ["HIGASHI"], historyFrom: "2026-06-01T00:00:00+09:00", baseUrl: "https://maximo.test" });
     const { osdefs, records } = seedToFiles(small.seed);

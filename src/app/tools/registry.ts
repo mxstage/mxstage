@@ -27,6 +27,10 @@ import {
   IMPORT_MAX_ROWS,
   ImportError,
   importColumns,
+  buildShapedSheet,
+  formHint,
+  mergeSummary,
+  shapeImport,
   SOURCE_ROW_COLUMN,
   type ImportColumn,
   type ImportEntry,
@@ -145,6 +149,14 @@ function importView(a: ImportAnalysis, samples: number, columnLimit: number): Re
   v.headerRow = a.headerRow;
   v.headerCandidates = a.candidates;
   if (a.mxloader !== null) v.mxloader = a.mxloader;
+  const merges = mergeSummary(t);
+  if (merges !== null) v.merges = merges;
+  const form = formHint(t);
+  if (form !== null) {
+    v.formHint = form;
+    const titles = form.titles ? ` The first rows also hold ${form.titles.map((x) => `${x.text} (${x.count})`).join(", ")}: if these are titles, give all of them as start, or use a label on the first row that every form has.` : "";
+    v.formNote = `The same ${form.labels.length} labels repeat ${form.forms} times: the sheet likely holds ${form.forms} forms (first rows ${form.firstRows.join(", ")}). Read it with form in apply_mapping (start = text on the first row of each form, fields = header labels, items = the item table) instead of a header row.${titles}`;
+  }
   if (a.headerRow !== null) {
     v.dataRowCount = a.rows.length;
     v.columnCount = a.columns.length;
@@ -627,6 +639,90 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
   // ---------------------------------------------------------------------------
   // ツール
   // ---------------------------------------------------------------------------
+
+  /** apply_mapping の form・fillDown・unpivot（作業画面が値を動かす。AI は読み方だけを渡す） */
+  function applyShapedMapping(args: ToolArgs<"apply_mapping">, entry: ImportEntry, t: RawTable): ToolOutcome {
+    let shaped: ReturnType<typeof shapeImport>;
+    try {
+      shaped = shapeImport(t, {
+        ...(args.headerRow !== undefined ? { headerRow: args.headerRow } : {}),
+        ...(args.form !== undefined
+          ? {
+              form: {
+                start: args.form.start,
+                fields: Object.fromEntries(Object.entries(args.form.fields ?? {}).map(([k, f]) => [k, typeof f === "string" ? f : { label: f.label, ...(f.below !== undefined ? { below: f.below } : {}) }])),
+                ...(args.form.items !== undefined ? { items: { header: args.form.items.header, ...(args.form.items.until !== undefined ? { until: args.form.items.until } : {}) } } : {}),
+              },
+            }
+          : {}),
+        ...(args.fillDown !== undefined ? { fillDown: { columns: args.fillDown.columns, mode: args.fillDown.mode, ditto: args.fillDown.ditto } } : {}),
+        ...(args.unpivot !== undefined
+          ? {
+              unpivot: {
+                columns: args.unpivot.columns,
+                labelColumn: args.unpivot.labelColumn,
+                valueColumn: args.unpivot.valueColumn,
+                keepEmpty: args.unpivot.keepEmpty,
+                ...(args.unpivot.labelRow !== undefined ? { labelRow: args.unpivot.labelRow } : {}),
+                ...(args.unpivot.tokens !== undefined ? { tokens: args.unpivot.tokens } : {}),
+                ...(args.unpivot.repeat !== undefined ? { repeat: args.unpivot.repeat } : {}),
+              },
+            }
+          : {}),
+      });
+    } catch (e) {
+      if (e instanceof ImportError) throw invalidArgs(e.message);
+      throw e;
+    }
+    const names = shaped.columns.map((c) => c.name);
+    const rename: Record<string, string> = {};
+    for (const [from, to] of Object.entries(args.rename ?? {})) {
+      const key = names.includes(from) ? from : headerText(from);
+      if (!names.includes(key)) throw invalidArgs(withSuggestions(`${from} in rename is not a column of the shaped sheet`, from, names, "Column names are the field names, the item headers and the added columns"));
+      rename[key] = to;
+    }
+    const finalNames = [SOURCE_ROW_COLUMN, ...names.map((n) => (rename[n] ?? n).trim())];
+    for (const k of args.keyColumns ?? []) {
+      if (!finalNames.includes(k)) throw invalidArgs(withSuggestions(`Key column ${k} is not a column (use the names after rename)`, k, finalNames));
+    }
+    const headerRow = args.headerRow ?? shaped.rows[0]?.row ?? 1;
+    const source = { kind: "excel" as const, importId: entry.importId, fileName: entry.fileName, sheetName: t.name, headerRow };
+    let built: ReturnType<typeof buildShapedSheet>;
+    try {
+      built = buildShapedSheet(shaped, { name: args.name, source, rename, ...(args.keyColumns !== undefined ? { keyColumns: args.keyColumns } : {}) });
+    } catch (e) {
+      if (e instanceof ImportError) throw invalidArgs(e.message);
+      throw e;
+    }
+    if (built.rows.length === 0) throw invalidArgs("The import produced no rows. Check form.start, items.header and the columns with describe_import");
+    const replaced = workspace.hasSheet(args.name);
+    const summary = workspace.createSheet(built.meta, built.rows);
+    const value: Record<string, unknown> = {
+      sheet: summary.name,
+      replaced,
+      source: { importId: entry.importId, fileName: entry.fileName, sheetName: t.name, ...(args.headerRow !== undefined ? { headerRow: args.headerRow } : {}) },
+      rowCount: summary.rowCount,
+      columns: summary.columns.map((c) => c.name),
+      keyColumns: summary.keyColumns,
+      ...built.notes,
+      rowKeyNote: args.unpivot !== undefined ? `${SOURCE_ROW_COLUMN} is the row number and SOURCE_CELL the cell in the original file. Refer to rows as "cell F12 of the original file" when talking to the user.` : IMPORT_ROW_KEY_NOTE,
+      note: IMPORT_SHEET_NOTE,
+    };
+    if (args.form !== undefined) {
+      value.formNote = "One row per item of each form (BLOCK is the form number in order). Check missingFields and show the user a few rows next to the original forms before matching.";
+      // describe_import の見立てと枚数が違えば知らせる（表題が 2 種類ある・始まりの文字が明細にもある、など）
+      const hint = formHint(t);
+      if (hint !== null && hint.forms !== built.notes.forms) {
+        value.formCountNote = `describe_import saw ${hint.forms} forms (labels such as ${hint.labels.slice(0, 3).join(", ")} repeat ${hint.forms} times), but form.start found ${String(built.notes.forms)}. Check form.start (every title in the file, or a label that appears once per form).`;
+      }
+    }
+    const renamed = Object.fromEntries(Object.entries(rename).filter(([from, to]) => from !== to.trim()));
+    if (Object.keys(renamed).length > 0) value.renamed = renamed;
+    const titles = columnTitleMap(summary.columns);
+    if (Object.keys(titles).length > 0) value.columnTitles = titles;
+    if (t.truncatedRows) value.truncatedRowsNote = `Rows beyond ${IMPORT_MAX_ROWS} were not read. Tell the user that the row count differs from the original file.`;
+    return toolResult(value, revision());
+  }
 
   const handlers: Handlers = {
     get_status: async () => {
@@ -1121,7 +1217,7 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
       base.sheetCount = workbook.tables.length;
       base.dataNotice = DATA_NOTICE;
       base.next =
-        "Confirm with the user which sheet and which row hold the headers, then turn it into a sheet with apply_mapping (ask if there is more than one candidate). Renaming columns to Maximo attribute names with rename makes matching easier.";
+        "Confirm with the user which sheet and which row hold the headers, then turn it into a sheet with apply_mapping (ask if there is more than one candidate). Renaming columns to Maximo attribute names with rename makes matching easier. For repeated forms (formHint) use form; for merged or ditto cells use fillDown; for years or months across columns use unpivot.";
       const build = (samples: number, columnLimit: number, n: number): Record<string, unknown> => {
         const v: Record<string, unknown> = { ...base, sheets: analyses.slice(0, n).map((a) => importView(a, samples, columnLimit)) };
         if (n < analyses.length) {
@@ -1148,12 +1244,15 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
       const t = importTable(workbook, args.sourceSheet);
       assertNotBusy(args.name);
       assertReplaceable(args.name);
-      if (!t.rows.some((r) => r.row === args.headerRow)) {
+      if (args.form !== undefined || args.fillDown !== undefined || args.unpivot !== undefined) return applyShapedMapping(args, entry, t);
+      if (args.headerRow === undefined) throw invalidArgs("Give headerRow (the header row of the table), or form for a sheet of repeated forms");
+      const headerRow = args.headerRow;
+      if (!t.rows.some((r) => r.row === headerRow)) {
         const candidates = headerCandidates(t).map((c) => c.row);
         throw invalidArgs(`Row ${args.headerRow} of ${t.name} has no values. Likely header rows: ${candidates.join(", ") || "none"} (check with describe_import)`);
       }
       // 列名・rename・キー列を先に確かめ、近い名前を添えて返す
-      const names = importColumns(t, args.headerRow).map((c) => c.name);
+      const names = importColumns(t, headerRow).map((c) => c.name);
       const rename: Record<string, string> = {};
       for (const [from, to] of Object.entries(args.rename ?? {})) {
         const key = names.includes(from) ? from : headerText(from);
@@ -1166,10 +1265,10 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
       for (const k of args.keyColumns ?? []) {
         if (!finalNames.includes(k)) throw invalidArgs(withSuggestions(`Key column ${k} is not a column (use the names after rename)`, k, finalNames));
       }
-      const source = { kind: "excel" as const, importId: entry.importId, fileName: entry.fileName, sheetName: t.name, headerRow: args.headerRow };
+      const source = { kind: "excel" as const, importId: entry.importId, fileName: entry.fileName, sheetName: t.name, headerRow };
       let built: ReturnType<typeof buildImportSheet>;
       try {
-        built = buildImportSheet(t, { name: args.name, headerRow: args.headerRow, rename, ...(args.keyColumns !== undefined ? { keyColumns: args.keyColumns } : {}), source });
+        built = buildImportSheet(t, { name: args.name, headerRow, rename, ...(args.keyColumns !== undefined ? { keyColumns: args.keyColumns } : {}), source });
       } catch (e) {
         if (e instanceof ImportError) throw invalidArgs(e.message);
         throw e;

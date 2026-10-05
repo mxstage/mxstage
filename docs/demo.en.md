@@ -54,9 +54,9 @@ The demo connection is always a **test environment** and needs no license. Commi
 |---|---|---|
 | Purchase orders (FY2026 H1) | Fill in order amounts, accepted amounts, dates and vendors on completed outsourced work orders. There are no work order numbers; match by subject, plant and period | Fully |
 | Legacy equipment register (before Maximo) | Fill in serial numbers, install dates and manufacturers left blank or temporary by the 2018 migration | Fully |
-| Repair log (North, FY2026 H1) | Add failure codes to corrective work orders from repair records, and register repairs missing from Maximo. The Japanese data has daily work reports printed one A4 form per day; the English data is a table | English table: fully. Japanese forms: partly (reading forms comes in a later version) |
+| Repair log (North, FY2026 H1) | Add failure codes to corrective work orders from repair records, and register repairs missing from Maximo. The Japanese data has daily work reports printed one A4 form per day; the English data is a table | Fully (the Japanese forms are read form by form; the English table's merged dates are filled down) |
 | East equipment register (ahead of Maximo) | Merge equipment added, replaced, re-specified or removed in a register kept by the plant | Partly (status changes for removed equipment come in a later version) |
-| Star chart (North / South, before Maximo) | Register maintenance history from before Maximo as closed work orders | Partly (reshaping the table comes in a later version) |
+| Star chart (North / South, before Maximo) | Register maintenance history from before Maximo as closed work orders | Partly (the chart becomes one row per mark; registering closed work orders comes in a later version) |
 
 Examples:
 

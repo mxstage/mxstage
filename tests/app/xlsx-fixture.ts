@@ -88,6 +88,8 @@ export interface FixtureSheet {
   /** sheetData の中身 */
   rows: string;
   state?: "hidden";
+  /** 結合したセル（"A1:B2"） */
+  merges?: string[];
 }
 
 /** 最小の xlsx。sharedStrings は si の中身の配列、numFmts は [id, formatCode]、cellXfs は numFmtId の配列 */
@@ -121,7 +123,8 @@ export async function makeXlsx(opts: {
     (numFmts.length > 0 ? `<numFmts count="${numFmts.length}">${numFmts.map(([id, code]) => `<numFmt numFmtId="${id}" formatCode="${code}"/>`).join("")}</numFmts>` : "") +
     `<cellXfs count="${xfs.length}">${xfs.map((id) => `<xf numFmtId="${id}" fontId="0" fillId="0" borderId="0" xfId="0"/>`).join("")}</cellXfs></styleSheet>`;
   opts.sheets.forEach((s, i) => {
-    files[`xl/worksheets/sheet${i + 1}.xml`] = `<?xml version="1.0" encoding="UTF-8"?><worksheet ${NS_MAIN} ${NS_R}><sheetData>${s.rows}</sheetData></worksheet>`;
+    const merges = s.merges && s.merges.length > 0 ? `<mergeCells count="${s.merges.length}">${s.merges.map((m) => `<mergeCell ref="${m}"/>`).join("")}</mergeCells>` : "";
+    files[`xl/worksheets/sheet${i + 1}.xml`] = `<?xml version="1.0" encoding="UTF-8"?><worksheet ${NS_MAIN} ${NS_R}><sheetData>${s.rows}</sheetData>${merges}</worksheet>`;
   });
   return makeZip(files, opts.deflate === undefined ? {} : { deflate: opts.deflate });
 }

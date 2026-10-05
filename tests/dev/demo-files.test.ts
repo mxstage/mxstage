@@ -16,6 +16,12 @@ import { createFakeMaximo } from "../fakes/fake-maximo";
 interface Table { name: string; rows: Array<{ row: number; cells: unknown[] }> }
 const { parseXlsx } = (await import(/* @vite-ignore */ new URL("../../src/app/imports/xlsx.ts", import.meta.url).href)) as { parseXlsx: (b: Uint8Array) => Promise<{ tables: Table[] }> };
 const { headerCandidates } = (await import(/* @vite-ignore */ new URL("../../src/app/imports/table.ts", import.meta.url).href)) as { headerCandidates: (t: Table) => Array<{ row: number }> };
+interface ShapeModule {
+  shapeImport: (t: Table, opts: Record<string, unknown>) => unknown;
+  buildShapedSheet: (shaped: unknown, opts: Record<string, unknown>) => { rows: Array<{ values: Record<string, unknown> }>; notes: Record<string, unknown> };
+}
+const shape = (await import(/* @vite-ignore */ new URL("../../src/app/imports/shape.ts", import.meta.url).href)) as ShapeModule;
+const SRC = { kind: "excel", importId: "i", fileName: "f.xlsx", sheetName: "s", headerRow: 1 };
 
 const sets = { ja: plantsSeed({ lang: "ja" }), en: plantsSeed({ lang: "en" }) };
 const files = { ja: allExcel(sets.ja.data), en: allExcel(sets.en.data) };
@@ -125,6 +131,61 @@ describe.each(["ja", "en"] as const)("Excel のサンプル（%s）", (lang) => 
     const bytes = writeXlsx(f.sheets, { title: f.title, creator: "test", lang: "en" });
     expect(zipEntry(bytes, "xl/worksheets/sheet1.xml")).not.toContain("pageSetup");
     expect(zipEntry(bytes, "xl/styles.xml")).toContain('<cellXfs count="11">');
+  });
+
+  it.runIf(lang === "ja")("作業日報は帳票の読み取り（form）で 1 明細 1 行になり、正解の行と同じ行を指す", async () => {
+    const f = files.ja.find((x) => x.id === "repair-log")!;
+    const truth = (f.truth as { rows: DailyRowTruth[] }).rows;
+    const wb = await parseXlsx(writeXlsx(f.sheets, { title: f.title, creator: "test", lang: "ja" }));
+    let total = 0;
+    for (const t of wb.tables) {
+      const built = shape.buildShapedSheet(
+        shape.shapeImport(t, {
+          form: { start: ["作業日報", "作業報告書"], fields: { NO: "No.", CONTRACT: "委託契約工事名", VENDOR: "受注者", WORKDATE: "作業日" }, items: { header: "作業内容", until: ["特記事項"] } },
+          fillDown: { columns: ["作業区分"], mode: "blank", ditto: true },
+        }),
+        { name: "x", source: SRC },
+      );
+      const want = truth.filter((r) => r.sheet === t.name);
+      expect(built.rows.map((r) => r.values.SOURCE_ROW), t.name).toEqual(want.map((r) => r.row));
+      for (const r of built.rows) {
+        expect(r.values.CONTRACT, t.name).toBeTruthy();
+        expect(r.values.WORKDATE, t.name).toBeTruthy();
+        expect(r.values.作業区分, t.name).not.toBe("〃");
+      }
+      expect(built.notes.forms).toBe(new Set(want.map((r) => r.report)).size);
+      total += built.rows.length;
+    }
+    expect(total).toBe(truth.length);
+  });
+
+  it("星取表は unpivot で印 1 つ・号機 1 つが 1 行になり、正解の印の数と合う", async () => {
+    const f = files[lang].find((x) => x.id === "star-chart")!;
+    const truth = (f.truth as { rows: Array<{ sheet: string; row: number; col: string; symbols: string; locs: string[] }> }).rows;
+    const wb = await parseXlsx(writeXlsx(f.sheets, { title: f.title, creator: "test", lang }));
+    const count = new Map<string, number>();
+    for (const t of wb.tables) {
+      const built = shape.buildShapedSheet(
+        shape.shapeImport(t, {
+          headerRow: 4,
+          fillDown: { columns: ["A", "B", "C", "D", "E", "F"], mode: "blank", ditto: false },
+          unpivot: { columns: ["H:S"], labelRow: 6, labelColumn: "FY", valueColumn: "MARK", keepEmpty: false, tokens: ["○", "◎", "●", "△", "★"], repeat: { countColumn: "E", labels: ["A", "B", "C", "D", "E", "F"], column: "UNIT" } },
+        }),
+        { name: "x", source: SRC },
+      );
+      for (const r of built.rows) count.set(`${t.name}|${String(r.values.SOURCE_CELL)}`, (count.get(`${t.name}|${String(r.values.SOURCE_CELL)}`) ?? 0) + 1);
+    }
+    for (const r of truth) expect(count.get(`${r.sheet}|${r.col}${r.row}`), `${r.sheet} ${r.col}${r.row}`).toBe(r.symbols.length * Math.max(1, r.locs.length));
+  });
+
+  it.runIf(lang === "en")("修理記録（英語）は fillDown（merged）で、結合した日付がすべての行に入る", async () => {
+    const f = files.en.find((x) => x.id === "repair-log")!;
+    const wb = await parseXlsx(writeXlsx(f.sheets, { title: f.title, creator: "test", lang: "en" }));
+    for (const t of wb.tables) {
+      const built = shape.buildShapedSheet(shape.shapeImport(t, { headerRow: 3, fillDown: { columns: ["A"], mode: "merged", ditto: false } }), { name: "x", source: SRC });
+      expect(built.rows.length).toBeGreaterThan(20);
+      for (const r of built.rows) expect(r.values.Date, t.name).toMatch(/^2026-\d\d-\d\d$/);
+    }
   });
 
   it("東部の台帳: 更新・増設・仕様の変更・名前の変更・撤去・Maximo の方が新しい行がある", () => {

@@ -2,7 +2,7 @@
 // 属性名・子の名前は Maximo 7.6 / MAS Manage の標準に合わせる（確かでないものは dev/README.md に書いた）。
 // 見出し（title）と値の一覧の説明は日本語の正本で書き、text.ts で出力の言語にする。
 
-import type { FakeAttrDef, FakeAttrType, FakeListItem, FakeSeed } from "../../../tests/fakes/fake-maximo.ts";
+import type { FakeAttrDef, FakeAttrType, FakeListItem, FakeSeed } from "../../../src/demo/fakeMaximo.ts";
 import { CLASSES, COMPANIES, CRAFTS, MEASURE_UNITS, METERS, PM_PROGRAMS, SITES, WORKTYPES } from "./catalog.ts";
 import { DOMAINS, type PlantsData, type Rec } from "./generate.ts";
 import { Text } from "./text.ts";

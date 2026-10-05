@@ -5,7 +5,7 @@ import { inflateRawSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import { allExcel } from "../../dev/demo/excel/builders";
 import { crc32, writeXlsx } from "../../dev/demo/excel/xlsx";
-import { filesToSeed, seedToFiles } from "../../dev/demo/format";
+import { filesToSeed, seedToFiles } from "../../src/demo/format";
 import { plantsSeed } from "../../dev/datasets/plants/index";
 import { hasJapanese } from "../../dev/datasets/plants/text";
 import { createFakeMaximo } from "../fakes/fake-maximo";

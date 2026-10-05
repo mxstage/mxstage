@@ -1,65 +1,65 @@
 // 生成した表を、Maximo の標準のオブジェクト構造（MXAPI*）として偽の Maximo に載せる形にする。
 // 属性名・子の名前は Maximo 7.6 / MAS Manage の標準に合わせる（確かでないものは dev/README.md に書いた）。
+// 見出し（title）と値の一覧の説明は日本語の正本で書き、text.ts で出力の言語にする。
 
-import type { FakeAttrDef, FakeAttrType, FakeListItem, FakeOsSeed, FakeSeed } from "../../../tests/fakes/fake-maximo.ts";
-import { CLASSES, COMPANIES, CRAFTS, MEASURE_UNITS, METERS, PM_PROGRAMS, SITES } from "./catalog.ts";
+import type { FakeAttrDef, FakeAttrType, FakeListItem, FakeSeed } from "../../../tests/fakes/fake-maximo.ts";
+import { CLASSES, COMPANIES, CRAFTS, MEASURE_UNITS, METERS, PM_PROGRAMS, SITES, WORKTYPES } from "./catalog.ts";
 import { DOMAINS, type PlantsData, type Rec } from "./generate.ts";
+import { Text } from "./text.ts";
 
 type A = Record<string, FakeAttrDef>;
 
-/** 属性の定義を短く書く: "s40" は文字列（最大 40）、"i" は整数、"n" は小数、"b" は真偽値、"dt" は日時。末尾 "*" は値の一覧あり、"!" は必須、"r" は読み取り専用 */
-function attrs(spec: Record<string, string>): A {
-  const out: A = {};
-  for (const [name, raw] of Object.entries(spec)) {
-    const [code, title] = raw.split("|");
-    const m = /^(s|i|n|b|dt|d)(\d*)([*!r]*)$/.exec(code!.trim());
-    if (!m) throw new Error(`bad attr spec ${name}: ${raw}`);
-    const type: FakeAttrType = m[1] === "s" ? "string" : m[1] === "i" ? "integer" : m[1] === "n" ? "number" : m[1] === "b" ? "boolean" : m[1] === "d" ? "date" : "datetime";
-    const def: FakeAttrDef = { type };
-    if (m[2]) def.maxLength = Number(m[2]);
-    if (m[3]!.includes("*")) def.hasList = true;
-    if (m[3]!.includes("!")) def.required = true;
-    if (m[3]!.includes("r")) def.readOnly = true;
-    if (title) def.title = title;
-    out[name] = def;
-  }
-  return out;
-}
-
-const domainList = (id: string): FakeListItem[] => {
-  const d = DOMAINS.find((x) => x.domainid === id);
-  if (!d) throw new Error(`domain ${id}`);
-  return d.type === "SYNONYM" ? d.values.map(([, value, desc]) => ({ value, description: desc ?? "" })) : d.values.map(([value, desc]) => ({ value, description: desc ?? "" }));
-};
-
-export function plantsObjectStructures(data: PlantsData): FakeSeed["objectStructures"] {
+export function plantsObjectStructures(data: PlantsData, tx: Text = new Text(data.lang)): FakeSeed["objectStructures"] {
   const t = data.tables;
   const rows = (name: string): Rec[] => t[name] ?? [];
   const listOf = (name: string, key: string, desc: string): FakeListItem[] =>
     rows(name).map((r) => ({ value: String(r.attrs[key]), description: String(r.attrs[desc] ?? "") }));
 
-  const sites: FakeListItem[] = SITES.map((s) => ({ value: s.siteid, description: s.description }));
+  /** 属性の定義を短く書く: "s40" は文字列（最大 40）、"i" は整数、"n" は小数、"b" は真偽値、"dt" は日時、"d" は日付。末尾 "*" は値の一覧あり、"!" は必須、"r" は読み取り専用 */
+  function attrs(spec: Record<string, string>): A {
+    const out: A = {};
+    for (const [name, raw] of Object.entries(spec)) {
+      const [code, title] = raw.split("|");
+      const m = /^(s|i|n|b|dt|d)(\d*)([*!r]*)$/.exec(code!.trim());
+      if (!m) throw new Error(`bad attr spec ${name}: ${raw}`);
+      const type: FakeAttrType = m[1] === "s" ? "string" : m[1] === "i" ? "integer" : m[1] === "n" ? "number" : m[1] === "b" ? "boolean" : m[1] === "d" ? "date" : "datetime";
+      const def: FakeAttrDef = { type };
+      if (m[2]) def.maxLength = Number(m[2]);
+      if (m[3]!.includes("*")) def.hasList = true;
+      if (m[3]!.includes("!")) def.required = true;
+      if (m[3]!.includes("r")) def.readOnly = true;
+      if (title) def.title = tx.t(title);
+      out[name] = def;
+    }
+    return out;
+  }
+  const items = (pairs: Array<[string, string]>): FakeListItem[] => pairs.map(([value, d]) => ({ value, description: tx.t(d) }));
+  const domainList = (id: string): FakeListItem[] => {
+    const d = DOMAINS.find((x) => x.domainid === id);
+    if (!d) throw new Error(`domain ${id}`);
+    return d.type === "SYNONYM" ? d.values.map(([, value, desc]) => ({ value, description: tx.t(desc ?? "") })) : d.values.map(([value, desc]) => ({ value, description: tx.t(desc ?? "") }));
+  };
+
+  const sites: FakeListItem[] = SITES.map((s) => ({ value: s.siteid, description: tx.t(s.description) }));
   const persons = listOf("PERSON", "personid", "displayname");
   const groups = listOf("PERSONGROUP", "persongroup", "description");
-  const units: FakeListItem[] = MEASURE_UNITS.map(([v, d]) => ({ value: v, description: d }));
-  const companies: FakeListItem[] = COMPANIES.map((c) => ({ value: c.company, description: c.name }));
+  const units: FakeListItem[] = MEASURE_UNITS.map(([v, d]) => ({ value: v, description: tx.t(d) }));
+  const companies: FakeListItem[] = COMPANIES.map((c) => ({ value: c.company, description: tx.t(c.name) }));
   const classesFor = (o: "ASSET" | "LOCATIONS"): FakeListItem[] =>
-    CLASSES.map((c, i) => ({ c, id: String(1001 + i) })).filter(({ c }) => c.useWith.includes(o)).map(({ c, id }) => ({ value: id, description: `${c.id} ${c.desc}` }));
-  const failureClasses = rows("FAILURECODE").filter((r) => String(r.attrs.description).endsWith("（故障クラス）")).map((r) => ({ value: String(r.attrs.failurecode), description: String(r.attrs.description) }));
+    CLASSES.map((c, i) => ({ c, id: String(1001 + i) })).filter(({ c }) => c.useWith.includes(o)).map(({ c, id }) => ({ value: id, description: `${c.id} ${tx.t(c.desc)}` }));
+  const failureClassCodes = new Set(rows("FAILURELIST").filter((r) => r.attrs.type === null).map((r) => String(r.attrs.failurecode)));
   const allFailureCodes = listOf("FAILURECODE", "failurecode", "description");
+  const failureClasses = allFailureCodes.filter((x) => failureClassCodes.has(x.value));
   const problemCodes = [...new Set(rows("FAILURELIST").filter((r) => r.attrs.type === "PROBLEM").map((r) => String(r.attrs.failurecode)))].map((v) => allFailureCodes.find((x) => x.value === v)!);
-  const worktypes: FakeListItem[] = [
-    { value: "PM", description: "予防保全" }, { value: "CM", description: "是正保全" }, { value: "EM", description: "緊急保全" },
-    { value: "CAL", description: "校正" }, { value: "INSP", description: "点検・検査" },
-  ];
-  const jobplans: FakeListItem[] = PM_PROGRAMS.map((p) => ({ value: p.jp, description: p.desc }));
+  const worktypes = items(WORKTYPES);
+  const jobplans: FakeListItem[] = PM_PROGRAMS.map((p) => ({ value: p.jp, description: tx.t(p.desc) }));
   const locations = listOf("LOCATIONS", "location", "description");
   const storerooms = rows("LOCATIONS").filter((r) => r.attrs.type === "STOREROOM").map((r) => ({ value: String(r.attrs.location), description: String(r.attrs.description) }));
   const attrIds = listOf("ASSETATTRIBUTE", "assetattrid", "description");
-  const meters: FakeListItem[] = METERS.map((m) => ({ value: m.name, description: m.desc }));
-  const crafts: FakeListItem[] = CRAFTS.map(([v, d]) => ({ value: v, description: d }));
-  const items = listOf("ITEM", "itemnum", "description");
-  const failTypes: FakeListItem[] = [{ value: "PROBLEM", description: "問題" }, { value: "CAUSE", description: "原因" }, { value: "REMEDY", description: "処置" }];
+  const meters: FakeListItem[] = METERS.map((m) => ({ value: m.name, description: tx.t(m.desc) }));
+  const crafts: FakeListItem[] = CRAFTS.map(([v, d]) => ({ value: v, description: tx.t(d) }));
+  const itemList = listOf("ITEM", "itemnum", "description");
+  const failTypes = items([["PROBLEM", "問題"], ["CAUSE", "原因"], ["REMEDY", "処置"]]);
 
   const woAttrs = attrs({
     wonum: "s10!|作業指示", siteid: "s8!*|サイト", orgid: "s8r|組織", description: "s100|説明", description_longdescription: "s|長い説明",
@@ -69,22 +69,13 @@ export function plantsObjectStructures(data: PlantsData): FakeSeed["objectStruct
     estdur: "n|見積期間（時）", estlabhrs: "n|見積工数", actlabhrs: "nr|実績工数", supervisor: "s30*|監督者", lead: "s30*|リード", ownergroup: "s8*|所有者グループ",
     woclass: "s16r|クラス", historyflag: "br|履歴", istask: "br|タスク", parent: "s10|親の作業指示", origrecordid: "s10|元のレコード", origrecordclass: "s16|元のレコードのクラス",
     downtime: "b|ダウンタイム", workorderid: "ir|作業指示 ID",
+    vendor: "s12*|業者", estservcost: "nr|見積サービス費用", estatapprservcost: "nr|承認時の見積サービス費用", actservcost: "nr|実績サービス費用",
+    ext_ponum: "s20|発注番号", ext_assessamt: "n|査定金額", ext_orderamt: "n|発注金額", ext_acceptamt: "n|検収金額", ext_podate: "d|発注日",
+    ext_acceptdate: "d|検収日", ext_legal: "b|法規対応", ext_dept: "s8*|担当部署", ext_sourceref: "s80|取込元の参照",
   });
   const woLists: Record<string, FakeListItem[]> = {
     siteid: sites, worktype: worktypes, status: domainList("WOSTATUS"), reportedby: persons, jpnum: jobplans, failurecode: failureClasses, problemcode: problemCodes,
-    supervisor: persons, lead: persons, ownergroup: groups,
-  };
-  const wodetail: FakeOsSeed = {
-    description: "Work Order Detail",
-    mbo: "WORKORDER",
-    keyAttrs: ["wonum", "siteid"],
-    attrs: woAttrs,
-    children: {
-      wostatus: { idAttr: "wostatusid", attrs: attrs({ wostatusid: "ir", status: "s16*|ステータス", changedate: "dt|変更日", changeby: "s30|変更者", memo: "s50|メモ" }) },
-      failurereport: { idAttr: "failurereportid", attrs: attrs({ failurereportid: "ir", type: "s8*|タイプ", failurecode: "s8*|故障コード", linenum: "i|行", assetnum: "s12|資産" }) },
-    },
-    lists: { ...woLists, "wostatus.status": domainList("WOSTATUS"), "failurereport.type": failTypes, "failurereport.failurecode": allFailureCodes },
-    records: rows("WORKORDER"),
+    supervisor: persons, lead: persons, ownergroup: groups, vendor: companies, ext_dept: domainList("EXTDEPT"),
   };
 
   const os: FakeSeed["objectStructures"] = {
@@ -110,7 +101,7 @@ export function plantsObjectStructures(data: PlantsData): FakeSeed["objectStruct
       },
       lists: {
         siteid: sites, type: domainList("LOCTYPE"), status: domainList("LOCASSETSTATUS"), classstructureid: classesFor("LOCATIONS"),
-        "lochierarchy.systemid": [{ value: "PRIMARY", description: "主系統" }], "locationspec.assetattrid": attrIds, "locationspec.measureunitid": units,
+        "lochierarchy.systemid": items([["PRIMARY", "主系統"], ["ELEC", "電気系統"]]), "locationspec.assetattrid": attrIds, "locationspec.measureunitid": units,
       },
       records: rows("LOCATIONS"),
     },
@@ -121,7 +112,8 @@ export function plantsObjectStructures(data: PlantsData): FakeSeed["objectStruct
       attrs: attrs({
         assetnum: "s12!|資産", siteid: "s8!*|サイト", orgid: "s8r|組織", description: "s100|説明", assettag: "s20|資産タグ", location: "s12*|場所", parent: "s12|親",
         status: "s20*|ステータス", statusdate: "dtr|ステータスの日付", installdate: "dt|設置日", serialnum: "s64|製造番号", manufacturer: "s12*|製造元", vendor: "s12*|購入先",
-        priority: "i|優先度", classstructureid: "s20*|分類", failurecode: "s8*|故障クラス", isrunning: "b|稼働中", assetid: "ir|資産 ID", changeby: "s30r|変更者", changedate: "dtr|変更日",
+        priority: "i|優先度", classstructureid: "s20*|分類", failurecode: "s8*|故障クラス", itemnum: "s30*|品目（回転資産）", binnum: "s8|棚",
+        isrunning: "b|稼働中", assetid: "ir|資産 ID", changeby: "s30r|変更者", changedate: "dtr|変更日",
       }),
       children: {
         assetspec: {
@@ -132,10 +124,14 @@ export function plantsObjectStructures(data: PlantsData): FakeSeed["objectStruct
           idAttr: "assetmeterid",
           attrs: attrs({ assetmeterid: "ir", metername: "s10*|メーター", active: "b|有効", lastreading: "s18|最新の読み", lastreadingdate: "dt|最新の読みの日付", measureunitid: "s16|単位" }),
         },
+        sparepart: {
+          idAttr: "sparepartid",
+          attrs: attrs({ sparepartid: "ir", itemnum: "s30*|品目", itemsetid: "s8|品目セット", quantity: "n|数量", description: "s100|説明", remarks: "s254|備考" }),
+        },
       },
       lists: {
         siteid: sites, location: locations, status: domainList("LOCASSETSTATUS"), manufacturer: companies, vendor: companies, classstructureid: classesFor("ASSET"),
-        failurecode: failureClasses, "assetspec.assetattrid": attrIds, "assetspec.measureunitid": units, "assetmeter.metername": meters,
+        failurecode: failureClasses, itemnum: itemList, "assetspec.assetattrid": attrIds, "assetspec.measureunitid": units, "assetmeter.metername": meters, "sparepart.itemnum": itemList,
       },
       records: rows("ASSET"),
     },
@@ -153,7 +149,7 @@ export function plantsObjectStructures(data: PlantsData): FakeSeed["objectStruct
       },
       lists: {
         "classspec.assetattrid": attrIds, "classspec.measureunitid": units,
-        "classusewith.objectname": [{ value: "ASSET", description: "資産" }, { value: "LOCATIONS", description: "場所" }],
+        "classusewith.objectname": items([["ASSET", "資産"], ["LOCATIONS", "場所"]]),
       },
       records: rows("CLASSSTRUCTURE"),
     },
@@ -200,7 +196,7 @@ export function plantsObjectStructures(data: PlantsData): FakeSeed["objectStruct
         joblabor: { idAttr: "joblaborid", attrs: attrs({ joblaborid: "ir", craft: "s8*|職種", skilllevel: "s15|技能レベル", quantity: "i|人数", laborhrs: "n|作業時間", orgid: "s8|組織" }) },
         jobmaterial: { idAttr: "jobmaterialid", attrs: attrs({ jobmaterialid: "ir", itemnum: "s30*|品目", itemsetid: "s8|品目セット", itemqty: "n|数量", orgid: "s8|組織" }) },
       },
-      lists: { status: domainList("JOBPLANSTATUS"), "joblabor.craft": crafts, "jobmaterial.itemnum": items },
+      lists: { status: domainList("JOBPLANSTATUS"), "joblabor.craft": crafts, "jobmaterial.itemnum": itemList },
       records: rows("JOBPLAN"),
     },
     MXAPIPM: {
@@ -215,7 +211,18 @@ export function plantsObjectStructures(data: PlantsData): FakeSeed["objectStruct
       lists: { siteid: sites, status: domainList("PMSTATUS"), jpnum: jobplans, frequnit: domainList("FREQUNIT"), worktype: worktypes, ownergroup: groups },
       records: rows("PM"),
     },
-    MXAPIWODETAIL: wodetail,
+    MXAPIWODETAIL: {
+      description: "Work Order Detail",
+      mbo: "WORKORDER",
+      keyAttrs: ["wonum", "siteid"],
+      attrs: woAttrs,
+      children: {
+        wostatus: { idAttr: "wostatusid", attrs: attrs({ wostatusid: "ir", status: "s16*|ステータス", changedate: "dt|変更日", changeby: "s30|変更者", memo: "s50|メモ" }) },
+        failurereport: { idAttr: "failurereportid", attrs: attrs({ failurereportid: "ir", type: "s8*|タイプ", failurecode: "s8*|故障コード", linenum: "i|行", assetnum: "s12|資産" }) },
+      },
+      lists: { ...woLists, "wostatus.status": domainList("WOSTATUS"), "failurereport.type": failTypes, "failurereport.failurecode": allFailureCodes },
+      records: rows("WORKORDER"),
+    },
     // 作業指示の簡易な構造（子なし）。行は MXAPIWODETAIL と同じ（同じ WORKORDER の表）
     MXAPIWO: { description: "Work Order", mbo: "WORKORDER", keyAttrs: ["wonum", "siteid"], attrs: woAttrs, lists: woLists, recordsFrom: "MXAPIWODETAIL" },
     MXAPISR: {
@@ -272,13 +279,38 @@ export function plantsObjectStructures(data: PlantsData): FakeSeed["objectStruct
       attrs: attrs({
         itemnum: "s30!|品目", itemsetid: "s8!|品目セット", siteid: "s8!*|サイト", orgid: "s8r|組織", location: "s12!*|倉庫", binnum: "s8|既定の棚",
         category: "s4*|在庫区分", status: "s16*|ステータス", minlevel: "n|発注点", maxlevel: "n|最大在庫", orderqty: "n|発注量", orderunit: "s16|発注単位",
-        issueunit: "s16|払出単位", abctype: "s1*|ABC 分類", curbaltotal: "nr|現在の残高", avgcost: "nr|平均単価", lastissuedate: "dtr|最終払出日", inventoryid: "ir|在庫 ID",
+        issueunit: "s16|払出単位", abctype: "s1*|ABC 分類", curbaltotal: "nr|現在の残高", avgcost: "nr|平均単価", vendor: "s12*|購入先", deliverytime: "i|納期（日）",
+        lastissuedate: "dtr|最終払出日", inventoryid: "ir|在庫 ID",
       }),
       children: {
         invbalances: { idAttr: "invbalancesid", attrs: attrs({ invbalancesid: "ir", binnum: "s8|棚", lotnum: "s8|ロット", curbal: "nr|現在の残高", physcnt: "n|実地棚卸数", physcntdate: "dt|実地棚卸日", conditioncode: "s30|状態コード" }) },
+        invcost: { idAttr: "invcostid", attrs: attrs({ invcostid: "ir", conditioncode: "s30|状態コード", avgcost: "nr|平均単価", lastcost: "nr|最終単価", stdcost: "n|標準単価" }) },
       },
-      lists: { siteid: sites, location: storerooms, category: domainList("CATEGORY"), status: domainList("ITEMSTATUS"), abctype: domainList("ABCTYPE") },
+      lists: { siteid: sites, location: storerooms, category: domainList("CATEGORY"), status: domainList("ITEMSTATUS"), abctype: domainList("ABCTYPE"), vendor: companies },
       records: rows("INVENTORY"),
+    },
+    MXAPIINVUSE: {
+      description: "Inventory Usage",
+      mbo: "INVUSE",
+      keyAttrs: ["invusenum", "siteid"],
+      attrs: attrs({
+        invusenum: "s12!|在庫使用", siteid: "s8!*|サイト", orgid: "s8r|組織", description: "s100|説明", fromstoreloc: "s12*|払出元の倉庫", usetype: "s20*|使用タイプ",
+        status: "s16*|ステータス", statusdate: "dtr|ステータスの日付", invuseid: "ir|在庫使用 ID", changeby: "s30r|変更者",
+      }),
+      children: {
+        invuseline: {
+          idAttr: "invuselineid",
+          attrs: attrs({
+            invuselineid: "ir", invuselinenum: "i|行", itemnum: "s30*|品目", itemsetid: "s8|品目セット", quantity: "n|数量", unitcost: "nr|単価", linecost: "nr|金額",
+            refwo: "s10|作業指示", assetnum: "s12|資産", location: "s12|場所", usetype: "s20|使用タイプ", actualdate: "dt|実績日",
+          }),
+        },
+      },
+      lists: {
+        siteid: sites, fromstoreloc: storerooms, status: domainList("INVUSESTATUS"), usetype: items([["ISSUE", "払出"], ["RETURN", "返却"], ["TRANSFER", "移動"]]),
+        "invuseline.itemnum": itemList,
+      },
+      records: rows("INVUSE"),
     },
     MXAPIPERSON: {
       description: "Person",
@@ -336,7 +368,7 @@ export function plantsObjectStructures(data: PlantsData): FakeSeed["objectStruct
         alndomain: { idAttr: "alndomainid", attrs: attrs({ alndomainid: "ir", value: "s50|値", description: "s100|説明", orgid: "s8|組織", siteid: "s8|サイト" }) },
       },
       lists: {
-        domaintype: [{ value: "ALN", description: "英数字" }, { value: "SYNONYM", description: "同義語" }, { value: "NUMERIC", description: "数値" }, { value: "TABLE", description: "表" }, { value: "CROSSOVER", description: "クロスオーバー" }],
+        domaintype: items([["ALN", "英数字"], ["SYNONYM", "同義語"], ["NUMERIC", "数値"], ["TABLE", "表"], ["CROSSOVER", "クロスオーバー"]]),
       },
       records: rows("MAXDOMAIN"),
     },

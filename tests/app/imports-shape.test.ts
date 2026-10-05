@@ -100,6 +100,27 @@ describe("帳票の読み取り（form）", () => {
     ]);
   });
 
+  it("始まりは文字が同じセルだけ（明細の文に同じ文字があっても帳票は切れない）。括弧の注記が続く表題は認める", () => {
+    const v = table({
+      1: ["作業日報"],
+      2: ["作業日", "R8.4.1"],
+      3: ["No.", "作業内容"],
+      4: [1, "監督員と作業日報の書き方 打合せ"],
+      5: [2, "巡視"],
+      8: ["作業日報（休日）"],
+      9: ["作業日", "R8.4.4"],
+      10: ["No.", "作業内容"],
+      11: [1, "緊急対応"],
+    });
+    const b = build(v, { form: { start: ["作業日報"], fields: { DATE: "作業日" }, items: { header: "作業内容" } } });
+    expect(b.notes.forms).toBe(2);
+    expect(b.rows.map((r) => [r.values.DATE, r.values.作業内容])).toEqual([
+      ["R8.4.1", "監督員と作業日報の書き方 打合せ"],
+      ["R8.4.1", "巡視"],
+      ["R8.4.4", "緊急対応"],
+    ]);
+  });
+
   it("値がラベルの下にある帳票（below）", () => {
     const v = table({ 1: ["点検報告書"], 2: ["点検日", "設備"], 3: ["2026-05-01", "押込送風機"], 6: ["点検報告書"], 7: ["点検日", "設備"], 8: ["2026-06-01", "誘引送風機"] });
     const b = build(v, { form: { start: ["点検報告書"], fields: { DATE: { label: "点検日", below: true }, EQUIP: { label: "設備", below: true } } } });
@@ -216,6 +237,13 @@ describe("describe_import の手がかり", () => {
   it("同じラベルが同じ回数ずつ出てくれば帳票が並んでいると見る。普通の表では出さない", () => {
     const forms = table({ ...report(1, { no: "1", date: "R8.4.1", contract: "委託", lines: [["巡視点検", "巡視", 1]] }), ...report(20, { no: "2", date: "R8.4.2", contract: "委託", lines: [["清掃", "清掃", 1]] }), ...report(40, { no: "3", date: "R8.4.3", contract: "委託", lines: [["点検", "点検", 1]] }) });
     expect(formHint(forms)).toMatchObject({ forms: 3, firstRows: [1, 20, 40] });
+    // 表題が 2 種類（作業日報 2 枚・作業報告書 1 枚）なら、始まりの行の文字として知らせる
+    const mixed = table({ ...report(1, { no: "1", date: "R8.4.1", contract: "委託", lines: [["巡視点検", "巡視", 1]] }), ...report(20, { no: "2", date: "R8.4.2", contract: "委託", lines: [["清掃", "清掃", 1]] }), ...report(40, { no: "3", date: "R8.4.3", contract: "修繕", lines: [["点検", "点検", 1]] }) });
+    mixed.rows.find((r) => r.row === 40)!.cells[2] = "作 業 報 告 書";
+    expect(formHint(mixed)?.titles).toEqual([
+      { text: "作業日報", count: 2 },
+      { text: "作業報告書", count: 1 },
+    ]);
     expect(formHint(forms)?.labels).toEqual(expect.arrayContaining(["委託契約工事名", "作業日", "作業内容"]));
     const plain = table({ 1: ["機器番号", "状態"], 2: ["P-1", "稼働"], 3: ["P-2", "稼働"], 4: ["P-3", "停止"], 5: ["P-4", "稼働"] });
     expect(formHint(plain)).toBeNull();

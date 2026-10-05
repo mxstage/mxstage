@@ -154,7 +154,8 @@ function importView(a: ImportAnalysis, samples: number, columnLimit: number): Re
   const form = formHint(t);
   if (form !== null) {
     v.formHint = form;
-    v.formNote = `The same ${form.labels.length} labels repeat ${form.forms} times: the sheet likely holds ${form.forms} forms (first rows ${form.firstRows.join(", ")}). Read it with form in apply_mapping (start = text on the first row of each form, fields = header labels, items = the item table) instead of a header row.`;
+    const titles = form.titles ? ` The first rows also hold ${form.titles.map((x) => `${x.text} (${x.count})`).join(", ")}: if these are titles, give all of them as start, or use a label on the first row that every form has.` : "";
+    v.formNote = `The same ${form.labels.length} labels repeat ${form.forms} times: the sheet likely holds ${form.forms} forms (first rows ${form.firstRows.join(", ")}). Read it with form in apply_mapping (start = text on the first row of each form, fields = header labels, items = the item table) instead of a header row.${titles}`;
   }
   if (a.headerRow !== null) {
     v.dataRowCount = a.rows.length;
@@ -707,7 +708,14 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
       rowKeyNote: args.unpivot !== undefined ? `${SOURCE_ROW_COLUMN} is the row number and SOURCE_CELL the cell in the original file. Refer to rows as "cell F12 of the original file" when talking to the user.` : IMPORT_ROW_KEY_NOTE,
       note: IMPORT_SHEET_NOTE,
     };
-    if (args.form !== undefined) value.formNote = "One row per item of each form (BLOCK is the form number in order). Check missingFields and show the user a few rows next to the original forms before matching.";
+    if (args.form !== undefined) {
+      value.formNote = "One row per item of each form (BLOCK is the form number in order). Check missingFields and show the user a few rows next to the original forms before matching.";
+      // describe_import の見立てと枚数が違えば知らせる（表題が 2 種類ある・始まりの文字が明細にもある、など）
+      const hint = formHint(t);
+      if (hint !== null && hint.forms !== built.notes.forms) {
+        value.formCountNote = `describe_import saw ${hint.forms} forms (labels such as ${hint.labels.slice(0, 3).join(", ")} repeat ${hint.forms} times), but form.start found ${String(built.notes.forms)}. Check form.start (every title in the file, or a label that appears once per form).`;
+      }
+    }
     const renamed = Object.fromEntries(Object.entries(rename).filter(([from, to]) => from !== to.trim()));
     if (Object.keys(renamed).length > 0) value.renamed = renamed;
     const titles = columnTitleMap(summary.columns);

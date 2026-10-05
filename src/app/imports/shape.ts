@@ -66,7 +66,7 @@ export interface FormFieldSpec {
 }
 
 export interface FormSpec {
-  /** 帳票の始まりの行にある文字（表題など。空白を除いて含んでいれば当たる） */
+  /** 帳票の始まりの行にある文字（表題など。空白を除いて同じ文字のセルが当たる。括弧の注記が続いてもよい） */
   start: readonly string[];
   /** 列名 → ラベル（値はラベルの右、below なら下の、空でない最初のセル） */
   fields: Readonly<Record<string, string | FormFieldSpec>>;
@@ -247,7 +247,14 @@ function formShape(t: RawTable, spec: FormSpec): ShapedImport {
   const mergeAt = new Map<string, MergeRange>();
   for (const m of t.merges ?? []) mergeAt.set(`${m.r1}:${m.c1}`, m);
 
-  const startRows = t.rows.filter((r) => r.cells.some((v) => typeof v === "string" && starts.some((s) => normLabel(v).includes(s)))).map((r) => r.row);
+  // 始まりは、文字が同じセル（空白は除く）。括弧の注記が続く表題（作業日報（休日））も認める。
+  // 「含む」にしないのは、明細の文（「監督員と打合せ」など）で帳票が切れないようにするため
+  const isStart = (v: CellValue | undefined) => {
+    if (typeof v !== "string") return false;
+    const n = normLabel(v);
+    return starts.some((s) => n === s || (n.startsWith(s) && /^[（(【[〔]/.test(n.slice(s.length))));
+  };
+  const startRows = t.rows.filter((r) => r.cells.some(isStart)).map((r) => r.row);
   if (startRows.length === 0) throw new ImportError(`No cell contains ${spec.start.join(" / ")} (form.start). Check the title text with describe_import`);
   if (startRows.length > FORM_MAX_BLOCKS) throw new ImportError(`More than ${FORM_MAX_BLOCKS} forms were found. Check form.start`);
   const blocks = startRows.map((start, i) => ({ start, end: i + 1 < startRows.length ? (startRows[i + 1] as number) - 1 : Number.MAX_SAFE_INTEGER }));
@@ -542,7 +549,15 @@ export function buildShapedSheet(shaped: ShapedImport, opts: BuildShapedOptions)
 }
 
 /** describe_import の手がかり: 同じ回数ずつ出てくるラベル（同じ形の帳票が並んでいるシート） */
-export function formHint(t: RawTable, scanRows = 5_000): { forms: number; labels: string[]; firstRows: number[] } | null {
+export interface FormHint {
+  forms: number;
+  labels: string[];
+  firstRows: number[];
+  /** 帳票の始まりの行（最初のラベルの行）にある、毎回は出てこない文字（表題が 2 種類ある、など）と回数 */
+  titles?: Array<{ text: string; count: number }>;
+}
+
+export function formHint(t: RawTable, scanRows = 5_000): FormHint | null {
   const seen = new Map<string, { text: string; rows: number[] }>();
   for (const r of t.rows.slice(0, scanRows)) {
     const inRow = new Set<string>();
@@ -567,7 +582,26 @@ export function formHint(t: RawTable, scanRows = 5_000): { forms: number; labels
   for (const list of byCount.values()) if (list.length > best.length || (list.length === best.length && (list[0]?.rows.length ?? 0) > (best[0]?.rows.length ?? 0))) best = list;
   if (best.length < 4) return null;
   best.sort((a, b) => (a.rows[0] as number) - (b.rows[0] as number));
-  return { forms: best[0]!.rows.length, labels: best.slice(0, 20).map((e) => e.text), firstRows: best[0]!.rows.slice(0, 5) };
+  const first = best[0]!;
+  const hint: FormHint = { forms: first.rows.length, labels: best.slice(0, 20).map((e) => e.text), firstRows: first.rows.slice(0, 5) };
+  // 始まりの行にある、ラベルではない文字（「作業日報」22 回と「作業報告書」4 回のような表題の違い）
+  const labelKeys = new Set(best.map((e) => normLabel(e.text)));
+  const startRows = new Set(first.rows);
+  const titles = new Map<string, { text: string; count: number }>();
+  for (const r of t.rows) {
+    if (!startRows.has(r.row)) continue;
+    for (const v of r.cells) {
+      if (typeof v !== "string") continue;
+      const key = normLabel(v);
+      if (key === "" || labelKeys.has(key) || key.length > 30) continue;
+      const e = titles.get(key) ?? { text: key, count: 0 };
+      e.count++;
+      titles.set(key, e);
+    }
+  }
+  const list = [...titles.values()].filter((e) => e.count < first.rows.length).sort((a, b) => b.count - a.count).slice(0, 5);
+  if (list.length > 0) hint.titles = list;
+  return hint;
 }
 
 /** describe_import の手がかり: 結合したセル（"A5:A7" の形で先頭から） */

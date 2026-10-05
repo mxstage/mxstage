@@ -375,7 +375,7 @@ export const TOOL_DEFS = {
       keyColumns: z.array(z.string()).max(5).optional().describe("Key columns pinned on screen (names after rename; default SOURCE_ROW, or SOURCE_CELL with unpivot)"),
       form: z
         .strictObject({
-          start: z.array(z.string().min(1).max(50)).min(1).max(5).describe("Text in the first row of each form, such as its title (spaces are ignored; a cell containing it starts a form)"),
+          start: z.array(z.string().min(1).max(50)).min(1).max(5).describe("Text of a cell on the first row of each form, such as its title (spaces are ignored; the cell must equal it, optionally followed by a note in brackets). Give every title used in the file"),
           fields: z
             .record(z.string().min(1).max(64), z.union([z.string().min(1).max(50), z.strictObject({ label: z.string().min(1).max(50), below: z.boolean().optional() })]))
             .optional()

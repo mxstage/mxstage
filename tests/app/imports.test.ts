@@ -635,6 +635,12 @@ describe("帳票の読み取り・fillDown・unpivot（ツール）", () => {
     expect(e2.message).toContain("form.start");
     const e3 = await h.fail("apply_mapping", { importId: "d1", sourceSheet: "4月", name: "x", form: { start: ["作業日報"], fields: { D: "作業日" } }, rename: { 日付: "X" } });
     expect(e3.message).toContain("is not a column of the shaped sheet");
+    // 見立ての枚数（3）と違えば知らせる
+    const r = await h.call("apply_mapping", { importId: "d1", sourceSheet: "4月", name: "x", form: { start: ["作業日報"], fields: { D: "作業日" } } });
+    expect(r.formCountNote).toBeUndefined();
+    const r2 = await h.call("apply_mapping", { importId: "d1", sourceSheet: "4月", name: "y", form: { start: ["委託契約工事名", "作業日報"], fields: { D: "作業日" } } });
+    expect(r2.forms).toBe(6);
+    expect(r2.formCountNote).toContain("describe_import saw 3 forms");
   });
 });
 

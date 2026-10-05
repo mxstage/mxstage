@@ -8,17 +8,16 @@
 
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { allExcel } from "../dev/demo/excel/builders.ts";
-import { writeXlsx } from "../dev/demo/excel/xlsx.ts";
-import { DEMO_FORMAT, filesToSeed, seedToFiles, sha256, type DemoManifest, type ManifestFile } from "../src/demo/format.ts";
+import { buildDemoData } from "../dev/demo/build.ts";
+import { filesToSeed } from "../src/demo/format.ts";
 import { DATASET_VERSION, plantsSeed } from "../dev/datasets/plants/index.ts";
 import type { Lang } from "../dev/datasets/plants/text.ts";
 import { createFakeMaximo } from "../src/demo/fakeMaximo.ts";
+import { DEMO_DATA_VERSION, DEMO_MANIFEST_SHA256 } from "../src/shared/demo.ts";
 
 const ROOT = join(import.meta.dirname, "..");
 const OUT = join(ROOT, "dist", "demo-data");
 const TRUTH = join(ROOT, "dist", "demo-data-truth");
-const MAX_FILE = 25 * 1024 * 1024;
 
 function write(path: string, bytes: Uint8Array | string): void {
   mkdirSync(dirname(path), { recursive: true });
@@ -37,55 +36,35 @@ async function main(): Promise<void> {
   const langs = parseLangs(process.argv.slice(2));
   const vdir = join(OUT, `v${DATASET_VERSION}`);
   rmSync(vdir, { recursive: true, force: true });
-  const manifest: DemoManifest = { format: DEMO_FORMAT, version: DATASET_VERSION, asOf: "", languages: {} };
-  const excelLinks: Record<string, Array<{ path: string; title: string; fileName: string; bytes: number }>> = {};
+  const t0 = performance.now();
+  const inputs = langs.map((lang) => ({ lang, ...plantsSeed({ lang }) }));
+  const built = buildDemoData(inputs);
+  for (const [rel, bytes] of built.files) write(join(vdir, rel), bytes);
+  for (const [lang, truth] of Object.entries(built.truth)) write(join(TRUTH, `v${DATASET_VERSION}`, lang, "truth.json"), JSON.stringify(truth, null, 1));
 
-  for (const lang of langs) {
-    const t0 = performance.now();
-    const { seed, data } = plantsSeed({ lang });
-    if (data.missingTranslations.length > 0) throw new Error(`英語の辞書に無い日本語が ${data.missingTranslations.length} 件あります: ${data.missingTranslations.slice(0, 5).join(" / ")}`);
-    manifest.asOf = data.asOf;
-    const files: ManifestFile[] = [];
-    const put = (rel: string, bytes: Uint8Array, extra: Omit<ManifestFile, "path" | "bytes" | "sha256">) => {
-      if (bytes.length > MAX_FILE) throw new Error(`${rel} が 25 MiB を超えます（${bytes.length} バイト）`);
-      write(join(vdir, rel), bytes);
-      files.push({ path: rel, bytes: bytes.length, sha256: sha256(bytes), ...extra });
-    };
-    const { osdefs, records } = seedToFiles(seed);
-    put(`${lang}/osdefs.json.gz`, osdefs, { kind: "osdefs" });
-    for (const r of records) put(`${lang}/os/${r.os}.ndjson.gz`, r.bytes, { kind: "records", os: r.os, records: r.count });
-
-    // Excel
-    const truth: Record<string, unknown> = { problems: data.problems, counts: data.counts };
-    excelLinks[lang] = [];
-    for (const x of allExcel(data)) {
-      const bytes = writeXlsx(x.sheets, { title: x.title, creator: "MX Stage demo (fictional data)", lang });
-      const rel = `${lang}/excel/${x.id}.xlsx`;
-      put(rel, bytes, { kind: "excel", title: x.title, fileName: x.fileName });
-      excelLinks[lang]!.push({ path: `v${DATASET_VERSION}/${rel}`, title: x.title, fileName: x.fileName, bytes: bytes.length });
-      truth[x.id] = x.truth;
-    }
-    write(join(TRUTH, `v${DATASET_VERSION}`, lang, "truth.json"), JSON.stringify(truth, null, 1));
-    manifest.languages[lang] = { files };
-
-    // 読み戻して、同じ件数の偽の Maximo になることを確かめる
-    const back = filesToSeed(osdefs, records);
-    const fake = createFakeMaximo(back);
+  // 読み戻して、同じ件数の偽の Maximo になることを確かめる
+  for (const { lang, seed } of inputs) {
+    const split = built.records[lang]!;
+    const fake = createFakeMaximo(filesToSeed(split.osdefs, split.records));
     for (const [name, os] of Object.entries(seed.objectStructures)) {
       if (os.recordsFrom) continue;
       const n = fake.records(name).length;
       if (n !== (os.records ?? []).length) throw new Error(`${lang} ${name}: 読み戻した件数 ${n} ≠ ${(os.records ?? []).length}`);
     }
+    const files = built.manifest.languages[lang]!.files;
     const total = files.reduce((n, f) => n + f.bytes, 0);
-    process.stdout.write(`${lang}: ${files.length} ファイル、${(total / 1e6).toFixed(1)} MB（${((performance.now() - t0) / 1000).toFixed(1)} 秒）\n`);
+    process.stdout.write(`${lang}: ${files.length} ファイル、${(total / 1e6).toFixed(1)} MB\n`);
   }
 
-  const manifestBytes = Buffer.from(`${JSON.stringify(manifest, null, 1)}\n`, "utf8");
-  write(join(vdir, "manifest.json"), manifestBytes);
-  write(join(OUT, "index.html"), landingPage(excelLinks));
+  write(join(vdir, "manifest.json"), built.manifestBytes);
+  write(join(OUT, "index.html"), landingPage(built.excelLinks));
   write(join(OUT, "_headers"), HEADERS);
   write(join(OUT, "robots.txt"), "User-agent: *\nDisallow: /v\n");
-  process.stdout.write(`manifest: v${DATASET_VERSION}/manifest.json sha256 ${sha256(manifestBytes)}\n`);
+  process.stdout.write(`manifest: v${DATASET_VERSION}/manifest.json sha256 ${built.manifestSha256}（${((performance.now() - t0) / 1000).toFixed(1)} 秒）\n`);
+  // 製品に埋め込んだ値（src/shared/demo.ts）と違えば、公開の前に直す
+  if (langs.length === 2 && (built.manifestSha256 !== DEMO_MANIFEST_SHA256 || DATASET_VERSION !== DEMO_DATA_VERSION)) {
+    process.stdout.write(`注意: 製品に埋め込んだ値と違います（src/shared/demo.ts は v${DEMO_DATA_VERSION} ${DEMO_MANIFEST_SHA256}）。公開するなら DEMO_MANIFEST_SHA256 を直してください。\n`);
+  }
   process.stdout.write(`出力: ${OUT}\n正解（公開しない）: ${TRUTH}\n`);
 }
 

@@ -1,7 +1,7 @@
 // デモの Excel 5 種（日英）。どれもデータ（dev/datasets/plants）と同じ種から作るので、Maximo のデータと突き合わせられ、正解（truth）がある。
 //   1. 発注リスト（2026 年度上半期）       … 作業指示番号は無い。件名・施設・時期で結ぶ。金額・日付の書式が揺れる
 //   2. 旧設備台帳（Maximo を入れる直前）   … 製造番号・設置日・メーカーを補う。古い形式のタグ、和暦
-//   3. 修理記録（北部 2026 年度上半期）     … 自由記述。故障コードの無い是正保全を埋める
+//   3. 修理記録（北部 2026 年度上半期）     … 日本語は A4 の作業日報（帳票）、英語は表。故障コードの無い是正保全を埋め、Maximo に無い修理を見つける
 //   4. 東部の機器台帳（Maximo より先に進んだ）… 更新・増設・仕様の変更・撤去。Maximo の方が新しい行もある
 //   5. 星取表（北部・南部、Maximo を入れる前）… 履歴の作業指示として登録する
 
@@ -10,7 +10,7 @@ import type { OrderTruth } from "../../datasets/plants/contracts.ts";
 import { type Asset, type HistoryEvent, type PlantsData, type Position, type WoDraft } from "../../datasets/plants/generate.ts";
 import { Text, type Lang } from "../../datasets/plants/text.ts";
 import { DAY, Rng, jst, pad, seedOf, ymd } from "../../datasets/plants/util.ts";
-import type { CellInput, CellSpec, SheetSpec } from "./xlsx.ts";
+import { colName, type CellInput, type CellSpec, type SheetSpec } from "./xlsx.ts";
 
 export interface ExcelFile {
   /** URL に使う ASCII の ID */
@@ -333,7 +333,13 @@ const PROB_EN: Record<string, string[]> = {
 const NOISE_LINES_JA = ["巡視 異常なし", "定期点検 異常なし", "清掃のみ", "グリスアップ", "床の清掃", "照明交換（事務所）", "工具点検"];
 const NOISE_LINES_EN = ["Rounds - no issues", "PM check - OK", "Cleaning only", "Greased", "Floor cleaned", "Office light replaced", "Tool check"];
 
+/** 修理記録: 日本語は作業日報（帳票）、英語は表 */
 export function repairLog(data: PlantsData): ExcelFile {
+  return data.lang === "ja" ? dailyReports(data) : repairTable(data);
+}
+
+/** 表の修理記録（英語のデータ。月ごとのシート、日付は結合） */
+function repairTable(data: PlantsData): ExcelFile {
   const c = new Ctx(data);
   const tx = c.tx;
   const ja = c.lang === "ja";
@@ -412,6 +418,377 @@ export function repairLog(data: PlantsData): ExcelFile {
     sheets,
     truth: { rows: truth },
   };
+}
+
+// ---------------------------------------------------------------------------
+// 3'. 作業日報（日本語のデータ。北部 2026 年度上半期。A4 縦の帳票を 1 日 1 枚、月ごとのシートに縦に並べる）
+//   - 常駐の委託業者（設備保守点検業務委託・年間）の日報: 平日は毎日、休日は修理のあった日だけ。
+//     Maximo の是正・緊急保全（業者の無いもの）・予防保全の点検・巡視や清掃・Maximo に無い小さな修理が混ざる。
+//   - 業者に発注した修繕（作業指示ごとの発注）は、その工事の日に別の日報（作業報告書）。工事名は発注一覧の件名と書き方が違う。
+//   - 作業内容の文に、炉・設備・機器が通称や略語で紛れる。同じ修理が 2 行に分かれる（「同上」）ことも、行を足した日報もある。
+// ---------------------------------------------------------------------------
+
+/** 2026 年 4〜9 月の祝日・休日 */
+const HOLIDAYS_2026 = new Set(["4-29", "5-3", "5-4", "5-5", "5-6", "7-20", "8-11", "9-21", "9-22", "9-23"]);
+const WEEKDAY_JA = ["日", "月", "火", "水", "木", "金", "土"];
+const RESIDENT_CONTRACT = "令和8年度 北部クリーンセンター 設備保守点検業務委託";
+const RESIDENT_CONTRACT_VARIANTS = ["R8 北部CC 設備保守点検業務委託", "令和8年度 北部クリーンセンター設備保守点検業務", "令和８年度 北部クリーンセンター 設備保守点検業務委託"];
+/** 常駐の委託業者（Maximo の業者には無い。作業者は Maximo の作業者として登録されている想定） */
+const RESIDENT_VENDOR = "設備保守業者Ｃ 北部事業所";
+/** 日報の行の数（足りない日は行を足す） */
+const REPORT_LINES = 12;
+
+/** Maximo に無い小さな修理（分類 → 不具合・処置・故障の正解） */
+const NEW_REPAIRS: Record<string, Array<{ issue: string; act: string; prob: string; cause: string; remedy: string; hours: number }>> = {
+  PUMP: [{ issue: "グランド部より漏れ", act: "グランド増締め", prob: "LEAK", cause: "LOOSE", remedy: "RETIGHT", hours: 0.5 }],
+  FAN: [{ issue: "軸受部 異音", act: "グリース補給 経過観察", prob: "NOISE", cause: "LUBE", remedy: "LUBRIC", hours: 1.0 }],
+  CONV: [{ issue: "ベルト蛇行", act: "テールプーリ 調整", prob: "MEANDER", cause: "MISALIGN", remedy: "ADJUST", hours: 1.5 }],
+  CVALVE: [{ issue: "作動渋い", act: "グランド部 給油、作動確認", prob: "STUCK", cause: "LUBE", remedy: "LUBRIC", hours: 0.5 }],
+  MOV: [{ issue: "開閉に時間かかる", act: "リミット 調整", prob: "MALFUNC", cause: "LINKAGE", remedy: "ADJUST", hours: 1.0 }],
+  COMP: [{ issue: "ドレン排出不良", act: "オートドレン 分解清掃", prob: "CLOG", cause: "FOULED", remedy: "CLEAN", hours: 1.0 }],
+  HVAC: [{ issue: "冷え悪い", act: "フィルタ清掃", prob: "LOWPERF", cause: "FOULED", remedy: "CLEAN", hours: 0.5 }],
+  MOTOR: [{ issue: "端子箱カバー 緩み", act: "増締め", prob: "MALFUNC", cause: "LOOSE", remedy: "RETIGHT", hours: 0.5 }],
+};
+const MATERIALS: Record<string, string[]> = {
+  REPLACE: ["ベアリング 6310ZZ ×2", "パッキン 一式", "メカニカルシール ×1", "Vベルト B-52 ×3", "ヒューズ ×2", "リミットスイッチ ×1"],
+  LUBRIC: ["グリース（リチウム系）0.5kg", "グリース 1缶", "潤滑油 VG68 2L"],
+  REPAIR: ["溶接棒 少量", "補修テープ", "シール剤"],
+  RETIGHT: ["ウエス"],
+  CLEAN: ["ウエス、洗浄剤"],
+};
+const ROUTINE_JA: Array<[string, string[]]> = [
+  ["巡視点検", ["場内巡視 異常なし", "場内巡視（ボイラ・排ガス処理系統）異常なし", "朝礼・KY活動、場内巡視", "場内巡視 1号炉〜3号炉 異常なし"]],
+  ["清掃", ["灰押出機まわり 清掃", "ごみピット投入扉まわり 清掃", "排水処理室 床清掃", "工作室 整理清掃"]],
+  ["給油", ["コンベヤ類 定期給油", "クレーン 走行部 給油", "送風機類 給脂"]],
+  ["打合せ", ["監督員と月間工程 打合せ", "定期整備の段取り 打合せ", "安全パトロール 同行"]],
+];
+const SPOT_WORK: Record<string, string> = { LEAK: "漏れに伴う修繕", VIB: "振動に伴う修繕", NOISE: "異音に伴う修繕", TRIP: "停止に伴う原因調査及び修繕", OVERHEAT: "温度上昇に伴う修繕" };
+const SPOT_LEADS = ["高橋", "伊藤", "渡辺", "中村", "小林", "加藤"];
+
+interface ReportLine {
+  cat: string;
+  text: string;
+  hours: CellInput;
+  crew: number | null;
+  kind: "WO" | "NEW" | "PM" | "ROUTINE";
+  wo?: WoDraft;
+  pmWonum?: string;
+  fresh?: NewRepairTruth;
+}
+
+interface NewRepairTruth {
+  date: string;
+  assetnum: string;
+  location: string;
+  description: string;
+  prob: string;
+  cause: string;
+  remedy: string;
+  hours: number;
+}
+
+interface DailyReport {
+  day: number;
+  spot: boolean;
+  no: string;
+  contract: string;
+  vendorName: string;
+  vendor: string | null;
+  ponum: string | null;
+  lead: string;
+  crew: number;
+  time: string;
+  weather: string;
+  writer: string;
+  place: string;
+  lines: ReportLine[];
+  notes: string;
+  materials: string;
+}
+
+export interface DailyRowTruth {
+  sheet: string;
+  row: number;
+  report: string;
+  date: string;
+  contract: "RESIDENT" | "SPOT";
+  contractName: string;
+  kind: ReportLine["kind"];
+  wonum?: string;
+  ponum?: string;
+  vendor?: string;
+  codeMode?: string;
+  prob?: string;
+  cause?: string;
+  remedy?: string;
+  failurecodeMissing?: boolean;
+  /** Maximo に無い修理（作業指示を作る先） */
+  fresh?: NewRepairTruth;
+}
+
+function dailyReports(data: PlantsData): ExcelFile {
+  const c = new Ctx(data);
+  const tx = c.tx;
+  const rng = new Rng(seedOf("excel-daily"));
+  const dayOf = (iso: unknown): { m: number; d: number } | null => (typeof iso === "string" ? ymd(Date.parse(iso)) : null);
+  const done = (w: WoDraft) => w.wonum !== undefined && (w.attrs.status === "COMP" || w.attrs.status === "CLOSE" || w.attrs.status === "INPRG");
+  const repairs = data.truth.repairs.map((r) => r.wo).filter(done);
+  const resident = repairs.filter((w) => !w.attrs.vendor);
+  const spot = repairs.filter((w) => w.attrs.vendor && w.attrs.status !== "INPRG");
+  // 予防保全・点検・校正（常駐の業者がしたもの）
+  const pms = (data.tables.WORKORDER ?? [])
+    .map((r) => r.attrs)
+    .filter((a) => a.siteid === "KITA" && (a.worktype === "PM" || a.worktype === "INSP" || a.worktype === "CAL") && (a.status === "COMP" || a.status === "CLOSE") && !a.vendor && typeof a.actstart === "string" && a.actstart >= "2026-04" && a.actstart < "2026-10");
+  const kitaPositions = data.truth.positions.filter((p) => p.site.siteid === "KITA" && NEW_REPAIRS[p.cls] !== undefined);
+
+  /** 機器の書き方（炉の書き方・系統の名前・通称・号機の書き方が揺れる） */
+  const equipText = (pos: Position, r: Rng): string => {
+    let equip = c.bare(pos.desc);
+    for (const [re, alts] of NICK_JA) if (re.test(equip)) equip = equip.replace(re, r.pick(alts));
+    equip = equip
+      .replace(/ ([A-Z])号機$/, (_m, x: string) => r.pick([` ${x}号機`, `(${x})`, ` ${x}`, `${x}号`]))
+      .replace(/ No\.(\d+)$/, (_m, n: string) => r.pick([` No.${n}`, ` #${n}`, `${n}号`, ` ${n}`]));
+    const line = pos.line > 0 ? r.pick([`${pos.line}号炉 `, `${pos.line}炉 `, `No.${pos.line} `, `#${pos.line} `, `${pos.line}号の`]) : r.pick(["", "共通 ", ""]);
+    const sys = SYSTEMS.find((s) => s.code === pos.system)?.name;
+    const sysText = sys && !line.endsWith("の") && r.chance(0.25) ? `${sys} ` : "";
+    return `${line}${sysText}${equip}`.replace(/\s+/g, " ").trim();
+  };
+  const woEquip = (w: WoDraft, r: Rng): string => (w.asset ? equipText(w.asset.pos, r) : (w.locDesc ?? ""));
+  const hoursOf = (h: number, r: Rng): CellInput => {
+    const p = r.next();
+    if (p < 0.85) return { v: Math.round(h * 2) / 2 || 0.5, s: "fNum" };
+    if (p < 0.95) return { v: `${Math.round(h * 2) / 2 || 0.5}h`, s: "fCenter" };
+    return { v: "半日", s: "fCenter" };
+  };
+  const dateText = (m: number, d: number, r: Rng): string => {
+    const w = WEEKDAY_JA[new Date(Date.UTC(2026, m - 1, d)).getUTCDay()]!;
+    const p = r.next();
+    if (p < 0.85) return `令和8年${m}月${d}日（${w}）`;
+    if (p < 0.95) return `R8.${m}.${d}`;
+    return `${m}/${d}（${w}）`;
+  };
+  const weather = (m: number, r: Rng) => r.pick(m === 6 || m === 7 ? ["雨", "曇", "曇時々雨", "雨のち曇", "晴"] : ["晴", "晴", "曇", "晴のち曇", "雨"]);
+
+  /** 是正・緊急保全の行（2 行に分かれることがある）。cap はその日の作業時間の上限 */
+  const repairLines = (w: WoDraft, r: Rng, cap: number): ReportLine[] => {
+    const t = w.truth!;
+    const equip = woEquip(w, r);
+    const issue = r.pick(PROB_JA[t.prob] ?? [tx.t(PROBLEMS[t.prob]!)]);
+    const cause = tx.t(CAUSES[t.cause] ?? "");
+    const remedy = tx.t(REMEDIES[t.remedy] ?? "");
+    const cat = w.attrs.worktype === "EM" ? "緊急対応" : r.pick(["故障修理", "修理", "不具合対応"]);
+    const crew = r.int(1, 3);
+    const hrs = Math.min(cap, Number(w.attrs.actlabhrs ?? 0) / crew || Number(w.attrs.estdur ?? 2));
+    const contact = w.sr && r.chance(0.3) ? "（運転員より連絡）" : "";
+    if (w.attrs.status === "INPRG") return [{ cat, text: `${equip} ${issue}${contact} 応急処置、部品手配中`, hours: hoursOf(hrs, r), crew, kind: "WO", wo: w }];
+    const action = r.pick([`${cause}のため${remedy}`, `${remedy}（${cause}）`, `→ ${remedy}`]);
+    if (r.chance(0.2)) {
+      return [
+        { cat, text: `${equip} ${issue}${contact} 点検`, hours: hoursOf(hrs / 2, r), crew, kind: "WO", wo: w },
+        { cat: "〃", text: `同上 ${action}`, hours: hoursOf(hrs / 2, r), crew, kind: "WO", wo: w },
+      ];
+    }
+    return [{ cat, text: `${equip} ${issue}${contact} ${action}`, hours: hoursOf(hrs, r), crew, kind: "WO", wo: w }];
+  };
+
+  const sheets: SheetSpec[] = [];
+  const truth: DailyRowTruth[] = [];
+  const reportCounts: Record<string, number> = {};
+  for (let month = 4; month <= 9; month++) {
+    const sheetName = `${month}月`;
+    const mr = rng.fork(`month-${month}`);
+    const daysInMonth = new Date(Date.UTC(2026, month, 0)).getUTCDate();
+    // Maximo に無い修理（月に 4〜5 件、平日）
+    const fresh = new Map<number, ReportLine[]>();
+    for (let k = 0, n = mr.int(4, 5); k < n; k++) {
+      const r = mr.fork(`new-${k}`);
+      let day = r.int(1, daysInMonth);
+      while (new Date(Date.UTC(2026, month - 1, day)).getUTCDay() % 6 === 0 || HOLIDAYS_2026.has(`${month}-${day}`)) day = (day % daysInMonth) + 1;
+      const at = jst(2026, month, day, 10);
+      const pos = r.pick(kitaPositions);
+      const asset = pos.gens.find((a) => a.install <= at && (a.decom === null || a.decom > at) && !a.hidden);
+      if (!asset) continue;
+      const tmpl = r.pick(NEW_REPAIRS[pos.cls]!);
+      const equip = equipText(pos, r);
+      const line: ReportLine = {
+        cat: r.pick(["修理", "補修", "不具合対応"]), text: `${equip} ${tmpl.issue} ${tmpl.act}`, hours: hoursOf(tmpl.hours, r), crew: r.int(1, 2), kind: "NEW",
+        fresh: { date: `2026-${pad(month, 2)}-${pad(day, 2)}`, assetnum: asset.assetnum, location: asset.location, description: `${pos.descJa} ${tmpl.issue}`, prob: tmpl.prob, cause: tmpl.cause, remedy: tmpl.remedy, hours: tmpl.hours },
+      };
+      fresh.set(day, [...(fresh.get(day) ?? []), line]);
+    }
+
+    const reports: DailyReport[] = [];
+    let seq = 0;
+    for (let day = 1; day <= daysInMonth; day++) {
+      const r = mr.fork(`day-${day}`);
+      const workday = new Date(Date.UTC(2026, month - 1, day)).getUTCDay() % 6 !== 0 && !HOLIDAYS_2026.has(`${month}-${day}`);
+      const fixes = resident.filter((w) => { const d = dayOf(w.attrs.actstart); return d !== null && d.m === month && d.d === day; }).sort((a, b) => a.wonum!.localeCompare(b.wonum!));
+      const news = fresh.get(day) ?? [];
+      if (workday || fixes.length > 0 || news.length > 0) {
+        const lines: ReportLine[] = [];
+        if (workday) lines.push(routineLine(0, r));
+        const todays = pms.filter((a) => (a.actstart as string).startsWith(`2026-${pad(month, 2)}-${pad(day, 2)}`)).sort((a, b) => String(a.wonum).localeCompare(String(b.wonum)));
+        const cap = workday ? 7.5 : 4.5;
+        for (const a of todays.slice(0, workday ? r.int(1, 2) : 0)) {
+          const cat = a.worktype === "CAL" ? "校正" : a.worktype === "INSP" ? "点検" : "定期点検";
+          const text = String(a.description).replace(/（\d+か?(月|年|週)）$/, r.chance(0.5) ? "" : "$&").replace(/^(\d)号炉 /, (_m, n: string) => r.pick([`${n}号炉 `, `${n}炉 `, `#${n} `]));
+          const crew = r.int(1, 2);
+          lines.push({ cat, text, hours: hoursOf(Math.min(4, Number(a.actlabhrs ?? 1) / crew || 1), r), crew, kind: "PM", pmWonum: String(a.wonum) });
+        }
+        for (const w of fixes) lines.push(...repairLines(w, r.fork(w.wonum!), cap));
+        lines.push(...news);
+        if (workday && r.chance(0.6)) lines.push(routineLine(r.int(1, 3), r));
+        // 前の行と同じ作業区分は「〃」と書く
+        for (let i = 1; i < lines.length; i++) if (lines[i]!.cat === lines[i - 1]!.cat && r.chance(0.6)) lines[i] = { ...lines[i]!, cat: "〃" };
+        const lead = fixes.map((w) => c.person(typeof w.attrs.lead === "string" ? w.attrs.lead : null)?.last).find(Boolean) ?? r.pick(["佐藤", "鈴木", "田中"]);
+        const em = fixes.some((w) => w.attrs.worktype === "EM");
+        const pending = fixes.find((w) => w.attrs.status === "INPRG");
+        const watch = fixes.find((w) => w.truth && (w.truth.remedy === "TEMP" || w.truth.remedy === "NOACTION"));
+        const remedies = fixes.map((w) => w.truth?.remedy ?? "").filter((x) => MATERIALS[x]);
+        seq++;
+        reports.push({
+          day, spot: false, no: `${month}-${pad(seq, 2)}`, contract: r.chance(0.9) ? RESIDENT_CONTRACT : r.pick(RESIDENT_CONTRACT_VARIANTS), vendorName: RESIDENT_VENDOR, vendor: null, ponum: null,
+          lead, crew: workday ? r.int(3, 6) : Math.min(5, Math.max(2, fixes.length)),
+          time: workday ? (em ? "8:30〜19:30" : r.pick(["8:30〜17:15", "8:30〜17:15", "8:30〜17:00"])) : fixes.length >= 3 ? "8:30〜17:15" : r.pick(["9:00〜15:00", "10:00〜14:30"]),
+          weather: weather(month, r), writer: lead, place: r.pick(["場内一円", "場内一円", "工場棟"]), lines,
+          notes: pending ? `${woEquip(pending, r)} 部品手配中。入荷後に交換予定。` : watch ? `${woEquip(watch, r)} 経過観察とする。` : r.pick(["特になし", "", "引継ぎ事項なし"]),
+          materials: remedies.length > 0 ? [...new Set(remedies.map((x) => r.pick(MATERIALS[x]!)))].join("、") : r.pick(["", "ウエス", "—"]),
+        });
+      }
+      // 業者に発注した修繕: その工事の日に別の日報
+      for (const w of spot.filter((x) => { const d = dayOf(x.attrs.actstart); return d !== null && d.m === month && d.d === day; }).sort((a, b) => a.wonum!.localeCompare(b.wonum!))) {
+        const s = r.fork(`spot-${w.wonum}`);
+        const t = w.truth!;
+        const equip = woEquip(w, s);
+        const issue = s.pick(PROB_JA[t.prob] ?? [tx.t(PROBLEMS[t.prob]!)]);
+        const cause = tx.t(CAUSES[t.cause] ?? "");
+        const remedy = tx.t(REMEDIES[t.remedy] ?? "");
+        const pos = w.asset?.pos;
+        const contract = `${s.chance(0.5) ? "北部クリーンセンター " : s.chance(0.5) ? "北部CC " : ""}${pos ? `${pos.line > 0 ? `${pos.line}号炉` : ""}${c.bare(pos.desc).replace(/ [A-Z]号機$| No\.\d+$/, "")}` : (w.locDesc ?? "")} ${SPOT_WORK[t.prob] ?? "修繕"}`.replace(/\s+/g, " ").trim();
+        const crew = s.int(2, 4);
+        const hrs = Math.min(6, Number(w.attrs.actlabhrs ?? 0) / crew || Number(w.attrs.estdur ?? 4));
+        const lines: ReportLine[] = [
+          { cat: "準備", text: s.pick(["準備・養生", "KY活動、養生", "仮設足場・養生"]), hours: hoursOf(0.5, s), crew, kind: "WO", wo: w },
+          { cat: "点検", text: `${equip} ${issue} 原因調査・分解点検`, hours: hoursOf(hrs * 0.4, s), crew, kind: "WO", wo: w },
+          { cat: "修繕", text: `${cause}のため${remedy}`, hours: hoursOf(hrs * 0.4, s), crew, kind: "WO", wo: w },
+          { cat: "試運転", text: s.pick(["試運転・復旧確認 異常なし", "復旧後 試運転確認 良好", "試運転 振動・温度 異常なし"]), hours: hoursOf(0.5, s), crew, kind: "WO", wo: w },
+        ];
+        if (s.chance(0.5)) lines.push({ cat: "片付け", text: "片付け・清掃", hours: hoursOf(0.5, s), crew, kind: "WO", wo: w });
+        const finish = dayOf(w.attrs.actfinish);
+        reports.push({
+          day, spot: true, no: `修-${month}${pad(day, 2)}-${w.wonum!.slice(-2)}`, contract, vendorName: c.companyVariant(String(w.attrs.vendor), s), vendor: String(w.attrs.vendor), ponum: w.order?.ponum ?? null,
+          lead: s.pick(SPOT_LEADS), crew, time: s.pick(["8:30〜17:00", "9:00〜16:30", "8:00〜17:00"]), weather: weather(month, s), writer: s.pick(SPOT_LEADS), place: equip, lines,
+          notes: finish !== null && (finish.m !== month || finish.d !== day) ? `工期 ${month}/${day}〜${finish.m}/${finish.d}。翌日も継続。` : s.pick(["工事完了。監督員立会いにて試運転確認済み。", "工事完了。", "完了。報告書は後日提出。"]),
+          materials: MATERIALS[t.remedy] ? s.pick(MATERIALS[t.remedy]!) : "",
+        });
+      }
+    }
+    reportCounts[sheetName] = reports.length;
+
+    // ---- 帳票を並べる（1 枚 = A4 縦 1 ページ） ----
+    const rows: CellInput[][] = [];
+    const merges: string[] = [];
+    const heights: Record<number, number> = {};
+    const breaks: number[] = [];
+    const F = (v: string | number | null, s: CellSpec["s"] = "fCell"): CellSpec => ({ v, s });
+    const put = (r: number, col: number, spec: CellInput) => {
+      while (rows.length <= r) rows.push([]);
+      const row = rows[r]!;
+      while (row.length < col) row.push(undefined);
+      row[col] = spec;
+    };
+    /** 結合して、範囲のすべてのセルに書式を付ける（罫線を引くため） */
+    const box = (r1: number, c1: number, r2: number, c2: number, spec: CellSpec) => {
+      for (let r = r1; r <= r2; r++) for (let k = c1; k <= c2; k++) put(r, k, r === r1 && k === c1 ? spec : { v: null, s: spec.s });
+      if (r1 !== r2 || c1 !== c2) merges.push(`${colName(c1)}${r1 + 1}:${colName(c2)}${r2 + 1}`);
+    };
+    for (const rep of reports) {
+      const b = rows.length;
+      put(b, 0, F("北部クリーンセンター", "fSmall"));
+      box(b, 2, b, 4, F(rep.spot ? "作 業 報 告 書" : "作　業　日　報", "fTitle"));
+      put(b, 5, F("監督員", "fLabel"));
+      put(b, 6, F("係長", "fLabel"));
+      put(b, 7, F(rep.spot ? "現場代理人" : "担当", "fLabel"));
+      heights[b + 1] = 30;
+      put(b + 1, 0, F(`No. ${rep.no}`, "fSmall"));
+      for (let k = 5; k <= 7; k++) put(b + 1, k, F(null, "fCenter"));
+      heights[b + 2] = 34;
+      heights[b + 3] = 6;
+      box(b + 3, 0, b + 3, 1, F("委託契約工事名", "fLabel"));
+      box(b + 3, 2, b + 3, 7, F(rep.contract));
+      box(b + 4, 0, b + 4, 1, F("受注者", "fLabel"));
+      box(b + 4, 2, b + 4, 4, F(rep.vendorName));
+      put(b + 4, 5, F("作業日", "fLabel"));
+      box(b + 4, 6, b + 4, 7, F(dateText(month, rep.day, rng.fork(`date-${rep.no}`)), "fCenter"));
+      box(b + 5, 0, b + 5, 1, F("作業責任者", "fLabel"));
+      put(b + 5, 2, F(rep.lead, "fCenter"));
+      put(b + 5, 3, F("作業員", "fLabel"));
+      put(b + 5, 4, F(`${rep.crew} 名`, "fCenter"));
+      put(b + 5, 5, F("作業時間", "fLabel"));
+      box(b + 5, 6, b + 5, 7, F(rep.time, "fCenter"));
+      box(b + 6, 0, b + 6, 1, F("天候", "fLabel"));
+      put(b + 6, 2, F(rep.weather, "fCenter"));
+      put(b + 6, 3, F("記入者", "fLabel"));
+      put(b + 6, 4, F(rep.writer, "fCenter"));
+      put(b + 6, 5, F("作業場所", "fLabel"));
+      box(b + 6, 6, b + 6, 7, F(rep.place, "fCenter"));
+      for (let k = 3; k <= 6; k++) heights[b + k + 1] = 22;
+      heights[b + 8] = 6;
+      const h = b + 8;
+      put(h, 0, F("No.", "fHead"));
+      put(h, 1, F("作業区分", "fHead"));
+      box(h, 2, h, 5, F("作業内容", "fHead"));
+      put(h, 6, F("時間", "fHead"));
+      put(h, 7, F("人員", "fHead"));
+      heights[h + 1] = 22;
+      const n = Math.max(REPORT_LINES, rep.lines.length);
+      for (let i = 0; i < n; i++) {
+        const l = rep.lines[i];
+        const r = h + 1 + i;
+        put(r, 0, F(l ? i + 1 : null, "fCenter"));
+        put(r, 1, F(l ? l.cat : null, "fCenter"));
+        box(r, 2, r, 5, F(l ? l.text : null, "fWrap"));
+        put(r, 6, l ? l.hours ?? F(null, "fCenter") : F(null, "fCenter"));
+        put(r, 7, F(l?.crew ?? null, "fCenter"));
+        heights[r + 1] = 28;
+        if (!l) continue;
+        const w = l.wo;
+        const t = w?.truth;
+        truth.push({
+          sheet: sheetName, row: r + 1, report: rep.no, date: `2026-${pad(month, 2)}-${pad(rep.day, 2)}`, contract: rep.spot ? "SPOT" : "RESIDENT", contractName: rep.contract, kind: l.kind,
+          ...(w ? { wonum: w.wonum! } : l.pmWonum ? { wonum: l.pmWonum } : {}),
+          ...(rep.spot && rep.ponum ? { ponum: rep.ponum } : {}), ...(rep.spot && rep.vendor ? { vendor: rep.vendor } : {}),
+          ...(t ? { codeMode: t.codeMode, prob: t.prob, cause: t.cause, remedy: t.remedy, failurecodeMissing: t.codeMode !== "full" } : {}),
+          ...(l.fresh ? { fresh: l.fresh, prob: l.fresh.prob, cause: l.fresh.cause, remedy: l.fresh.remedy, failurecodeMissing: true } : {}),
+        });
+      }
+      const s0 = h + 1 + n + 1;
+      heights[s0] = 6;
+      box(s0, 0, s0 + 2, 1, F("特記事項\n引継ぎ", "fLabel"));
+      box(s0, 2, s0 + 2, 7, F(rep.notes || null, "fWrap"));
+      for (let k = 0; k < 3; k++) heights[s0 + k + 1] = 20;
+      box(s0 + 3, 0, s0 + 3, 1, F("使用材料", "fLabel"));
+      box(s0 + 3, 2, s0 + 3, 7, F(rep.materials || null, "fWrap"));
+      heights[s0 + 4] = 22;
+      breaks.push(s0 + 4);
+      heights[s0 + 5] = 10;
+      rows[s0 + 4] = [];
+    }
+    sheets.push({ name: sheetName, rows, merges, cols: [5, 10, 12, 12, 12, 11, 9, 9], rowHeights: heights, print: { breaks: breaks.slice(0, -1), footer: "&A　&P / &N" } });
+  }
+  return {
+    id: "repair-log",
+    fileName: "作業日報_北部_2026年度上半期.xlsx",
+    title: "作業日報（北部 2026年度上半期）",
+    sheets,
+    truth: { rows: truth, reports: reportCounts },
+  };
+
+  /** 巡視・清掃・給油・打合せの行 */
+  function routineLine(kind: number, r: Rng): ReportLine {
+    const [cat, texts] = ROUTINE_JA[kind]!;
+    return { cat, text: r.pick(texts), hours: hoursOf(kind === 0 ? 1 : r.pick([0.5, 1, 1.5, 2]), r), crew: r.int(1, 3), kind: "ROUTINE" };
+  }
 }
 
 // ---------------------------------------------------------------------------

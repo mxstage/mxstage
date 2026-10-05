@@ -60,4 +60,6 @@ $xl.Quit()
 
 - データの中身を変えたら `dev/datasets/plants/generate.ts` の `DATASET_VERSION` を上げる。新しい版は `v<版>/` に置き、古い版のフォルダも残す（古い製品が落とせるように）。
   `wrangler pages deploy` は配置ごとに中身を丸ごと置き換えるので、古い版を残すときは前の版の `dist/demo-data/v<古い版>/` も一緒に置く。
-- 製品に埋め込んだ版と SHA-256 を、新しい manifest のものに直してから製品を出す。
+- 製品に埋め込んだ版と SHA-256（`src/shared/demo.ts` の `DEMO_DATA_VERSION`・`DEMO_MANIFEST_SHA256`）を、新しい manifest のものに直してから製品を出す。
+  直し忘れると `npm run demo:build` が注意を出し、`npx vitest run --project dev` が落ちる。
+- まだどの版の製品も使っていない版は、同じ `v<版>/` に上書きしてよい（v2 は 2026-10-05 に作業日報へ差し替えて上書きした）。

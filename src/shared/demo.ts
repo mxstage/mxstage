@@ -12,7 +12,7 @@ export const DEMO_DATA_URL = "https://mxstage-demo.pages.dev";
 /** この製品が使うデータの版（置き場所の v<版>/） */
 export const DEMO_DATA_VERSION = 2;
 /** v<版>/manifest.json の SHA-256（npm run demo:build が最後に出す値） */
-export const DEMO_MANIFEST_SHA256 = "1e841a3304df3bdc00037d9f30f88df9a130947eafa929ff07e9e10db1ac9f14";
+export const DEMO_MANIFEST_SHA256 = "35beaae3ad2d60f647c8c082c6eaf0dd38a3c24940307f32c0faef2db5fd8e88";
 
 /** 予約の接続先 ID（保存した接続先の ID は c_<16 桁>なので重ならない） */
 export const DEMO_CONNECTION_IDS: Readonly<Record<DemoLang, string>> = { ja: "demo-ja", en: "demo-en" };

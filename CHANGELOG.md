@@ -7,7 +7,7 @@ All notable changes to MX Stage are listed here. Versions follow [Semantic Versi
 ### Added
 
 - **Try without Maximo.** Settings → Demo downloads fictional sample data (three waste incineration plants, in Japanese or English) and runs a demo Maximo inside the bridge on your PC. Load, fix and commit as with a real Maximo; commits change only the copy on your PC and can be reset. The data (about 10 MB, no programs) comes from `mxstage-demo.pages.dev` only when you press **Download data and connect**, is checked against a SHA-256 built into this version, and works offline afterwards. The demo is always a test environment and needs no license. It takes about 0.5 GB of memory while in use and is released when you close it, after an hour without use, or when MX Stage restarts. See [docs/demo.en.md](docs/demo.en.md).
-- Five sample Excel files to merge with the demo (purchase orders without work order numbers, a legacy equipment register, a repair log, an equipment register ahead of Maximo, a star chart). **Load into work screen** adds one as if you had dropped it there.
+- Five sample Excel files to merge with the demo (purchase orders without work order numbers, a legacy equipment register, daily work reports printed as A4 forms (a repair log table in the English data), an equipment register ahead of Maximo, a star chart). **Load into work screen** adds one as if you had dropped it there.
 - A purple **Demo** badge in the top bar while connected to the demo. get_status and open_grid tell the AI about the demo.
 - `--no-demo` turns the demo off.
 

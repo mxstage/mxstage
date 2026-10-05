@@ -50,6 +50,18 @@ jobs:
           else
             npm publish ./dist/npm --access public
           fi
+      # 出した直上の版は npm に見えるまで 1〜2 分かかる。見える前に Registry に載せると 404 で断られる（0.2.5 で起きた）
+      - name: Wait until npm shows the version
+        run: |
+          version=$(node -p "require('./dist/npm/package.json').version")
+          listed=$(node -p "(require('./server.json').packages || []).some(p => p.registryType === 'npm' && p.version === '$version')")
+          if [ "$listed" != "true" ]; then exit 0; fi
+          for i in $(seq 1 30); do
+            if npm view "@mxstage/mxstage@$version" version > /dev/null 2>&1; then echo "npm に $version が見えた"; exit 0; fi
+            sleep 20
+          done
+          echo "10 分待っても npm に $version が見えない（あとで Registry の段だけやり直す）"
+          exit 1
       - name: Install mcp-publisher
         run: curl -sSL "https://github.com/modelcontextprotocol/registry/releases/download/v1.8.1/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
       - name: Log in with GitHub OIDC

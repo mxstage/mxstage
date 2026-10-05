@@ -34,6 +34,7 @@ export const SERVER_INSTRUCTIONS =
   "Always load Maximo data into work screen sheets (load_sheet, load_master, scope_options) and read it from the sheets (query_rows, aggregate), so that the user can see and check the same data in the work screen. " +
   "If the user wants to keep a procedure, show it to them, get their agreement, then save it as a user Skill with save_skill. " +
   "Maximo is written to only when the user approves in the work screen. If a commit is blocked because a license is needed, tell the user what the work screen says and do not retry. Never ask for API keys in the chat. " +
+  "If the user has no Maximo, they can try MX Stage with the built-in demo (a fictional Maximo with sample data, running on their PC): give them demoUrl from open_grid. " +
   "Reply to the user in the language they use.";
 
 /**
@@ -230,7 +231,7 @@ export async function runWorkerTool(deps: BridgeMcpDeps, name: ToolName, args: R
   const { origin } = deps;
   switch (name) {
     case "open_grid":
-      return jsonResult({ appUrl: `${origin}/app`, settingsUrl: `${origin}/settings`, tabConnected: await tabConnected(deps.hub) });
+      return jsonResult({ appUrl: `${origin}/app`, settingsUrl: `${origin}/settings`, demoUrl: `${origin}/settings#demo`, tabConnected: await tabConnected(deps.hub) });
 
     case "list_skills": {
       // origin: default（アプリ既定）/ user（利用者の Skill）。読み込めなかった利用者の Skill は problems に出す

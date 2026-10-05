@@ -20,6 +20,8 @@ export interface BridgeOptions {
    * （dev/fake-maximo.license.key。偽の Maximo https://127.0.0.1:9797 だけに使える）を読む
    */
   devLicense: boolean;
+  /** Maximo が無くても試せるデモ（設定の「デモ」）を使えるか（既定は使える。--no-demo で切る） */
+  demo: boolean;
 }
 
 export type ParseResult =
@@ -43,6 +45,8 @@ Options:
   --insecure         Accept a Maximo with a self-signed certificate (turns off verification for that connection only)
   --app-dir <path>   Location of the work screen files (dist/app)
   --no-mcp           Do not act as a stdio MCP server (serve the work screen only)
+  --no-demo          Turn off the built-in demo (Settings > Demo). The demo downloads sample data
+                     from mxstage-demo.pages.dev only when the user asks for it
   --dev-license      For developing and testing MX Stage: accept test license keys and read the development
                      key for the fake Maximo (https://127.0.0.1:9797) (npm run dev:bridge adds it)
   --version          Show the version
@@ -66,7 +70,7 @@ function splitList(value: string): string[] {
 
 /** argv（process.argv.slice(2) の部分）を解釈する */
 export function parseArgs(argv: readonly string[]): ParseResult {
-  const options: BridgeOptions = { port: DEFAULT_PORT, open: false, allowHosts: [], insecure: false, mcp: true, appDir: null, devLicense: false };
+  const options: BridgeOptions = { port: DEFAULT_PORT, open: false, allowHosts: [], insecure: false, mcp: true, appDir: null, devLicense: false, demo: true };
 
   for (let i = 0; i < argv.length; i += 1) {
     const raw = argv[i] as string;
@@ -115,6 +119,9 @@ export function parseArgs(argv: readonly string[]): ParseResult {
         break;
       case "--dev-license":
         options.devLicense = true;
+        break;
+      case "--no-demo":
+        options.demo = false;
         break;
       case "--app-dir": {
         const v = next();

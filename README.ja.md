@@ -215,7 +215,7 @@ npm run typecheck      # tsc（app / bridge）
 npx vitest run         # 試験（app / bridge）
 npm run test:setup     # 導入スクリプトの試験（一時フォルダだけに書き、本物の claude コマンドは呼ばない）
 npm run build          # アプリ既定の Skill の生成と画面のビルド（dist/app）
-npm run dev:app        # 画面の開発サーバ（http://localhost:5173/app?demo=1 で架空のサンプルを表示。中継は開発用の橋渡し 8790 へ）
+npm run dev:app        # 画面の開発サーバ（http://localhost:5173/app?samples=1 で架空のサンプルを表示。中継は開発用の橋渡し 8790 へ）
 node scripts/check-publish.mjs --worktree   # 送る前の検査（docs/publish.md）
 ```
 

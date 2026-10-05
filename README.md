@@ -140,7 +140,7 @@ npm run typecheck      # tsc (app and bridge)
 npx vitest run         # tests (app and bridge)
 npm run test:setup     # installer tests (write only to temporary folders)
 npm run build          # build the built-in Skills and the work screen (dist/app)
-npm run dev:app        # dev server for the work screen (http://localhost:5173/app?demo=1 shows sample data; relays to the dev bridge on 8790)
+npm run dev:app        # dev server for the work screen (http://localhost:5173/app?samples=1 shows sample data; relays to the dev bridge on 8790)
 npm run dev:fake-maximo  # a fake Maximo at https://127.0.0.1:9797 (API key: test-api-key)
 npm run dev:bridge     # a bridge on port 8790 that accepts the development license for the fake Maximo
 ```

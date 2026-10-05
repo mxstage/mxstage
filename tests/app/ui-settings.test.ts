@@ -294,13 +294,13 @@ describe("設定画面のフォーム", () => {
 });
 
 describe("設定画面のタブ", () => {
-  it("接続・AI アシスタント・Skill・言語のタブがあり（ライセンスを渡さなければライセンスのタブは無い）、各パネルはタブの名前を持つ", async () => {
+  it("接続・デモ・AI アシスタント・Skill・言語のタブがあり（ライセンスを渡さなければライセンスのタブは無い）、各パネルはタブの名前を持つ", async () => {
     await render({ vault: new FakeVault() });
     const tablist = q<HTMLElement>('[role="tablist"]')!;
     expect(tablist.getAttribute("aria-label")).toBe("設定の項目");
     const tabs = Array.from(container.querySelectorAll<HTMLElement>('[role="tab"]'));
-    expect(tabs.map((t) => t.dataset.tab)).toEqual(["connection", "assistants", "skills", "updates", "language"]);
-    expect(tabs.map((t) => t.textContent)).toEqual(["接続", "AI アシスタント", "Skill", "更新", "言語"]);
+    expect(tabs.map((t) => t.dataset.tab)).toEqual(["connection", "demo", "assistants", "skills", "updates", "language"]);
+    expect(tabs.map((t) => t.textContent)).toEqual(["接続", "デモ", "AI アシスタント", "Skill", "更新", "言語"]);
     for (const tab of tabs) {
       const p = container.querySelector<HTMLElement>(`[role="tabpanel"][data-tab="${tab.dataset.tab}"]`)!;
       // パネルの名前はタブ、中にも見出しがある
@@ -365,7 +365,7 @@ describe("設定画面のタブ", () => {
     expect(visiblePanels()).toEqual(["connection"]);
   });
 
-  it("タブの名前は 6 つ（URL に出す名前）", () => {
-    expect([...SETTINGS_TABS]).toEqual(["connection", "license", "assistants", "skills", "updates", "language"]);
+  it("タブの名前は 7 つ（URL に出す名前）", () => {
+    expect([...SETTINGS_TABS]).toEqual(["connection", "demo", "license", "assistants", "skills", "updates", "language"]);
   });
 });

@@ -25,6 +25,7 @@ import { isPortInUseError, startBridgeServer } from "./server.ts";
 import type { LicenseStore } from "./license.ts";
 import type { ConnectionStore } from "./connections.ts";
 import type { UpdateManager } from "./updates.ts";
+import type { DemoManager } from "./demo.ts";
 import type { BridgeServer } from "./server.ts";
 
 /** CLI の client が primary の終了を確かめる間隔 */
@@ -71,6 +72,8 @@ export interface BridgeCoordinatorOptions {
   connections?: ConnectionStore | null;
   /** 新しい版の確認と入れ替え（primary のとき /_mxstage/updates で作業画面に出す） */
   updates?: UpdateManager | null;
+  /** Maximo が無くても試せるデモ（primary のとき /_mxstage/demo と、デモの接続先の /mx で使う） */
+  demo?: DemoManager | null;
 }
 
 export class BridgeCoordinator {
@@ -244,6 +247,7 @@ export class BridgeCoordinator {
       license: this.opts.license ?? null,
       connections: this.opts.connections ?? null,
       updates: this.opts.updates ?? null,
+      demo: this.opts.demo ?? null,
     });
   }
 

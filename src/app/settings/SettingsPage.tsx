@@ -1,7 +1,7 @@
 // API 設定画面 /settings（トップレベルのページ。iframe に入れない）。
 // Maximo への接続は、パスワードマネージャーが保存を検知できる標準のログインフォームの形にする。
 // API キーの入力欄は React の state に持たない（非制御の入力欄から読んで Web Worker に渡し、すぐ空にする）。
-// 節はタブに分ける（接続・ライセンス・AI アシスタント・Skill・言語）。選んだタブは URL のハッシュ（/settings#license）に出す。
+// 節はタブに分ける（接続・デモ・ライセンス・AI アシスタント・Skill・更新・言語）。選んだタブは URL のハッシュ（/settings#license）に出す。
 // タブを切り替えても各節は描いたまま（隠すだけ）にして、入力途中の値を失わない。
 
 import { Button, Checkbox, Form, Layer, RadioButton, RadioButtonGroup, Select, SelectItem, Tab, TabList, TabPanel, TabPanels, Tabs, TextInput } from "@carbon/react";
@@ -9,16 +9,20 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { LOCALES, getLocale, isLocale, subscribeLocale } from "../../shared/i18n";
 import type { AutoConnector } from "../connections/auto";
 import type { SavedConnection, SavedConnectionsClient, SaveProblem } from "../connections/client";
+import type { DemoApi } from "../demo/client";
+import { demoMessages } from "../demo/messages";
+import type { ImportStore } from "../imports";
 import type { ConnectInput, VaultView } from "../keyvault/client";
 import type { Environment, LicenseClient } from "../license/client";
 import { licenseMessages } from "../license/messages";
 import type { MaximoVia } from "../maximo/client";
 import { hostOf } from "../pages/status";
 import type { MaximoConnectionInfo } from "../runtime/contracts";
-import { spaClick } from "../ui/Link";
+import { Link, spaClick } from "../ui/Link";
 import { chooseLocale } from "../ui/locale";
 import { Notice } from "../ui/Notice";
-import { APP_PATH, NAVIGATE_EVENT, settingsTabOf, type SettingsTab } from "../ui/routes";
+import { APP_PATH, NAVIGATE_EVENT, settingsPath, settingsTabOf, type SettingsTab } from "../ui/routes";
+import { DemoSection } from "./DemoSection";
 import { LicenseSection } from "./LicenseSection";
 import { UpdatesSection } from "./UpdatesSection";
 import type { UpdatesApi } from "./updates";
@@ -74,6 +78,10 @@ export interface SettingsPageProps {
   autoConnect?: AutoConnector | null;
   /** 更新の窓口（省くと橋渡しの /_mxstage/updates） */
   updates?: UpdatesApi;
+  /** デモの窓口（省くと橋渡しの /_mxstage/demo） */
+  demo?: DemoApi;
+  /** サンプルの Excel を入れる置き場（作業画面と同じ）。省くと「作業画面に取り込む」を出さない */
+  imports?: ImportStore | null;
 }
 
 /** 接続に成功したら、この URL に replaceState する（パスワードマネージャーの保存検知のため URL を変える） */
@@ -196,6 +204,19 @@ export function SettingsPage(props: SettingsPageProps) {
           replaceUrl={replaceUrl}
           license={props.license ?? null}
           saved={props.connections && props.autoConnect ? { client: props.connections, auto: props.autoConnect } : null}
+        />
+      ),
+    },
+    {
+      id: "demo",
+      label: demoMessages().tab,
+      content: (
+        <DemoSection
+          vault={vault}
+          connections={props.connections ?? null}
+          autoConnect={props.autoConnect ?? null}
+          imports={props.imports ?? null}
+          {...(props.demo ? { api: props.demo } : {})}
         />
       ),
     },
@@ -534,6 +555,9 @@ function MaximoSection({ vault, view, storage, passwordCredential, replaceUrl, l
       <h2>{t.title}</h2>
       {view.kind === "locked" && <Notice kind="warning">{view.reason === "idle" ? t.lockedIdle : t.lockedManual}</Notice>}
       {savedList}
+      <p className="muted small demo-hint">
+        <Link to={settingsPath("demo")}>{demoMessages().noMaximoHint}</Link>
+      </p>
       {editing !== null && <Notice kind="info">{s.editing(editing.name)}</Notice>}
       {!canSave ? <p className="muted">{t.keyNote}</p> : !willSave ? <p className="muted">{s.unsavedKeyNote}</p> : null}
       {/* カードは layer-01 の面。入力欄は一段上の面の色で描く */}

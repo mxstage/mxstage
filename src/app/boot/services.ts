@@ -72,6 +72,7 @@ export function createServices(): AppServices {
     license,
     connections,
     autoConnect,
+    imports,
     createRuntime: (extras) => {
       const runtime = createRuntime({
         ...(extras?.workspace ? { initialWorkspace: extras.workspace } : {}),
@@ -90,10 +91,10 @@ export function createServices(): AppServices {
         onImport: (file) => toasts.show(uiMessages().drop.imported(file.fileName)),
         onImportError: (_importId, reason) => toasts.show(uiMessages().drop.importFailed(importErrorLabel(reason)), "error"),
       });
-      // 開発サーバ（vite dev）で ?demo=1 のときだけ、サンプルのシートを入れて画面を確かめられるようにする。
+      // 開発サーバ（vite dev）で ?samples=1 のときだけ、サンプルのシートを入れて画面を確かめられるようにする。
       // 本番のビルドでは import.meta.env.DEV が false の定数になり、この中ごと落ちる
-      if (import.meta.env.DEV && new URLSearchParams(window.location.search).has("demo")) {
-        void import("./demo").then(({ seedDemoWorkspace }) => seedDemoWorkspace(runtime.workspace));
+      if (import.meta.env.DEV && new URLSearchParams(window.location.search).has("samples")) {
+        void import("./samples").then(({ seedSampleWorkspace }) => seedSampleWorkspace(runtime.workspace));
       }
       return runtime;
     },

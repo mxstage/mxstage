@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { CellValue } from "../../src/shared/model";
-import { afterLabel, buildShapedSheet, formHint, mergeSummary, shapeImport, splitTokens, type ShapeOptions } from "../../src/app/imports/shape";
+import { afterLabel, buildShapedSheet, formHint, mergeSummary, shapeImport, shapeImportMany, splitTokens, type ShapeOptions } from "../../src/app/imports/shape";
 import { ImportError, type MergeRange, type RawTable } from "../../src/app/imports/table";
 import { parseXlsx } from "../../src/app/imports/xlsx";
 import { makeXlsx } from "./xlsx-fixture";
@@ -86,6 +86,11 @@ describe("帳票の読み取り（form）", () => {
     expect(b.notes).toMatchObject({ filledDown: { 作業区分: 1 } });
   });
 
+  it("上の欄のラベル（特記事項）が明細の下にあれば、until が無くてもそこで明細を終える", () => {
+    const b = build(t, { form: { ...FORM, items: { header: "作業内容" } } });
+    expect(b.rows.map((r) => r.values.BLOCK)).toEqual([1, 1, 1, 2, 2, 2, 2, 2, 2, 3, 3]);
+  });
+
   it("明細を指定しなければ 1 帳票 1 行。値の右がほかのラベルなら空にする", () => {
     const one = table({
       1: ["作業日報"],
@@ -119,6 +124,47 @@ describe("帳票の読み取り（form）", () => {
       ["R8.4.1", "巡視"],
       ["R8.4.4", "緊急対応"],
     ]);
+  });
+
+  it("ラベルの言い換え・全角と半角・明細の見出しの言い換えを吸収する", () => {
+    const v = table({
+      1: ["作業日報"],
+      2: ["Ｎｏ．　４－０２"],
+      3: ["作業日：", "R8.4.1"],
+      4: ["No.", "区分", "作業内容"],
+      5: [1, "巡視", "場内巡視"],
+      8: ["作業日報"],
+      9: ["No. 4-03"],
+      // 2 枚目は「実施日」、明細は「内容」
+      10: ["実施日", "R8.4.2"],
+      11: ["No.", "区分", "内容"],
+      12: [1, "修理", "IDF 給脂"],
+    });
+    const b = build(v, {
+      form: { start: ["作業日報"], fields: { NO: "No.", DATE: ["作業日", "実施日"] }, items: { header: ["作業内容", "内容"], columns: { 作業内容: ["内容"] } } },
+    });
+    expect(b.rows.map((r) => [r.values.NO, r.values.DATE, r.values.区分, r.values.作業内容])).toEqual([
+      ["４－０２", "R8.4.1", "巡視", "場内巡視"],
+      ["4-03", "R8.4.2", "修理", "IDF 給脂"],
+    ]);
+    expect(b.meta.columns.map((c) => c.name)).toEqual(["SOURCE_ROW", "BLOCK", "NO", "DATE", "No.", "区分", "作業内容"]);
+    expect(afterLabel("ＮＯ．４－０４", "No.")).toBe("４－０４");
+  });
+
+  it("複数のシートを同じ読み方で 1 つの表にする（SHEET 列、BLOCK は通し番号）", () => {
+    const april = { ...table(report(1, { no: "4-01", date: "R8.4.1", contract: "委託", lines: [["巡視点検", "巡視", 1]] })), name: "4月" };
+    const may = { ...table({ ...report(1, { no: "5-01", date: "R8.5.1", contract: "委託", lines: [["清掃", "清掃", 1], ["〃", "給油", 0.5]] }), ...report(20, { no: "5-02", date: "R8.5.2", contract: "委託", lines: [["点検", "点検", 1]] }) }), name: "5月" };
+    const shaped = shapeImportMany([april, may], { form: FORM, fillDown: { columns: ["作業区分"], mode: "blank", ditto: true } });
+    const b = buildShapedSheet(shaped, { name: "x", source });
+    expect(b.rows.map((r) => [r.rowKey, r.values.SHEET, r.values.BLOCK, r.values.NO, r.values.作業区分])).toEqual([
+      ["4月:9", "4月", 1, "4-01", "巡視点検"],
+      ["5月:9", "5月", 2, "5-01", "清掃"],
+      ["5月:10", "5月", 2, "5-01", "清掃"],
+      ["5月:28", "5月", 3, "5-02", "点検"],
+    ]);
+    expect(b.meta.keyColumns).toEqual(["SHEET", "SOURCE_ROW"]);
+    expect(b.notes).toMatchObject({ forms: 3, sheets: [{ name: "4月", rows: 1, forms: 1 }, { name: "5月", rows: 3, forms: 2 }], filledDown: { 作業区分: 1 } });
+    expect(() => shapeImportMany([april, { ...table({ 1: ["表"] }), name: "6月" }], { form: FORM })).toThrow(/^6月: /);
   });
 
   it("値がラベルの下にある帳票（below）", () => {

@@ -30,7 +30,7 @@ import {
   buildShapedSheet,
   formHint,
   mergeSummary,
-  shapeImport,
+  shapeImportMany,
   SOURCE_ROW_COLUMN,
   type ImportColumn,
   type ImportEntry,
@@ -641,17 +641,27 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
   // ---------------------------------------------------------------------------
 
   /** apply_mapping の form・fillDown・unpivot（作業画面が値を動かす。AI は読み方だけを渡す） */
-  function applyShapedMapping(args: ToolArgs<"apply_mapping">, entry: ImportEntry, t: RawTable): ToolOutcome {
-    let shaped: ReturnType<typeof shapeImport>;
+  function applyShapedMapping(args: ToolArgs<"apply_mapping">, entry: ImportEntry, tables: readonly RawTable[]): ToolOutcome {
+    let shaped: ReturnType<typeof shapeImportMany>;
     try {
-      shaped = shapeImport(t, {
+      shaped = shapeImportMany(tables, {
         ...(args.headerRow !== undefined ? { headerRow: args.headerRow } : {}),
         ...(args.form !== undefined
           ? {
               form: {
                 start: args.form.start,
-                fields: Object.fromEntries(Object.entries(args.form.fields ?? {}).map(([k, f]) => [k, typeof f === "string" ? f : { label: f.label, ...(f.below !== undefined ? { below: f.below } : {}) }])),
-                ...(args.form.items !== undefined ? { items: { header: args.form.items.header, ...(args.form.items.until !== undefined ? { until: args.form.items.until } : {}) } } : {}),
+                fields: Object.fromEntries(
+                  Object.entries(args.form.fields ?? {}).map(([k, f]) => [k, typeof f === "string" || Array.isArray(f) ? f : { label: f.label, ...(f.below !== undefined ? { below: f.below } : {}) }]),
+                ),
+                ...(args.form.items !== undefined
+                  ? {
+                      items: {
+                        header: args.form.items.header,
+                        ...(args.form.items.until !== undefined ? { until: args.form.items.until } : {}),
+                        ...(args.form.items.columns !== undefined ? { columns: args.form.items.columns } : {}),
+                      },
+                    }
+                  : {}),
               },
             }
           : {}),
@@ -686,7 +696,8 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
       if (!finalNames.includes(k)) throw invalidArgs(withSuggestions(`Key column ${k} is not a column (use the names after rename)`, k, finalNames));
     }
     const headerRow = args.headerRow ?? shaped.rows[0]?.row ?? 1;
-    const source = { kind: "excel" as const, importId: entry.importId, fileName: entry.fileName, sheetName: t.name, headerRow };
+    const sheetName = tables.map((x) => x.name).join(", ");
+    const source = { kind: "excel" as const, importId: entry.importId, fileName: entry.fileName, sheetName, headerRow };
     let built: ReturnType<typeof buildShapedSheet>;
     try {
       built = buildShapedSheet(shaped, { name: args.name, source, rename, ...(args.keyColumns !== undefined ? { keyColumns: args.keyColumns } : {}) });
@@ -700,7 +711,7 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
     const value: Record<string, unknown> = {
       sheet: summary.name,
       replaced,
-      source: { importId: entry.importId, fileName: entry.fileName, sheetName: t.name, ...(args.headerRow !== undefined ? { headerRow: args.headerRow } : {}) },
+      source: { importId: entry.importId, fileName: entry.fileName, sheetName, ...(args.headerRow !== undefined ? { headerRow: args.headerRow } : {}) },
       rowCount: summary.rowCount,
       columns: summary.columns.map((c) => c.name),
       keyColumns: summary.keyColumns,
@@ -711,16 +722,19 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
     if (args.form !== undefined) {
       value.formNote = "One row per item of each form (BLOCK is the form number in order). Check missingFields and show the user a few rows next to the original forms before matching.";
       // describe_import の見立てと枚数が違えば知らせる（表題が 2 種類ある・始まりの文字が明細にもある、など）
-      const hint = formHint(t);
-      if (hint !== null && hint.forms !== built.notes.forms) {
-        value.formCountNote = `describe_import saw ${hint.forms} forms (labels such as ${hint.labels.slice(0, 3).join(", ")} repeat ${hint.forms} times), but form.start found ${String(built.notes.forms)}. Check form.start (every title in the file, or a label that appears once per form).`;
-      }
+      const perSheet = Array.isArray(built.notes.sheets) ? (built.notes.sheets as Array<{ name: string; forms?: number }>) : [{ name: tables[0]!.name, forms: built.notes.forms as number }];
+      const off = tables.flatMap((x, i) => {
+        const hint = formHint(x);
+        const got = perSheet[i]?.forms;
+        return hint !== null && got !== undefined && hint.forms !== got ? [`${x.name}: ${hint.forms} expected (labels such as ${hint.labels.slice(0, 3).join(", ")} repeat ${hint.forms} times), ${got} found`] : [];
+      });
+      if (off.length > 0) value.formCountNote = `The number of forms differs from describe_import: ${off.join("; ")}. Check form.start (every title in the file, or a label that appears once per form).`;
     }
     const renamed = Object.fromEntries(Object.entries(rename).filter(([from, to]) => from !== to.trim()));
     if (Object.keys(renamed).length > 0) value.renamed = renamed;
     const titles = columnTitleMap(summary.columns);
     if (Object.keys(titles).length > 0) value.columnTitles = titles;
-    if (t.truncatedRows) value.truncatedRowsNote = `Rows beyond ${IMPORT_MAX_ROWS} were not read. Tell the user that the row count differs from the original file.`;
+    if (tables.some((x) => x.truncatedRows)) value.truncatedRowsNote = `Rows beyond ${IMPORT_MAX_ROWS} were not read. Tell the user that the row count differs from the original file.`;
     return toolResult(value, revision());
   }
 
@@ -1241,10 +1255,13 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
 
     apply_mapping: async (args) => {
       const { entry, workbook } = await importWorkbook(args.importId);
-      const t = importTable(workbook, args.sourceSheet);
+      const sheetNames = Array.isArray(args.sourceSheet) ? args.sourceSheet : [args.sourceSheet];
+      if (new Set(sheetNames).size !== sheetNames.length) throw invalidArgs("A sheet is named twice in sourceSheet");
+      const tables = sheetNames.map((n) => importTable(workbook, n));
       assertNotBusy(args.name);
       assertReplaceable(args.name);
-      if (args.form !== undefined || args.fillDown !== undefined || args.unpivot !== undefined) return applyShapedMapping(args, entry, t);
+      if (tables.length > 1 || args.form !== undefined || args.fillDown !== undefined || args.unpivot !== undefined) return applyShapedMapping(args, entry, tables);
+      const t = tables[0] as RawTable;
       if (args.headerRow === undefined) throw invalidArgs("Give headerRow (the header row of the table), or form for a sheet of repeated forms");
       const headerRow = args.headerRow;
       if (!t.rows.some((r) => r.row === headerRow)) {

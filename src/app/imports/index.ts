@@ -2,7 +2,7 @@
 
 export { installImportDrop, type ImportDropOptions } from "./drop";
 export { IMPORT_KEEP_FILES, ImportStore, parseImportFile, type ImportEntry } from "./store";
-export { BLOCK_COLUMN, buildShapedSheet, formHint, mergeSummary, shapeImport, SOURCE_CELL_COLUMN, type FillDownSpec, type FormSpec, type ShapedImport, type UnpivotSpec } from "./shape";
+export { BLOCK_COLUMN, buildShapedSheet, formHint, mergeSummary, shapeImport, shapeImportMany, SHEET_COLUMN, SOURCE_CELL_COLUMN, type FillDownSpec, type FormSpec, type ShapedImport, type UnpivotSpec } from "./shape";
 export {
   buildImportSheet,
   columnLetter,

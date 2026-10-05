@@ -60,7 +60,8 @@ export interface UnpivotSpec {
 }
 
 export interface FormFieldSpec {
-  label: string;
+  /** ラベル。言い換えがあれば複数（帳票によって「作業日」「実施日」など） */
+  label: string | readonly string[];
   /** 値がラベルの下にある（既定は右） */
   below?: boolean;
 }
@@ -68,10 +69,13 @@ export interface FormFieldSpec {
 export interface FormSpec {
   /** 帳票の始まりの行にある文字（表題など。空白を除いて同じ文字のセルが当たる。括弧の注記が続いてもよい） */
   start: readonly string[];
-  /** 列名 → ラベル（値はラベルの右、below なら下の、空でない最初のセル） */
-  fields: Readonly<Record<string, string | FormFieldSpec>>;
-  /** 明細の表。header はその見出しの行にある文字、until は明細の終わりの行にある文字 */
-  items?: { header: string; until?: readonly string[] };
+  /** 列名 → ラベル（値はラベルの右、below なら下の、空でない最初のセル）。言い換えは配列で */
+  fields: Readonly<Record<string, string | readonly string[] | FormFieldSpec>>;
+  /**
+   * 明細の表。header はその見出しの行にある文字（言い換えは配列で）、until は明細の終わりの行にある文字。
+   * columns は列名 → 見出しの言い換え（「作業内容」と「内容」を 1 つの列にする）
+   */
+  items?: { header: string | readonly string[]; until?: readonly string[]; columns?: Readonly<Record<string, readonly string[]>> };
 }
 
 export interface ShapeOptions {
@@ -109,10 +113,12 @@ export interface ShapedImport {
   defaultKeys: string[];
 }
 
-/** ラベルの比べ方: 空白（全角も）とコロンを除き、英字は小文字 */
+/** ラベルの比べ方: 全角と半角・半角カナをそろえ（NFKC）、空白とコロンを除き、英字は小文字 */
 export function normLabel(v: CellValue | undefined): string {
-  return headerText(v).replace(/[\s　:：]/g, "").toLowerCase();
+  return headerText(v).normalize("NFKC").replace(/[\s:：]/g, "").toLowerCase();
 }
+
+const list = (v: string | readonly string[]): string[] => (typeof v === "string" ? [v] : [...v]);
 
 function valueOf(c: DraftColumn, r: DraftRow): CellValue {
   return c.index !== null ? (r.cells[c.index] ?? null) : (r.extra[c.name] ?? null);
@@ -192,19 +198,22 @@ interface Found {
   col: number;
   /** ラベルと同じ文字のセル（false はラベルで始まるセル。「No. 4-04」のように値が同じセルにあることがある） */
   exact: boolean;
+  /** 当たったラベル（言い換えのどれか） */
+  label: string;
 }
 
-/** 帳票の中で、ラベルに当たる最初のセル（同じ文字を先に、次に「その文字で始まる」） */
-function findLabel(rows: readonly RawRow[], label: string): Found | null {
-  const want = normLabel(label);
-  if (want === "") return null;
+/** 帳票の中で、ラベル（言い換えのどれか）に当たる最初のセル（同じ文字を先に、次に「その文字で始まる」） */
+function findLabel(rows: readonly RawRow[], labels: readonly string[]): Found | null {
+  const wants = labels.map((l) => ({ label: l, n: normLabel(l) })).filter((w) => w.n !== "");
+  if (wants.length === 0) return null;
   for (const exact of [true, false]) {
     for (const row of rows) {
       for (let c = 0; c < row.cells.length; c++) {
         const v = row.cells[c];
         if (typeof v !== "string") continue;
         const n = normLabel(v);
-        if (exact ? n === want : n.startsWith(want)) return { row, col: c, exact };
+        const hit = wants.find((w) => (exact ? n === w.n : n.startsWith(w.n)));
+        if (hit) return { row, col: c, exact, label: hit.label };
       }
     }
   }
@@ -219,13 +228,15 @@ export function afterLabel(text: string, label: string): string {
   while (i < text.length && k < want.length) {
     const ch = text[i] as string;
     if (ch === "\n" || ch === "\r") return "";
-    if (/[\s　:：]/.test(ch)) {
+    // 1 文字ずつ NFKC にそろえて比べる（全角の英数字は 1 文字、「㈱」のように 2 文字以上になるものもある）
+    const n = ch.normalize("NFKC").toLowerCase().replace(/[\s:：]/g, "");
+    if (n === "") {
       i++;
       continue;
     }
-    if (ch.toLowerCase() !== want[k]) return "";
+    if (want.slice(k, k + n.length) !== n) return "";
     i++;
-    k++;
+    k += n.length;
   }
   if (k < want.length) return "";
   const rest = text.slice(i);
@@ -237,13 +248,19 @@ export function afterLabel(text: string, label: string): string {
 function formShape(t: RawTable, spec: FormSpec): ShapedImport {
   const starts = spec.start.map(normLabel).filter((s) => s !== "");
   if (starts.length === 0) throw new ImportError("form.start needs at least one text");
-  const fieldEntries = Object.entries(spec.fields).map(([name, f]) => [name.trim(), typeof f === "string" ? { label: f } : f] as const);
+  const fieldEntries = Object.entries(spec.fields).map(
+    ([name, f]) => [name.trim(), typeof f === "string" || Array.isArray(f) ? { labels: list(f as string | readonly string[]), below: false } : { labels: list((f as FormFieldSpec).label), below: (f as FormFieldSpec).below === true }] as const,
+  );
   for (const [name] of fieldEntries) {
     if (name === "" || name === "__proto__" || name === SOURCE_ROW_COLUMN || name === BLOCK_COLUMN) throw new ImportError(`${JSON.stringify(name)} cannot be used as a field name`);
   }
   if (fieldEntries.length === 0 && spec.items === undefined) throw new ImportError("form needs fields or items");
+  const itemHeaders = spec.items ? list(spec.items.header) : [];
+  // 明細の列の言い換え（見出しの文字 → 列名）
+  const aliasOf = new Map<string, string>();
+  for (const [name, texts] of Object.entries(spec.items?.columns ?? {})) for (const x of [name, ...texts]) aliasOf.set(normLabel(x), name.trim());
   // ラベル（値と取り違えないよう、右・下を探すときに飛ばす）
-  const labels = new Set<string>([...fieldEntries.map(([, f]) => normLabel(f.label)), ...(spec.items ? [normLabel(spec.items.header), ...(spec.items.until ?? []).map(normLabel)] : [])]);
+  const labels = new Set<string>([...fieldEntries.flatMap(([, f]) => f.labels.map(normLabel)), ...itemHeaders.map(normLabel), ...(spec.items?.until ?? []).map(normLabel)]);
   const mergeAt = new Map<string, MergeRange>();
   for (const m of t.merges ?? []) mergeAt.set(`${m.r1}:${m.c1}`, m);
 
@@ -286,20 +303,28 @@ function formShape(t: RawTable, spec: FormSpec): ShapedImport {
   };
 
   const until = (spec.items?.until ?? []).map(normLabel).filter((s) => s !== "");
-  const isUntil = (r: RawRow) => until.length > 0 && r.cells.some((v) => typeof v === "string" && until.some((u) => normLabel(v).startsWith(u)));
+  // 明細は、until の文字か、上の欄のラベル（特記事項など、明細の下にある欄）の行の手前で終わる
+  const fieldLabels = new Set(fieldEntries.flatMap(([, f]) => f.labels.map(normLabel)));
+  const isUntil = (r: RawRow) =>
+    r.cells.some((v) => {
+      if (typeof v !== "string") return false;
+      const n = normLabel(v);
+      // 2 行のラベル（「特記事項」の下に「引継ぎ」）は 1 行目で比べる
+      return until.some((u) => n.startsWith(u)) || fieldLabels.has(n) || fieldLabels.has(normLabel(v.split(/\r?\n/)[0]));
+    });
   blocks.forEach((b, bi) => {
     const rowsIn = t.rows.filter((r) => r.row >= b.start && r.row <= b.end);
     const extra: Record<string, CellValue> = { [BLOCK_COLUMN]: bi + 1 };
     const src: Record<string, number> = {};
     // 明細の表（見出しの行から終わりの手前まで）
-    const head = spec.items === undefined ? null : findLabel(rowsIn, spec.items.header);
+    const head = spec.items === undefined ? null : findLabel(rowsIn, itemHeaders);
     const endRow = head === null ? null : (rowsIn.find((r) => r.row > head.row.row && isUntil(r))?.row ?? Number.MAX_SAFE_INTEGER);
     // 上の欄のラベルは明細の表の外で探す（明細の見出しの「No.」などと取り違えない）
     const headerArea = head === null ? rowsIn : rowsIn.filter((r) => r.row < head.row.row || r.row >= (endRow as number));
     for (const [name, f] of fieldEntries) {
-      const found = findLabel(headerArea, f.label);
-      const rest = found !== null && !found.exact ? afterLabel(String(found.row.cells[found.col]), f.label) : "";
-      const got = found === null ? null : rest !== "" ? { value: rest as CellValue, col: found.col } : valueNear(rowsIn, found, f.below === true);
+      const found = findLabel(headerArea, f.labels);
+      const rest = found !== null && !found.exact ? afterLabel(String(found.row.cells[found.col]), found.label) : "";
+      const got = found === null ? null : rest !== "" ? { value: rest as CellValue, col: found.col } : valueNear(rowsIn, found, f.below);
       extra[name] = got?.value ?? null;
       if (got) src[name] = got.col;
       else missing[name] = (missing[name] ?? 0) + 1;
@@ -317,16 +342,20 @@ function formShape(t: RawTable, spec: FormSpec): ShapedImport {
     head.row.cells.forEach((v, i) => {
       const h = headerText(v);
       if (h === "") return;
-      const key = normLabel(h);
+      const alias = aliasOf.get(normLabel(h));
+      // 言い換えを指定した列は 1 つにまとめる（キーは列名）。それ以外は見出しの文字ごと
+      const key = alias !== undefined ? `=${alias}` : normLabel(h);
       let col = itemByLabel.get(key);
       if (col === undefined) {
-        let name = h;
-        for (let n = 2; used.has(name) || name === "__proto__"; n++) name = `${h}_${n}`;
+        const base = alias ?? h;
+        let name = base;
+        for (let n = 2; used.has(name) || name === "__proto__"; n++) name = `${base}_${n}`;
         used.add(name);
         col = { name, header: h, letter: null, index: null };
         itemByLabel.set(key, col);
         itemColumns.push(col);
       }
+      if (local.some((l) => l.col === col)) return;
       local.push({ col, index: i });
     });
     for (const r of rowsIn) {
@@ -349,7 +378,7 @@ function formShape(t: RawTable, spec: FormSpec): ShapedImport {
 
   const columns: DraftColumn[] = [
     { name: BLOCK_COLUMN, header: "", letter: null, index: null },
-    ...fieldEntries.map(([name, f]) => ({ name, header: f.label, letter: null, index: null })),
+    ...fieldEntries.map(([name, f]) => ({ name, header: f.labels[0] ?? "", letter: null, index: null })),
     ...itemColumns,
   ];
   const notes: Record<string, unknown> = { forms: blocks.length };
@@ -497,6 +526,66 @@ export function shapeImport(t: RawTable, opts: ShapeOptions): ShapedImport {
   return shaped;
 }
 
+/** 複数のシートを 1 つの表にするときの、シートの名前の列 */
+export const SHEET_COLUMN = "SHEET";
+
+function addCounts(to: Record<string, number>, from: unknown): void {
+  if (!from || typeof from !== "object") return;
+  for (const [k, v] of Object.entries(from as Record<string, unknown>)) if (typeof v === "number") to[k] = (to[k] ?? 0) + v;
+}
+
+/**
+ * 複数のシート（4 月〜9 月など）を同じ読み方で整え、1 つの表にする。SHEET 列にシートの名前、rowKey は「シート:行」。
+ * BLOCK は通し番号にする。1 つなら shapeImport と同じ
+ */
+export function shapeImportMany(tables: readonly RawTable[], opts: ShapeOptions): ShapedImport {
+  if (tables.length === 1) return shapeImport(tables[0] as RawTable, opts);
+  const columns: DraftColumn[] = [{ name: SHEET_COLUMN, header: "", letter: null, index: null }];
+  const byName = new Map<string, DraftColumn>();
+  const rows: DraftRow[] = [];
+  const sheets: Array<Record<string, unknown>> = [];
+  const missing: Record<string, number> = {};
+  const filled: Record<string, number> = {};
+  const unpivot: Record<string, number> = {};
+  let forms = 0;
+  let firstKeys: string[] = [SOURCE_ROW_COLUMN];
+  tables.forEach((t, ti) => {
+    let s: ShapedImport;
+    try {
+      s = shapeImport(t, opts);
+    } catch (e) {
+      if (e instanceof ImportError) throw new ImportError(`${t.name}: ${e.message}`);
+      throw e;
+    }
+    if (ti === 0) firstKeys = s.defaultKeys;
+    for (const c of s.columns) {
+      if (byName.has(c.name)) continue;
+      const col: DraftColumn = { name: c.name, header: c.header, letter: null, index: null };
+      byName.set(c.name, col);
+      columns.push(col);
+    }
+    for (const r of s.rows) {
+      const extra: Record<string, CellValue> = { [SHEET_COLUMN]: t.name };
+      for (const c of s.columns) extra[c.name] = valueOf(c, r);
+      const block = r.block === null ? null : r.block + forms;
+      if (block !== null) extra[BLOCK_COLUMN] = block;
+      rows.push({ row: r.row, key: `${t.name}:${r.key}`, block, cells: [], extra, src: {} });
+    }
+    const n = typeof s.notes.forms === "number" ? s.notes.forms : 0;
+    sheets.push({ name: t.name, rows: s.rows.length, ...(opts.form !== undefined ? { forms: n } : {}) });
+    forms += n;
+    addCounts(missing, s.notes.missingFields);
+    addCounts(filled, s.notes.filledDown);
+    addCounts(unpivot, s.notes.unpivot);
+  });
+  const notes: Record<string, unknown> = { sheets };
+  if (opts.form !== undefined) notes.forms = forms;
+  if (Object.keys(missing).length > 0) notes.missingFields = missing;
+  if (opts.fillDown !== undefined) notes.filledDown = filled;
+  if (opts.unpivot !== undefined) notes.unpivot = unpivot;
+  return { columns, rows, notes, defaultKeys: [SHEET_COLUMN, ...firstKeys] };
+}
+
 export interface BuildShapedOptions {
   name: string;
   source: Extract<SheetSource, { kind: "excel" }>;
@@ -521,11 +610,12 @@ export function buildShapedSheet(shaped: ShapedImport, opts: BuildShapedOptions)
   });
   shaped.columns.forEach((c, i) => {
     const values = shaped.rows.map((r) => valueOf(c, r)).filter((v) => !isBlank(v));
-    const col: ColumnSchema = { name: finalNames[i] as string, type: c.name === BLOCK_COLUMN || c.name === SOURCE_CELL_COLUMN ? (c.name === BLOCK_COLUMN ? "integer" : "string") : inferType(values) };
+    const fixed = c.name === BLOCK_COLUMN ? "integer" : c.name === SOURCE_CELL_COLUMN || c.name === SHEET_COLUMN ? "string" : null;
+    const col: ColumnSchema = { name: finalNames[i] as string, type: fixed ?? inferType(values) };
     // 画面の見出しの 2 段目: 帳票のラベル・元の見出し（名前を変えたときは元の名前）
     const title = c.header !== "" ? c.header : c.name;
     if (title !== col.name) col.title = title;
-    if (c.name === BLOCK_COLUMN || c.name === SOURCE_CELL_COLUMN) col.readOnly = true;
+    if (fixed !== null) col.readOnly = true;
     schema.push(col);
   });
   const keyColumns = opts.keyColumns !== undefined && opts.keyColumns.length > 0 ? [...opts.keyColumns] : shaped.defaultKeys.map((k) => rename[k]?.trim() || k);

@@ -368,7 +368,9 @@ export const TOOL_DEFS = {
       "Turns a sheet of an imported file into a work screen sheet. For an ordinary table give headerRow. For a sheet of repeated forms (for example one daily report per printed page) give form instead: one sheet row per item row of each form, with the form's header values on every row. fillDown fills empty cells (or only merged cells) and ditto marks with the value above, within one form. unpivot turns columns such as years into rows (one row per non-empty cell), splitting several marks in one cell (tokens) or a quantity into units (repeat). The work screen moves the values; never copy them into arguments. rename changes column names (the original headers or labels stay as display names). rowKey and SOURCE_ROW are row numbers in the original file (unpivot adds SOURCE_CELL). This sheet cannot be committed to Maximo (it is reference data for matching).",
     inputSchema: z.strictObject({
       importId: z.string().min(1),
-      sourceSheet: z.string().describe("sheets[].name from describe_import (for CSV, the file name)"),
+      sourceSheet: z
+        .union([z.string(), z.array(z.string()).min(1).max(24)])
+        .describe("sheets[].name from describe_import (for CSV, the file name). Several sheets read the same way (e.g. one per month) become one sheet with a SHEET column"),
       headerRow: z.number().int().min(1).max(50).optional().describe("Header row of an ordinary table (required unless form is given)"),
       name: sheetName.describe("Name of the new sheet (e.g. Inspection results)"),
       rename: z.record(z.string(), z.string()).optional().describe('Column name from describe_import → column name in the sheet (e.g. {"Asset No.":"ASSETNUM"})'),
@@ -377,13 +379,28 @@ export const TOOL_DEFS = {
         .strictObject({
           start: z.array(z.string().min(1).max(50)).min(1).max(5).describe("Text of a cell on the first row of each form, such as its title (spaces are ignored; the cell must equal it, optionally followed by a note in brackets). Give every title used in the file"),
           fields: z
-            .record(z.string().min(1).max(64), z.union([z.string().min(1).max(50), z.strictObject({ label: z.string().min(1).max(50), below: z.boolean().optional() })]))
+            .record(
+              z.string().min(1).max(64),
+              z.union([
+                z.string().min(1).max(50),
+                z.array(z.string().min(1).max(50)).min(1).max(5),
+                z.strictObject({ label: z.union([z.string().min(1).max(50), z.array(z.string().min(1).max(50)).min(1).max(5)]), below: z.boolean().optional() }),
+              ]),
+            )
             .optional()
-            .describe('Column name → label in the form header, e.g. {"WORKDATE":"Work date","CONTRACT":"Contract"}. The value is the first non-empty cell right of the label ({label, below:true}: below it). If the label cell itself goes on (e.g. "No. 4-04"), the rest is the value'),
+            .describe(
+              'Column name → label in the form header, e.g. {"WORKDATE":["Work date","Date"],"CONTRACT":"Contract"}. Give an array when forms word the label differently. The value is the first non-empty cell right of the label ({label, below:true}: below it). If the label cell itself goes on (e.g. "No. 4-04"), the rest is the value. Full-width and half-width characters, spaces and colons do not matter',
+            ),
           items: z
             .strictObject({
-              header: z.string().min(1).max(50).describe("Text in the header row of the item table in each form, e.g. Work done"),
+              header: z
+                .union([z.string().min(1).max(50), z.array(z.string().min(1).max(50)).min(1).max(5)])
+                .describe("Text in the header row of the item table in each form, e.g. Work done (an array if forms word it differently)"),
               until: z.array(z.string().min(1).max(50)).max(5).optional().describe("Text in the first row after the items, e.g. Remarks"),
+              columns: z
+                .record(z.string().min(1).max(64), z.array(z.string().min(1).max(50)).min(1).max(5))
+                .optional()
+                .describe('Column name → other header texts some forms use for the same item column, e.g. {"Work done":["Work","Details"]}; they become one column'),
             })
             .optional()
             .describe("Item table of each form: one sheet row per item row; empty rows and rows with only a line number are skipped. Without items, one sheet row per form"),

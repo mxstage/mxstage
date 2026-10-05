@@ -635,12 +635,25 @@ describe("帳票の読み取り・fillDown・unpivot（ツール）", () => {
     expect(e2.message).toContain("form.start");
     const e3 = await h.fail("apply_mapping", { importId: "d1", sourceSheet: "4月", name: "x", form: { start: ["作業日報"], fields: { D: "作業日" } }, rename: { 日付: "X" } });
     expect(e3.message).toContain("is not a column of the shaped sheet");
+    // 複数のシートを 1 回で（シートごとの枚数と見立てを比べる）
+    h.imports.add({
+      importId: "d2",
+      fileName: "作業日報2.xlsx",
+      contentType: "",
+      bytes: await makeXlsx({ sheets: [{ name: "4月", rows: sheetRows(dailyReportRows()) }, { name: "5月", rows: sheetRows(dailyReportRows()) }] }),
+      sha256: "",
+    });
+    const many = await h.call("apply_mapping", { importId: "d2", sourceSheet: ["4月", "5月"], name: "上半期", form: { start: ["作業日報"], fields: { D: "作業日" }, items: { header: "作業内容", until: ["特記事項"] } } });
+    expect(many).toMatchObject({ rowCount: 12, forms: 6, keyColumns: ["SHEET", "SOURCE_ROW"], sheets: [{ name: "4月", forms: 3 }, { name: "5月", forms: 3 }] });
+    expect(many.formCountNote).toBeUndefined();
+    const dup = await h.fail("apply_mapping", { importId: "d2", sourceSheet: ["4月", "4月"], name: "z", headerRow: 1 });
+    expect(dup.message).toContain("named twice");
     // 見立ての枚数（3）と違えば知らせる
     const r = await h.call("apply_mapping", { importId: "d1", sourceSheet: "4月", name: "x", form: { start: ["作業日報"], fields: { D: "作業日" } } });
     expect(r.formCountNote).toBeUndefined();
     const r2 = await h.call("apply_mapping", { importId: "d1", sourceSheet: "4月", name: "y", form: { start: ["委託契約工事名", "作業日報"], fields: { D: "作業日" } } });
     expect(r2.forms).toBe(6);
-    expect(r2.formCountNote).toContain("describe_import saw 3 forms");
+    expect(r2.formCountNote).toContain("4月: 3 expected");
   });
 });
 

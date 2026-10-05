@@ -159,6 +159,18 @@ describe.each(["ja", "en"] as const)("Excel のサンプル（%s）", (lang) => 
     expect(total).toBe(truth.length);
   });
 
+  it.runIf(lang === "ja")("作業日報の 6 か月分を 1 回で読むと、正解の行がすべて SHEET 付きでそろう", async () => {
+    const f = files.ja.find((x) => x.id === "repair-log")!;
+    const truth = (f.truth as { rows: DailyRowTruth[] }).rows;
+    const wb = await parseXlsx(writeXlsx(f.sheets, { title: f.title, creator: "test", lang: "ja" }));
+    const mod = shape as ShapeModule & { shapeImportMany: (t: Table[], o: Record<string, unknown>) => unknown };
+    const built = shape.buildShapedSheet(
+      mod.shapeImportMany(wb.tables, { form: { start: ["作業日報", "作業報告書"], fields: { WORKDATE: "作業日" }, items: { header: "作業内容", until: ["特記事項"] } } }),
+      { name: "x", source: SRC },
+    );
+    expect(built.rows.map((r) => `${String(r.values.SHEET)}:${String(r.values.SOURCE_ROW)}`)).toEqual(truth.map((r) => `${r.sheet}:${r.row}`));
+  });
+
   it("星取表は unpivot で印 1 つ・号機 1 つが 1 行になり、正解の印の数と合う", async () => {
     const f = files[lang].find((x) => x.id === "star-chart")!;
     const truth = (f.truth as { rows: Array<{ sheet: string; row: number; col: string; symbols: string; locs: string[] }> }).rows;

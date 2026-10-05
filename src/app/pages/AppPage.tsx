@@ -434,6 +434,8 @@ export function AppPage({ runtime, vault, toasts, catalog, license, onEndWork, o
               connected={vaultView.kind === "connected"}
               locked={vaultView.kind === "locked"}
               onMessage={onMessage}
+              workspace={workspace}
+              {...(license ? { license } : {})}
             />
             <HistoryPanel workspace={workspace} sheet={focusSheet} version={version} busy={busy} onMessage={onMessage} />
           </aside>

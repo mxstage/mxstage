@@ -4,6 +4,15 @@ All notable changes to MX Stage are listed here. Versions follow [Semantic Versi
 
 ## Unreleased
 
+### Added
+
+- **Diff report (Excel).** The commit panel saves the changes of a sheet as an .xlsx file before you commit: one row per changed cell with the record's key, the column, the old value, the new value, who changed it (the AI assistant or a person), the reason and the time, plus added and deleted rows. A summary sheet gives the Maximo URL, the environment, the object structure, the commit request note, the counts, the changes by column and the work history. After a commit, the write log is added. Keep it as the record of what was approved. The file contains Maximo data; it is made in the work screen and sent nowhere.
+
+### Fixed
+
+- The results by row in the commit panel no longer wrap one character per line in the narrow side panel.
+- After a commit, the commit panel says there are no changes to commit instead of "There are reasons this cannot be committed".
+
 ## 0.2.6 — 2026-10-05
 
 ### Added

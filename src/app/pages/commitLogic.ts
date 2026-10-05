@@ -38,8 +38,9 @@ export function commitButtonState(panel: CommitPanelState | null, opts: { connec
   if (!opts.connected) {
     return { enabled: false, reason: opts.locked ? t.locked : t.notConnected };
   }
-  if (panel.blockers.length > 0) return { enabled: false, reason: t.blocked };
+  // 変更が無いとき（反映が済んだあとなど）は「反映できない理由があります」ではなく「変更がありません」と言う
   if (totalChanges(panel.counts) === 0) return { enabled: false, reason: t.noChanges };
+  if (panel.blockers.length > 0) return { enabled: false, reason: t.blocked };
   return { enabled: true, reason: null };
 }
 

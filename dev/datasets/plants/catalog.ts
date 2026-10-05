@@ -21,6 +21,8 @@ export interface SiteDef {
   epc: string;
   /** ASSETNUM の先頭の数字 */
   assetBase: number;
+  /** Maximo を使い始めた年月（これより前の作業指示・SR・メーターの読みは Maximo に無く、星取表と旧台帳にだけある） */
+  goLive: { y: number; m: number };
 }
 
 export const ORGID = "KANKYO";
@@ -28,9 +30,9 @@ export const ORG_DESCRIPTION = "MX 広域環境事業組合（架空）";
 export const ITEMSETID = "SET1";
 
 export const SITES: SiteDef[] = [
-  { siteid: "KITA", prefix: "KT", description: "北部クリーンセンター", start: { y: 2006, m: 4 }, lines: 3, tonPerLine: 100, receiveV: 66000, turbineKw: 6000, epc: "MKR-PLA", assetBase: 1_000_000 },
-  { siteid: "MINAMI", prefix: "MN", description: "南部クリーンセンター", start: { y: 2013, m: 4 }, lines: 2, tonPerLine: 120, receiveV: 66000, turbineKw: 5500, epc: "MKR-PLB", assetBase: 2_000_000 },
-  { siteid: "HIGASHI", prefix: "HG", description: "東部クリーンセンター", start: { y: 2021, m: 4 }, lines: 2, tonPerLine: 95, receiveV: 6600, turbineKw: 4200, epc: "MKR-PLC", assetBase: 3_000_000 },
+  { siteid: "KITA", prefix: "KT", description: "北部クリーンセンター", start: { y: 2006, m: 4 }, lines: 3, tonPerLine: 100, receiveV: 66000, turbineKw: 6000, epc: "MKR-PLA", assetBase: 1_000_000, goLive: { y: 2018, m: 4 } },
+  { siteid: "MINAMI", prefix: "MN", description: "南部クリーンセンター", start: { y: 2013, m: 4 }, lines: 2, tonPerLine: 120, receiveV: 66000, turbineKw: 5500, epc: "MKR-PLB", assetBase: 2_000_000, goLive: { y: 2018, m: 4 } },
+  { siteid: "HIGASHI", prefix: "HG", description: "東部クリーンセンター", start: { y: 2021, m: 4 }, lines: 2, tonPerLine: 95, receiveV: 6600, turbineKw: 4200, epc: "MKR-PLC", assetBase: 3_000_000, goLive: { y: 2021, m: 4 } },
 ];
 
 // ---------------------------------------------------------------------------
@@ -278,68 +280,68 @@ export const PROBLEMS: Record<string, string> = {
   LEAK: "漏れ", VIB: "振動大", NOISE: "異音", LOWPERF: "性能低下", OVERHEAT: "温度上昇・過熱", NOSTART: "起動不能",
   TRIP: "トリップ・停止", JAM: "噛込み・停止", WEAR: "摩耗・焼損", BREAK: "破損・切断", MEANDER: "蛇行",
   MALFUNC: "動作不良", WIREDMG: "ワイヤロープ損傷", GRABDMG: "バケット損傷", STUCK: "固着・作動不良", CRACK: "亀裂",
-  FALLASH: "落じん量増加", CLOG: "詰まり・閉塞", PRESSDROP: "差圧上昇", DRIFT: "指示異常", INSUL: "絶縁低下",
+  FALLASH: "落じん量増加", CLOG: "詰まり・閉塞", DPHIGH: "差圧上昇", DRIFT: "指示異常", INSUL: "絶縁低下",
   DAMAGE: "損傷・焼損", ALARM: "警報発報", NOSIGNAL: "信号断",
 };
 
 export const CAUSES: Record<string, string> = {
   SEALWEAR: "軸封部・パッキンの摩耗", BRGDMG: "軸受の損傷", MISALIGN: "芯ずれ", ADHESION: "羽根車へのダスト付着",
-  LOOSE: "締付け不良・緩み", CORROSION: "腐食・減肉", AGING: "経年劣化", LUBE: "潤滑不良", FOREIGN: "異物の噛込み",
+  LOOSE: "締付け不良・緩み", CORROS: "腐食・減肉", AGING: "経年劣化", LUBE: "潤滑不良", FOREIGN: "異物の噛込み",
   CAVIT: "キャビテーション", WEARIMP: "羽根車の摩耗", FOULED: "異物による閉塞", AIRLOCK: "エア噛み", OVERLOAD: "過負荷",
   ELECFAIL: "電気部品の故障", SEIZE: "固着", OPERR: "操作・運転の誤り", COOLFAIL: "冷却不良", LINKAGE: "リンク機構の不良",
-  SENSOR: "検出器の故障", FILTERCLOG: "フィルタの目詰まり", VALVEWEAR: "弁の摩耗", ASHFIX: "灰の固着",
-  HEATDMG: "熱による損傷", CLINKER: "クリンカの付着", HYDRAULIC: "油圧系の不良", GAPWIDE: "隙間の拡大",
+  SENSOR: "検出器の故障", FILTCLOG: "フィルタの目詰まり", VLVWEAR: "弁の摩耗", ASHFIX: "灰の固着",
+  HEATDMG: "熱による損傷", CLINKER: "クリンカの付着", HYDFAIL: "油圧系の不良", GAPWIDE: "隙間の拡大",
   MOISTURE: "湿気による固結", BRIDGE: "ブリッジ", SCALE: "スケールの付着", EROSION: "摩耗減肉（エロージョン）",
-  ACIDCORR: "低温腐食（酸露点腐食）", BLIND: "ろ布の目詰まり", PULSEFAIL: "払落し装置の不良", SEATDMG: "弁座の損傷",
-  ACTFAIL: "駆動部の故障", CALOFF: "校正ずれ", WATER: "浸水・結露", DUST: "粉じんの堆積", IMPULSECLOG: "導圧管の詰まり",
-  WIRING: "配線不良", PROBECLOG: "サンプリング系の詰まり", DRAINFAIL: "ドレン排出不良", SAMPLEPUMP: "サンプリングポンプの不良",
+  ACIDCORR: "低温腐食（酸露点腐食）", BLIND: "ろ布の目詰まり", PULSEFL: "払落し装置の不良", SEATDMG: "弁座の損傷",
+  ACTFAIL: "駆動部の故障", CALOFF: "校正ずれ", WATER: "浸水・結露", DUST: "粉じんの堆積", IMPCLOG: "導圧管の詰まり",
+  WIRING: "配線不良", PRBCLOG: "サンプリング系の詰まり", DRAINFL: "ドレン排出不良", SMPPUMP: "サンプリングポンプの不良",
   SOFTWARE: "ソフトウェアの不具合", BATTERY: "蓄電池の劣化", RELAY: "保護継電器の誤動作", REFLEAK: "冷媒漏れ",
   UNKNOWN: "原因不明",
 };
 
 export const REMEDIES: Record<string, string> = {
-  REPLACE: "部品交換", REPAIR: "補修", ADJUST: "調整", CLEAN: "清掃・除去", RETIGHTEN: "増締め", LUBRICATE: "給油・給脂",
+  REPLACE: "部品交換", REPAIR: "補修", ADJUST: "調整", CLEAN: "清掃・除去", RETIGHT: "増締め", LUBRIC: "給油・給脂",
   RENEW: "機器更新", RESET: "リセット・再起動", CALIB: "校正", TEMP: "応急処置", WELD: "溶接補修", NOACTION: "処置なし（経過観察）",
 };
 
 export const CAUSE_REMEDIES: Record<string, string[]> = {
   SEALWEAR: ["REPLACE", "ADJUST"], BRGDMG: ["REPLACE"], MISALIGN: ["ADJUST"], ADHESION: ["CLEAN", "REPAIR"],
-  LOOSE: ["RETIGHTEN", "REPLACE"], CORROSION: ["REPAIR", "WELD", "REPLACE", "RENEW"], AGING: ["REPLACE", "RENEW", "REPAIR"],
-  LUBE: ["LUBRICATE", "REPLACE"], FOREIGN: ["CLEAN", "REPAIR"], CAVIT: ["ADJUST", "REPAIR"], WEARIMP: ["REPLACE", "REPAIR"],
+  LOOSE: ["RETIGHT", "REPLACE"], CORROS: ["REPAIR", "WELD", "REPLACE", "RENEW"], AGING: ["REPLACE", "RENEW", "REPAIR"],
+  LUBE: ["LUBRIC", "REPLACE"], FOREIGN: ["CLEAN", "REPAIR"], CAVIT: ["ADJUST", "REPAIR"], WEARIMP: ["REPLACE", "REPAIR"],
   FOULED: ["CLEAN"], AIRLOCK: ["ADJUST", "RESET"], OVERLOAD: ["ADJUST", "RESET", "REPLACE"], ELECFAIL: ["REPLACE", "RESET", "REPAIR"],
-  SEIZE: ["REPAIR", "REPLACE", "LUBRICATE"], OPERR: ["RESET", "NOACTION"], COOLFAIL: ["CLEAN", "REPAIR"], LINKAGE: ["ADJUST", "REPAIR"],
-  SENSOR: ["REPLACE", "CALIB"], FILTERCLOG: ["CLEAN", "REPLACE"], VALVEWEAR: ["REPLACE"], ASHFIX: ["CLEAN"],
-  HEATDMG: ["REPLACE", "REPAIR", "WELD"], CLINKER: ["CLEAN"], HYDRAULIC: ["REPAIR", "REPLACE", "ADJUST"], GAPWIDE: ["ADJUST", "REPLACE"],
+  SEIZE: ["REPAIR", "REPLACE", "LUBRIC"], OPERR: ["RESET", "NOACTION"], COOLFAIL: ["CLEAN", "REPAIR"], LINKAGE: ["ADJUST", "REPAIR"],
+  SENSOR: ["REPLACE", "CALIB"], FILTCLOG: ["CLEAN", "REPLACE"], VLVWEAR: ["REPLACE"], ASHFIX: ["CLEAN"],
+  HEATDMG: ["REPLACE", "REPAIR", "WELD"], CLINKER: ["CLEAN"], HYDFAIL: ["REPAIR", "REPLACE", "ADJUST"], GAPWIDE: ["ADJUST", "REPLACE"],
   MOISTURE: ["CLEAN", "ADJUST"], BRIDGE: ["CLEAN", "ADJUST"], SCALE: ["CLEAN"], EROSION: ["WELD", "REPLACE", "TEMP"],
-  ACIDCORR: ["REPAIR", "REPLACE", "WELD"], BLIND: ["CLEAN", "REPLACE"], PULSEFAIL: ["REPLACE", "ADJUST"], SEATDMG: ["REPAIR", "REPLACE"],
+  ACIDCORR: ["REPAIR", "REPLACE", "WELD"], BLIND: ["CLEAN", "REPLACE"], PULSEFL: ["REPLACE", "ADJUST"], SEATDMG: ["REPAIR", "REPLACE"],
   ACTFAIL: ["REPAIR", "REPLACE", "ADJUST"], CALOFF: ["CALIB", "ADJUST"], WATER: ["REPAIR", "CLEAN", "REPLACE"], DUST: ["CLEAN"],
-  IMPULSECLOG: ["CLEAN"], WIRING: ["REPAIR", "REPLACE"], PROBECLOG: ["CLEAN", "REPLACE"], DRAINFAIL: ["CLEAN", "REPAIR"],
-  SAMPLEPUMP: ["REPLACE", "REPAIR"], SOFTWARE: ["RESET", "REPAIR"], BATTERY: ["REPLACE"], RELAY: ["CALIB", "REPLACE", "RESET"],
+  IMPCLOG: ["CLEAN"], WIRING: ["REPAIR", "REPLACE"], PRBCLOG: ["CLEAN", "REPLACE"], DRAINFL: ["CLEAN", "REPAIR"],
+  SMPPUMP: ["REPLACE", "REPAIR"], SOFTWARE: ["RESET", "REPAIR"], BATTERY: ["REPLACE"], RELAY: ["CALIB", "REPLACE", "RESET"],
   REFLEAK: ["REPAIR", "REPLACE"], UNKNOWN: ["NOACTION", "TEMP", "RESET"],
 };
 
 /** 故障クラス → 問題 → 原因 */
 export const FAILURE_TREE: Record<string, Record<string, string[]>> = {
-  PUMP: { LEAK: ["SEALWEAR", "LOOSE", "CORROSION", "AGING"], VIB: ["BRGDMG", "MISALIGN", "LOOSE", "CAVIT"], NOISE: ["BRGDMG", "FOREIGN", "LUBE", "CAVIT"], LOWPERF: ["WEARIMP", "FOULED", "AIRLOCK"], OVERHEAT: ["LUBE", "BRGDMG", "OVERLOAD"], NOSTART: ["ELECFAIL", "SEIZE", "OPERR"] },
-  FAN: { VIB: ["ADHESION", "BRGDMG", "MISALIGN", "LOOSE"], NOISE: ["BRGDMG", "LUBE", "FOREIGN"], OVERHEAT: ["LUBE", "BRGDMG", "COOLFAIL"], LOWPERF: ["ADHESION", "LINKAGE", "CORROSION"], TRIP: ["ELECFAIL", "OVERLOAD", "SENSOR"] },
-  COMPR: { LOWPERF: ["FILTERCLOG", "VALVEWEAR", "AGING"], OVERHEAT: ["COOLFAIL", "LUBE"], LEAK: ["SEALWEAR", "LOOSE", "AGING"], TRIP: ["ELECFAIL", "SENSOR", "OVERLOAD"], NOISE: ["BRGDMG", "LOOSE"] },
+  PUMP: { LEAK: ["SEALWEAR", "LOOSE", "CORROS", "AGING"], VIB: ["BRGDMG", "MISALIGN", "LOOSE", "CAVIT"], NOISE: ["BRGDMG", "FOREIGN", "LUBE", "CAVIT"], LOWPERF: ["WEARIMP", "FOULED", "AIRLOCK"], OVERHEAT: ["LUBE", "BRGDMG", "OVERLOAD"], NOSTART: ["ELECFAIL", "SEIZE", "OPERR"] },
+  FAN: { VIB: ["ADHESION", "BRGDMG", "MISALIGN", "LOOSE"], NOISE: ["BRGDMG", "LUBE", "FOREIGN"], OVERHEAT: ["LUBE", "BRGDMG", "COOLFAIL"], LOWPERF: ["ADHESION", "LINKAGE", "CORROS"], TRIP: ["ELECFAIL", "OVERLOAD", "SENSOR"] },
+  COMPR: { LOWPERF: ["FILTCLOG", "VLVWEAR", "AGING"], OVERHEAT: ["COOLFAIL", "LUBE"], LEAK: ["SEALWEAR", "LOOSE", "AGING"], TRIP: ["ELECFAIL", "SENSOR", "OVERLOAD"], NOISE: ["BRGDMG", "LOOSE"] },
   CONVEY: { JAM: ["FOREIGN", "ASHFIX", "OVERLOAD"], WEAR: ["AGING", "FOREIGN", "ASHFIX"], BREAK: ["AGING", "OVERLOAD", "MISALIGN"], MEANDER: ["MISALIGN", "ASHFIX"], NOISE: ["BRGDMG", "LUBE"] },
   CRANE: { MALFUNC: ["ELECFAIL", "SENSOR", "OPERR"], WIREDMG: ["AGING", "OVERLOAD", "LUBE"], GRABDMG: ["OVERLOAD", "FOREIGN", "AGING"], LEAK: ["SEALWEAR", "LOOSE", "AGING"], TRIP: ["ELECFAIL", "OVERLOAD", "OPERR"], NOISE: ["BRGDMG", "LUBE"] },
-  STOKER: { WEAR: ["HEATDMG", "AGING", "CLINKER"], STUCK: ["CLINKER", "FOREIGN", "HYDRAULIC"], CRACK: ["HEATDMG", "AGING"], FALLASH: ["GAPWIDE", "AGING"] },
-  FEEDER: { CLOG: ["MOISTURE", "FOREIGN", "BRIDGE"], LOWPERF: ["AGING", "MOISTURE"], STUCK: ["FOREIGN", "HYDRAULIC", "ELECFAIL"], LEAK: ["SEALWEAR", "LOOSE"] },
+  STOKER: { WEAR: ["HEATDMG", "AGING", "CLINKER"], STUCK: ["CLINKER", "FOREIGN", "HYDFAIL"], CRACK: ["HEATDMG", "AGING"], FALLASH: ["GAPWIDE", "AGING"] },
+  FEEDER: { CLOG: ["MOISTURE", "FOREIGN", "BRIDGE"], LOWPERF: ["AGING", "MOISTURE"], STUCK: ["FOREIGN", "HYDFAIL", "ELECFAIL"], LEAK: ["SEALWEAR", "LOOSE"] },
   TURBINE: { VIB: ["SCALE", "BRGDMG", "MISALIGN"], TRIP: ["SENSOR", "ELECFAIL", "OPERR", "LUBE"], LEAK: ["SEALWEAR", "LOOSE", "AGING"], LOWPERF: ["SCALE", "AGING"], OVERHEAT: ["LUBE", "COOLFAIL"] },
-  BOILER: { LEAK: ["CORROSION", "EROSION", "ACIDCORR", "HEATDMG"], CLOG: ["ASHFIX", "CLINKER"], CRACK: ["HEATDMG", "AGING"], LOWPERF: ["ASHFIX", "SCALE"] },
-  HEATEX: { LEAK: ["CORROSION", "ACIDCORR", "LOOSE"], LOWPERF: ["SCALE", "ASHFIX"], CLOG: ["ASHFIX", "SCALE"] },
-  BAGFLT: { PRESSDROP: ["BLIND", "MOISTURE", "PULSEFAIL"], BREAK: ["HEATDMG", "AGING", "ACIDCORR"], LEAK: ["CORROSION", "LOOSE", "ACIDCORR"], STUCK: ["ELECFAIL", "ASHFIX"] },
-  VALVE: { LEAK: ["SEATDMG", "SEALWEAR", "CORROSION"], STUCK: ["FOREIGN", "SCALE", "ACTFAIL"], DRIFT: ["ACTFAIL", "SENSOR", "CALOFF"] },
+  BOILER: { LEAK: ["CORROS", "EROSION", "ACIDCORR", "HEATDMG"], CLOG: ["ASHFIX", "CLINKER"], CRACK: ["HEATDMG", "AGING"], LOWPERF: ["ASHFIX", "SCALE"] },
+  HEATEX: { LEAK: ["CORROS", "ACIDCORR", "LOOSE"], LOWPERF: ["SCALE", "ASHFIX"], CLOG: ["ASHFIX", "SCALE"] },
+  BAGFLT: { DPHIGH: ["BLIND", "MOISTURE", "PULSEFL"], BREAK: ["HEATDMG", "AGING", "ACIDCORR"], LEAK: ["CORROS", "LOOSE", "ACIDCORR"], STUCK: ["ELECFAIL", "ASHFIX"] },
+  VALVE: { LEAK: ["SEATDMG", "SEALWEAR", "CORROS"], STUCK: ["FOREIGN", "SCALE", "ACTFAIL"], DRIFT: ["ACTFAIL", "SENSOR", "CALOFF"] },
   MOTOR: { OVERHEAT: ["OVERLOAD", "COOLFAIL", "BRGDMG"], INSUL: ["WATER", "AGING", "DUST"], VIB: ["BRGDMG", "MISALIGN", "LOOSE"], NOISE: ["BRGDMG", "LUBE"], NOSTART: ["ELECFAIL", "WATER"] },
   ELECEQ: { TRIP: ["ELECFAIL", "OVERLOAD", "RELAY"], INSUL: ["WATER", "DUST", "AGING"], OVERHEAT: ["LOOSE", "COOLFAIL", "OVERLOAD"], DAMAGE: ["OVERLOAD", "AGING", "ELECFAIL"], ALARM: ["BATTERY", "SENSOR", "ELECFAIL"] },
-  INSTR: { DRIFT: ["CALOFF", "SENSOR", "IMPULSECLOG", "WATER"], NOSIGNAL: ["WIRING", "ELECFAIL", "WATER"], DAMAGE: ["HEATDMG", "CORROSION", "AGING"] },
-  ANALYZ: { DRIFT: ["CALOFF", "SENSOR", "PROBECLOG"], NOSIGNAL: ["ELECFAIL", "WIRING"], ALARM: ["PROBECLOG", "DRAINFAIL", "SENSOR", "SAMPLEPUMP"] },
+  INSTR: { DRIFT: ["CALOFF", "SENSOR", "IMPCLOG", "WATER"], NOSIGNAL: ["WIRING", "ELECFAIL", "WATER"], DAMAGE: ["HEATDMG", "CORROS", "AGING"] },
+  ANALYZ: { DRIFT: ["CALOFF", "SENSOR", "PRBCLOG"], NOSIGNAL: ["ELECFAIL", "WIRING"], ALARM: ["PRBCLOG", "DRAINFL", "SENSOR", "SMPPUMP"] },
   CONTROL: { ALARM: ["ELECFAIL", "SOFTWARE", "AGING"], DAMAGE: ["AGING", "ELECFAIL", "COOLFAIL"], NOSIGNAL: ["WIRING", "ELECFAIL"] },
-  STATIC: { LEAK: ["CORROSION", "ACIDCORR", "LOOSE", "AGING"], CRACK: ["HEATDMG", "AGING", "CORROSION"], DAMAGE: ["FOREIGN", "OPERR", "AGING"], CLOG: ["ASHFIX", "CLINKER", "SCALE"] },
-  MECHGEN: { STUCK: ["FOREIGN", "HYDRAULIC", "LUBE"], LEAK: ["SEALWEAR", "LOOSE"], NOISE: ["BRGDMG", "LUBE", "LOOSE"], DAMAGE: ["OVERLOAD", "AGING", "OPERR"], WEAR: ["AGING", "FOREIGN"] },
-  BLDGEQ: { MALFUNC: ["ELECFAIL", "SENSOR", "AGING"], NOISE: ["BRGDMG", "LOOSE"], LOWPERF: ["FILTERCLOG", "REFLEAK", "AGING"], LEAK: ["CORROSION", "AGING"] },
+  STATIC: { LEAK: ["CORROS", "ACIDCORR", "LOOSE", "AGING"], CRACK: ["HEATDMG", "AGING", "CORROS"], DAMAGE: ["FOREIGN", "OPERR", "AGING"], CLOG: ["ASHFIX", "CLINKER", "SCALE"] },
+  MECHGEN: { STUCK: ["FOREIGN", "HYDFAIL", "LUBE"], LEAK: ["SEALWEAR", "LOOSE"], NOISE: ["BRGDMG", "LUBE", "LOOSE"], DAMAGE: ["OVERLOAD", "AGING", "OPERR"], WEAR: ["AGING", "FOREIGN"] },
+  BLDGEQ: { MALFUNC: ["ELECFAIL", "SENSOR", "AGING"], NOISE: ["BRGDMG", "LOOSE"], LOWPERF: ["FILTCLOG", "REFLEAK", "AGING"], LEAK: ["CORROS", "AGING"] },
 };
 
 // ---------------------------------------------------------------------------
@@ -813,58 +815,60 @@ export interface PmProgram {
   materials?: Array<[string, number]>;
   /** 炉の定期整備の子として作る（単独の PM は作らない） */
   overhaulOnly?: boolean;
+  /** 外注の契約の形。annual は年間の委託契約（1 つの発注で多くの作業指示）。省略は作業指示ごとの発注 */
+  contract?: "annual";
 }
 
 export const PM_PROGRAMS: PmProgram[] = [
-  { jp: "JP-PUMP-3M", desc: "ポンプ 定期点検（3か月）", cls: ["PUMP"], freq: 3, unit: "MONTHS", worktype: "PM", dur: 1.5, crew: 1, craft: "MECH", tasks: ["運転状態の確認（振動・異音・温度）", "軸封部の漏れ確認", "潤滑油の量・汚れの確認と補給", "基礎ボルトの緩み確認"], materials: [["GREASE", 1]] },
-  { jp: "JP-PUMP-OH", desc: "ポンプ 分解整備", cls: ["PUMP"], freq: 4, unit: "YEARS", worktype: "PM", dur: 16, crew: 2, craft: "MECH", critical: true, contractor: true, tasks: ["分解", "羽根車・ケーシングの摩耗点検", "軸受の交換", "メカニカルシールの交換", "組立・芯出し", "試運転"], materials: [["BEARING", 2], ["MSEAL", 1], ["GASKET", 2]] },
-  { jp: "JP-FAN-6M", desc: "送風機 定期点検（6か月）", cls: ["FAN"], freq: 6, unit: "MONTHS", worktype: "PM", dur: 3, crew: 2, craft: "MECH", tasks: ["振動測定", "軸受温度の確認", "Vベルト・カップリングの点検", "給脂"], materials: [["GREASE", 1]] },
-  { jp: "JP-FAN-OH", desc: "送風機 開放点検・羽根車清掃", cls: ["FAN"], freq: 1, unit: "YEARS", worktype: "PM", dur: 12, crew: 3, craft: "MECH", critical: true, overhaulOnly: true, tasks: ["ケーシング開放", "羽根車のダスト除去・摩耗点検", "軸受の点検", "動バランス確認", "復旧・試運転"], materials: [["BEARING", 2]] },
-  { jp: "JP-MOTOR-1Y", desc: "電動機 絶縁抵抗測定・点検", cls: ["MOTOR"], freq: 1, unit: "YEARS", worktype: "PM", dur: 1, crew: 1, craft: "ELEC", minKw: 5.5, tasks: ["絶縁抵抗の測定", "端子部の締付け確認", "運転電流の確認"] },
-  { jp: "JP-COMP-3M", desc: "空気圧縮機 定期点検（3か月）", cls: ["COMP"], freq: 3, unit: "MONTHS", worktype: "PM", dur: 2, crew: 1, craft: "MECH", tasks: ["吸込フィルタの清掃", "ドレン排出の確認", "吐出温度・圧力の確認"], materials: [["AIRFILTER", 1]] },
-  { jp: "JP-COMP-OH", desc: "空気圧縮機 オーバーホール", cls: ["COMP"], freq: 3, unit: "YEARS", worktype: "PM", dur: 16, crew: 2, craft: "MECH", contractor: true, tasks: ["本体の分解点検", "軸受・シールの交換", "冷却器の清掃", "試運転"], materials: [["BEARING", 2], ["OILCOMP", 1]] },
-  { jp: "JP-CONV-3M", desc: "コンベヤ 定期点検（3か月）", cls: ["CONV"], freq: 3, unit: "MONTHS", worktype: "PM", dur: 2, crew: 2, craft: "MECH", tasks: ["チェーン・ベルトの張り確認", "ローラ・スプロケットの摩耗点検", "給油"], materials: [["GREASE", 1]] },
-  { jp: "JP-CRANE-1M", desc: "【法定】クレーン 月例自主検査", cls: ["CRANE"], freq: 1, unit: "MONTHS", worktype: "INSP", dur: 3, crew: 2, craft: "MECH", law: true, tasks: ["巻過防止装置・ブレーキの作動確認", "ワイヤロープの損傷確認", "バケットの点検", "記録の作成"] },
-  { jp: "JP-CRANE-1Y", desc: "【法定】クレーン 年次自主検査", cls: ["CRANE"], freq: 1, unit: "YEARS", worktype: "INSP", dur: 24, crew: 3, craft: "MECH", law: true, contractor: true, tasks: ["構造部分の点検", "荷重試験", "電気設備の点検", "ワイヤロープの交換判定", "検査記録の作成"], materials: [["WIREROPE", 1]] },
-  { jp: "JP-GRAB-OH", desc: "グラブバケット 整備", cls: ["GRAB"], freq: 2, unit: "YEARS", worktype: "PM", dur: 24, crew: 2, craft: "MECH", contractor: true, tasks: ["爪の肉盛溶接", "油圧シリンダのパッキン交換", "作動確認"] },
-  { jp: "JP-BOILER-1Y", desc: "【法定】ボイラ 性能検査", cls: ["BOILER"], freq: 1, unit: "YEARS", worktype: "INSP", dur: 80, crew: 4, craft: "MECH", law: true, contractor: true, tasks: ["ボイラ内部の清掃", "水管の肉厚測定", "安全弁の調整", "所轄の検査の受検"] },
-  { jp: "JP-SAFV-1Y", desc: "【法定】安全弁 吹出し試験", cls: ["SAFV"], freq: 1, unit: "YEARS", worktype: "INSP", dur: 3, crew: 2, craft: "MECH", law: true, tasks: ["吹出し圧力の確認", "吹止まり圧力の確認", "記録の作成"] },
-  { jp: "JP-BAGF-6M", desc: "ろ過式集じん器 定期点検", cls: ["BAGF"], freq: 6, unit: "MONTHS", worktype: "PM", dur: 6, crew: 2, craft: "MECH", tasks: ["差圧の推移確認", "払落し装置（パルス弁）の作動確認", "ホッパの灰付着確認", "ろ布の目視点検"] },
-  { jp: "JP-FBAG-1Y", desc: "ろ布 抜取り検査", cls: ["FBAG"], freq: 1, unit: "YEARS", worktype: "INSP", dur: 3, crew: 2, craft: "MECH", overhaulOnly: true, tasks: ["ろ布の抜取り", "強度・通気度の試験依頼", "結果の記録"] },
-  { jp: "JP-SCR-1Y", desc: "触媒 性能確認（抜取り分析）", cls: ["SCR"], freq: 1, unit: "YEARS", worktype: "INSP", dur: 8, crew: 2, craft: "MECH", overhaulOnly: true, contractor: true, tasks: ["触媒の抜取り", "脱硝性能の分析依頼", "触媒層の差圧確認"] },
-  { jp: "JP-GRATE-OH", desc: "火格子 点検・火格子片交換", cls: ["GRATE"], freq: 1, unit: "YEARS", worktype: "PM", dur: 40, crew: 4, craft: "MECH", overhaulOnly: true, contractor: true, tasks: ["火格子片の摩耗測定", "損耗した火格子片の交換", "駆動部の点検", "作動確認"], materials: [["GRATEBAR", 40]] },
-  { jp: "JP-REFR-OH", desc: "炉体耐火物 点検・補修", cls: ["REFR"], freq: 1, unit: "YEARS", worktype: "PM", dur: 60, crew: 4, craft: "MECH", overhaulOnly: true, contractor: true, tasks: ["耐火物の目視点検", "クリンカの除去", "損耗部の部分補修"], materials: [["REFRACT", 2]] },
-  { jp: "JP-FEEDER-6M", desc: "供給装置 定期点検", cls: ["FEEDER"], freq: 6, unit: "MONTHS", worktype: "PM", dur: 3, crew: 2, craft: "MECH", tasks: ["駆動部の点検", "摺動部の摩耗確認", "給油"], materials: [["GREASE", 1]] },
-  { jp: "JP-DAMPER-OH", desc: "ダンパ 作動点検", cls: ["DAMPER"], freq: 1, unit: "YEARS", worktype: "PM", dur: 3, crew: 2, craft: "MECH", overhaulOnly: true, tasks: ["全開・全閉の作動確認", "軸封部の点検", "開度指示の確認"] },
-  { jp: "JP-SB-3M", desc: "スートブロワ 定期点検", cls: ["SOOTBL"], freq: 3, unit: "MONTHS", worktype: "PM", dur: 1, crew: 1, craft: "MECH", tasks: ["作動確認", "ランスチューブの曲がり確認", "給脂"] },
-  { jp: "JP-HEX-2Y", desc: "熱交換器 開放清掃", cls: ["HEX"], freq: 2, unit: "YEARS", worktype: "PM", dur: 16, crew: 3, craft: "MECH", overhaulOnly: true, tasks: ["開放", "伝熱管の清掃", "肉厚測定", "復旧・漏れ確認"], materials: [["GASKET", 4]] },
-  { jp: "JP-TURB-1Y", desc: "蒸気タービン 年次点検", cls: ["TURBINE"], freq: 1, unit: "YEARS", worktype: "PM", dur: 40, crew: 3, craft: "MECH", contractor: true, tasks: ["軸受の点検", "非常調速装置の作動試験", "潤滑油の分析", "制御油系統の点検"], materials: [["OILTURB", 1]] },
-  { jp: "JP-TURB-4Y", desc: "【法定】蒸気タービン 定期事業者検査（開放点検）", cls: ["TURBINE"], freq: 4, unit: "YEARS", worktype: "INSP", dur: 320, crew: 6, craft: "MECH", law: true, contractor: true, tasks: ["車室の開放", "動翼・静翼の点検", "軸受の点検・交換", "組立・試運転", "検査記録の作成"] },
-  { jp: "JP-GEN-1Y", desc: "発電機 年次点検", cls: ["GEN"], freq: 1, unit: "YEARS", worktype: "PM", dur: 16, crew: 2, craft: "ELEC", contractor: true, tasks: ["絶縁抵抗の測定", "励磁装置の点検", "保護継電器の試験"] },
-  { jp: "JP-ELEC-1Y", desc: "【法定】受変電設備 年次点検", cls: ["TRANSF", "BRKR", "SWGR"], freq: 1, unit: "YEARS", worktype: "INSP", dur: 4, crew: 2, craft: "ELEC", law: true, contractor: true, tasks: ["停電作業の手配", "絶縁抵抗の測定", "保護継電器の試験", "端子の締付け確認", "清掃"] },
-  { jp: "JP-SUBST-1M", desc: "【法定】受変電設備 月次点検", cls: ["LOC:80-RC"], freq: 1, unit: "MONTHS", worktype: "INSP", dur: 2, crew: 1, craft: "ELEC", law: true, tasks: ["外観点検", "異音・異臭の確認", "電圧・電流の記録"] },
-  { jp: "JP-INV-1Y", desc: "インバータ 点検", cls: ["INV", "UPS"], freq: 1, unit: "YEARS", worktype: "PM", dur: 2, crew: 1, craft: "ELEC", tasks: ["冷却ファンの点検", "コンデンサの容量確認", "清掃"] },
-  { jp: "JP-EGEN-1M", desc: "非常用発電機 無負荷試運転", cls: ["EGEN"], freq: 1, unit: "MONTHS", worktype: "PM", dur: 1, crew: 1, craft: "ELEC", tasks: ["始動試験", "電圧・周波数の確認", "燃料・冷却水の確認"] },
-  { jp: "JP-EGEN-1Y", desc: "【法定】非常用発電機 負荷試験・点検", cls: ["EGEN"], freq: 1, unit: "YEARS", worktype: "INSP", dur: 6, crew: 2, craft: "ELEC", law: true, contractor: true, tasks: ["負荷運転試験", "機関の点検", "蓄電池の点検"] },
-  { jp: "JP-XMTR-1Y", desc: "伝送器 校正", cls: ["XMTR"], freq: 1, unit: "YEARS", worktype: "CAL", dur: 1.5, crew: 1, craft: "INST", tasks: ["ゼロ・スパンの確認", "必要に応じて調整", "校正記録の作成"] },
-  { jp: "JP-ANLZ-1M", desc: "排ガス分析計 校正", cls: ["ANLZ"], freq: 1, unit: "MONTHS", worktype: "CAL", dur: 2, crew: 1, craft: "INST", tasks: ["ゼロガス・スパンガスによる校正", "サンプリング系の点検", "記録の作成"], materials: [["CALGAS", 1]] },
-  { jp: "JP-ANLZ-1Y", desc: "排ガス分析計 定期点検", cls: ["ANLZ"], freq: 1, unit: "YEARS", worktype: "PM", dur: 8, crew: 1, craft: "INST", contractor: true, tasks: ["消耗品の交換", "検出器の点検", "直線性の確認"] },
-  { jp: "JP-DCS-1Y", desc: "制御装置 年次点検", cls: ["DCS"], freq: 1, unit: "YEARS", worktype: "PM", dur: 6, crew: 1, craft: "INST", contractor: true, tasks: ["自己診断履歴の確認", "冷却ファン・フィルタの清掃", "二重化の切替試験"] },
-  { jp: "JP-HVAC-6M", desc: "空調機 フィルタ清掃・点検", cls: ["HVAC"], freq: 6, unit: "MONTHS", worktype: "PM", dur: 2, crew: 1, craft: "CIVIL", tasks: ["フィルタの清掃", "冷媒圧力の確認", "ドレンパンの清掃"] },
-  { jp: "JP-ELEV-1M", desc: "昇降機 保守点検", cls: ["ELEV"], freq: 1, unit: "MONTHS", worktype: "PM", dur: 2, crew: 1, craft: "CIVIL", contractor: true, tasks: ["巻上機・制御盤の点検", "ブレーキの確認", "かご内の確認"] },
-  { jp: "JP-ELEV-1Y", desc: "【法定】昇降機 定期検査", cls: ["ELEV"], freq: 1, unit: "YEARS", worktype: "INSP", dur: 4, crew: 1, craft: "CIVIL", law: true, contractor: true, tasks: ["定期検査", "検査報告書の作成"] },
-  { jp: "JP-FIRE-6M", desc: "【法定】消防用設備 点検", cls: ["LOC:90-FP"], freq: 6, unit: "MONTHS", worktype: "INSP", dur: 6, crew: 2, craft: "CIVIL", law: true, contractor: true, tasks: ["消火ポンプの起動試験", "消火栓の点検", "自動火災報知設備の作動確認", "点検結果報告書の作成"] },
-  { jp: "JP-WB-2Y", desc: "【法定】計量機 定期検査", cls: ["WBRIDGE"], freq: 2, unit: "YEARS", worktype: "INSP", dur: 4, crew: 1, craft: "MECH", law: true, contractor: true, tasks: ["分銅による器差の確認", "検査の受検"] },
-  { jp: "JP-DOOR-6M", desc: "ごみ投入扉 定期点検", cls: ["DOOR"], freq: 6, unit: "MONTHS", worktype: "PM", dur: 2, crew: 2, craft: "MECH", tasks: ["開閉の作動確認", "ヒンジ・シール材の点検", "油圧シリンダの漏れ確認"] },
-  { jp: "JP-HYDU-6M", desc: "油圧ユニット 定期点検", cls: ["HYDU"], freq: 6, unit: "MONTHS", worktype: "PM", dur: 2, crew: 1, craft: "MECH", tasks: ["作動油の汚れ・量の確認", "フィルタエレメントの点検", "吐出圧力の確認"], materials: [["HYDFILTER", 1]] },
-  { jp: "JP-CTWR-6M", desc: "冷却塔 清掃・点検", cls: ["CTWR"], freq: 6, unit: "MONTHS", worktype: "PM", dur: 4, crew: 2, craft: "MECH", tasks: ["散水装置の清掃", "充填材の点検", "水質の確認"] },
-  { jp: "JP-VALVE-2Y", desc: "調節弁・電動弁 作動点検", cls: ["CVALVE", "MOV"], freq: 2, unit: "YEARS", worktype: "PM", dur: 2, crew: 1, craft: "INST", tasks: ["全開・全閉の作動確認", "開度指示とポジショナの確認", "グランド部の漏れ確認"] },
-  { jp: "JP-GEARBOX-1Y", desc: "減速機 潤滑油交換・点検", cls: ["GEARBOX"], freq: 1, unit: "YEARS", worktype: "PM", dur: 3, crew: 2, craft: "MECH", tasks: ["潤滑油の交換", "歯面の点検", "振動測定"], materials: [["OILGEAR", 1]] },
-  { jp: "JP-MIXER-6M", desc: "撹拌機・混練機 定期点検", cls: ["MIXER"], freq: 6, unit: "MONTHS", worktype: "PM", dur: 2, crew: 1, craft: "MECH", tasks: ["パドル・羽根の摩耗確認", "軸封部の点検", "給脂"], materials: [["GREASE", 1]] },
-  { jp: "JP-WTREAT-3M", desc: "水処理装置 定期点検", cls: ["WTREAT"], freq: 3, unit: "MONTHS", worktype: "PM", dur: 2, crew: 1, craft: "MECH", tasks: ["処理水質の確認", "ろ材・樹脂の状態確認", "薬品の補充"] },
-  { jp: "JP-AIRDRY-6M", desc: "除湿乾燥機 定期点検", cls: ["AIRDRY"], freq: 6, unit: "MONTHS", worktype: "PM", dur: 1, crew: 1, craft: "MECH", tasks: ["露点の確認", "フィルタの清掃", "ドレントラップの点検"] },
-  { jp: "JP-UNIT-1M", desc: "装置 月例点検", cls: ["LOC-UNIT"], freq: 1, unit: "MONTHS", worktype: "INSP", dur: 2, crew: 1, craft: "OPER", tasks: ["機器の外観点検", "漏れ・異音・異臭の確認", "計器の指示値の記録", "点検表の作成"] },
-  { jp: "JP-LINE-OH", desc: "炉 定期整備（全停止）", cls: ["LOC-LINE"], freq: 6, unit: "MONTHS", worktype: "PM", dur: 240, crew: 8, craft: "MECH", contractor: true, tasks: ["炉の停止・冷却", "炉内・煙道の清掃", "各機器の点検整備", "立上げ・試運転"] },
+  { jp: "PUMP-3M", desc: "ポンプ 定期点検（3か月）", cls: ["PUMP"], freq: 3, unit: "MONTHS", worktype: "PM", dur: 1.5, crew: 1, craft: "MECH", tasks: ["運転状態の確認（振動・異音・温度）", "軸封部の漏れ確認", "潤滑油の量・汚れの確認と補給", "基礎ボルトの緩み確認"], materials: [["GREASE", 1]] },
+  { jp: "PUMP-OH", desc: "ポンプ 分解整備", cls: ["PUMP"], freq: 4, unit: "YEARS", worktype: "PM", dur: 16, crew: 2, craft: "MECH", critical: true, contractor: true, tasks: ["分解", "羽根車・ケーシングの摩耗点検", "軸受の交換", "メカニカルシールの交換", "組立・芯出し", "試運転"], materials: [["BEARING", 2], ["MSEAL", 1], ["GASKET", 2]] },
+  { jp: "FAN-6M", desc: "送風機 定期点検（6か月）", cls: ["FAN"], freq: 6, unit: "MONTHS", worktype: "PM", dur: 3, crew: 2, craft: "MECH", tasks: ["振動測定", "軸受温度の確認", "Vベルト・カップリングの点検", "給脂"], materials: [["GREASE", 1]] },
+  { jp: "FAN-OH", desc: "送風機 開放点検・羽根車清掃", cls: ["FAN"], freq: 1, unit: "YEARS", worktype: "PM", dur: 12, crew: 3, craft: "MECH", critical: true, overhaulOnly: true, tasks: ["ケーシング開放", "羽根車のダスト除去・摩耗点検", "軸受の点検", "動バランス確認", "復旧・試運転"], materials: [["BEARING", 2]] },
+  { jp: "MOTOR-1Y", desc: "電動機 絶縁抵抗測定・点検", cls: ["MOTOR"], freq: 1, unit: "YEARS", worktype: "PM", dur: 1, crew: 1, craft: "ELEC", minKw: 5.5, tasks: ["絶縁抵抗の測定", "端子部の締付け確認", "運転電流の確認"] },
+  { jp: "COMP-3M", desc: "空気圧縮機 定期点検（3か月）", cls: ["COMP"], freq: 3, unit: "MONTHS", worktype: "PM", dur: 2, crew: 1, craft: "MECH", tasks: ["吸込フィルタの清掃", "ドレン排出の確認", "吐出温度・圧力の確認"], materials: [["AIRFILTER", 1]] },
+  { jp: "COMP-OH", desc: "空気圧縮機 オーバーホール", cls: ["COMP"], freq: 3, unit: "YEARS", worktype: "PM", dur: 16, crew: 2, craft: "MECH", contractor: true, tasks: ["本体の分解点検", "軸受・シールの交換", "冷却器の清掃", "試運転"], materials: [["BEARING", 2], ["OILCOMP", 1]] },
+  { jp: "CONV-3M", desc: "コンベヤ 定期点検（3か月）", cls: ["CONV"], freq: 3, unit: "MONTHS", worktype: "PM", dur: 2, crew: 2, craft: "MECH", tasks: ["チェーン・ベルトの張り確認", "ローラ・スプロケットの摩耗点検", "給油"], materials: [["GREASE", 1]] },
+  { jp: "CRANE-1M", desc: "【法定】クレーン 月例自主検査", cls: ["CRANE"], freq: 1, unit: "MONTHS", worktype: "INSP", dur: 3, crew: 2, craft: "MECH", law: true, tasks: ["巻過防止装置・ブレーキの作動確認", "ワイヤロープの損傷確認", "バケットの点検", "記録の作成"] },
+  { jp: "CRANE-1Y", desc: "【法定】クレーン 年次自主検査", cls: ["CRANE"], freq: 1, unit: "YEARS", worktype: "INSP", dur: 24, crew: 3, craft: "MECH", law: true, contractor: true, tasks: ["構造部分の点検", "荷重試験", "電気設備の点検", "ワイヤロープの交換判定", "検査記録の作成"], materials: [["WIREROPE", 1]] },
+  { jp: "GRAB-OH", desc: "グラブバケット 整備", cls: ["GRAB"], freq: 2, unit: "YEARS", worktype: "PM", dur: 24, crew: 2, craft: "MECH", contractor: true, tasks: ["爪の肉盛溶接", "油圧シリンダのパッキン交換", "作動確認"] },
+  { jp: "BOILER-1Y", desc: "【法定】ボイラ 性能検査", cls: ["BOILER"], freq: 1, unit: "YEARS", worktype: "INSP", dur: 80, crew: 4, craft: "MECH", law: true, contractor: true, tasks: ["ボイラ内部の清掃", "水管の肉厚測定", "安全弁の調整", "所轄の検査の受検"] },
+  { jp: "SAFV-1Y", desc: "【法定】安全弁 吹出し試験", cls: ["SAFV"], freq: 1, unit: "YEARS", worktype: "INSP", dur: 3, crew: 2, craft: "MECH", law: true, tasks: ["吹出し圧力の確認", "吹止まり圧力の確認", "記録の作成"] },
+  { jp: "BAGF-6M", desc: "ろ過式集じん器 定期点検", cls: ["BAGF"], freq: 6, unit: "MONTHS", worktype: "PM", dur: 6, crew: 2, craft: "MECH", tasks: ["差圧の推移確認", "払落し装置（パルス弁）の作動確認", "ホッパの灰付着確認", "ろ布の目視点検"] },
+  { jp: "FBAG-1Y", desc: "ろ布 抜取り検査", cls: ["FBAG"], freq: 1, unit: "YEARS", worktype: "INSP", dur: 3, crew: 2, craft: "MECH", overhaulOnly: true, tasks: ["ろ布の抜取り", "強度・通気度の試験依頼", "結果の記録"] },
+  { jp: "SCR-1Y", desc: "触媒 性能確認（抜取り分析）", cls: ["SCR"], freq: 1, unit: "YEARS", worktype: "INSP", dur: 8, crew: 2, craft: "MECH", overhaulOnly: true, contractor: true, tasks: ["触媒の抜取り", "脱硝性能の分析依頼", "触媒層の差圧確認"] },
+  { jp: "GRATE-OH", desc: "火格子 点検・火格子片交換", cls: ["GRATE"], freq: 1, unit: "YEARS", worktype: "PM", dur: 40, crew: 4, craft: "MECH", overhaulOnly: true, contractor: true, tasks: ["火格子片の摩耗測定", "損耗した火格子片の交換", "駆動部の点検", "作動確認"], materials: [["GRATEBAR", 40]] },
+  { jp: "REFR-OH", desc: "炉体耐火物 点検・補修", cls: ["REFR"], freq: 1, unit: "YEARS", worktype: "PM", dur: 60, crew: 4, craft: "MECH", overhaulOnly: true, contractor: true, tasks: ["耐火物の目視点検", "クリンカの除去", "損耗部の部分補修"], materials: [["REFRACT", 2]] },
+  { jp: "FEEDER-6M", desc: "供給装置 定期点検", cls: ["FEEDER"], freq: 6, unit: "MONTHS", worktype: "PM", dur: 3, crew: 2, craft: "MECH", tasks: ["駆動部の点検", "摺動部の摩耗確認", "給油"], materials: [["GREASE", 1]] },
+  { jp: "DAMPER-OH", desc: "ダンパ 作動点検", cls: ["DAMPER"], freq: 1, unit: "YEARS", worktype: "PM", dur: 3, crew: 2, craft: "MECH", overhaulOnly: true, tasks: ["全開・全閉の作動確認", "軸封部の点検", "開度指示の確認"] },
+  { jp: "SB-3M", desc: "スートブロワ 定期点検", cls: ["SOOTBL"], freq: 3, unit: "MONTHS", worktype: "PM", dur: 1, crew: 1, craft: "MECH", tasks: ["作動確認", "ランスチューブの曲がり確認", "給脂"] },
+  { jp: "HEX-2Y", desc: "熱交換器 開放清掃", cls: ["HEX"], freq: 2, unit: "YEARS", worktype: "PM", dur: 16, crew: 3, craft: "MECH", overhaulOnly: true, tasks: ["開放", "伝熱管の清掃", "肉厚測定", "復旧・漏れ確認"], materials: [["GASKET", 4]] },
+  { jp: "TURB-1Y", desc: "蒸気タービン 年次点検", cls: ["TURBINE"], freq: 1, unit: "YEARS", worktype: "PM", dur: 40, crew: 3, craft: "MECH", contractor: true, tasks: ["軸受の点検", "非常調速装置の作動試験", "潤滑油の分析", "制御油系統の点検"], materials: [["OILTURB", 1]] },
+  { jp: "TURB-4Y", desc: "【法定】蒸気タービン 定期事業者検査（開放点検）", cls: ["TURBINE"], freq: 4, unit: "YEARS", worktype: "INSP", dur: 320, crew: 6, craft: "MECH", law: true, contractor: true, tasks: ["車室の開放", "動翼・静翼の点検", "軸受の点検・交換", "組立・試運転", "検査記録の作成"] },
+  { jp: "GEN-1Y", desc: "発電機 年次点検", cls: ["GEN"], freq: 1, unit: "YEARS", worktype: "PM", dur: 16, crew: 2, craft: "ELEC", contractor: true, tasks: ["絶縁抵抗の測定", "励磁装置の点検", "保護継電器の試験"] },
+  { jp: "ELEC-1Y", desc: "【法定】受変電設備 年次点検", cls: ["TRANSF", "BRKR", "SWGR"], freq: 1, unit: "YEARS", worktype: "INSP", dur: 4, crew: 2, craft: "ELEC", law: true, contractor: true, contract: "annual", tasks: ["停電作業の手配", "絶縁抵抗の測定", "保護継電器の試験", "端子の締付け確認", "清掃"] },
+  { jp: "SUBST-1M", desc: "【法定】受変電設備 月次点検", cls: ["LOC:80-RC"], freq: 1, unit: "MONTHS", worktype: "INSP", dur: 2, crew: 1, craft: "ELEC", law: true, tasks: ["外観点検", "異音・異臭の確認", "電圧・電流の記録"] },
+  { jp: "INV-1Y", desc: "インバータ 点検", cls: ["INV", "UPS"], freq: 1, unit: "YEARS", worktype: "PM", dur: 2, crew: 1, craft: "ELEC", tasks: ["冷却ファンの点検", "コンデンサの容量確認", "清掃"] },
+  { jp: "EGEN-1M", desc: "非常用発電機 無負荷試運転", cls: ["EGEN"], freq: 1, unit: "MONTHS", worktype: "PM", dur: 1, crew: 1, craft: "ELEC", tasks: ["始動試験", "電圧・周波数の確認", "燃料・冷却水の確認"] },
+  { jp: "EGEN-1Y", desc: "【法定】非常用発電機 負荷試験・点検", cls: ["EGEN"], freq: 1, unit: "YEARS", worktype: "INSP", dur: 6, crew: 2, craft: "ELEC", law: true, contractor: true, tasks: ["負荷運転試験", "機関の点検", "蓄電池の点検"] },
+  { jp: "XMTR-1Y", desc: "伝送器 校正", cls: ["XMTR"], freq: 1, unit: "YEARS", worktype: "CAL", dur: 1.5, crew: 1, craft: "INST", tasks: ["ゼロ・スパンの確認", "必要に応じて調整", "校正記録の作成"] },
+  { jp: "ANLZ-1M", desc: "排ガス分析計 校正", cls: ["ANLZ"], freq: 1, unit: "MONTHS", worktype: "CAL", dur: 2, crew: 1, craft: "INST", tasks: ["ゼロガス・スパンガスによる校正", "サンプリング系の点検", "記録の作成"], materials: [["CALGAS", 1]] },
+  { jp: "ANLZ-1Y", desc: "排ガス分析計 定期点検", cls: ["ANLZ"], freq: 1, unit: "YEARS", worktype: "PM", dur: 8, crew: 1, craft: "INST", contractor: true, contract: "annual", tasks: ["消耗品の交換", "検出器の点検", "直線性の確認"] },
+  { jp: "DCS-1Y", desc: "制御装置 年次点検", cls: ["DCS"], freq: 1, unit: "YEARS", worktype: "PM", dur: 6, crew: 1, craft: "INST", contractor: true, contract: "annual", tasks: ["自己診断履歴の確認", "冷却ファン・フィルタの清掃", "二重化の切替試験"] },
+  { jp: "HVAC-6M", desc: "空調機 フィルタ清掃・点検", cls: ["HVAC"], freq: 6, unit: "MONTHS", worktype: "PM", dur: 2, crew: 1, craft: "CIVIL", tasks: ["フィルタの清掃", "冷媒圧力の確認", "ドレンパンの清掃"] },
+  { jp: "ELEV-1M", desc: "昇降機 保守点検", cls: ["ELEV"], freq: 1, unit: "MONTHS", worktype: "PM", dur: 2, crew: 1, craft: "CIVIL", contractor: true, contract: "annual", tasks: ["巻上機・制御盤の点検", "ブレーキの確認", "かご内の確認"] },
+  { jp: "ELEV-1Y", desc: "【法定】昇降機 定期検査", cls: ["ELEV"], freq: 1, unit: "YEARS", worktype: "INSP", dur: 4, crew: 1, craft: "CIVIL", law: true, contractor: true, contract: "annual", tasks: ["定期検査", "検査報告書の作成"] },
+  { jp: "FIRE-6M", desc: "【法定】消防用設備 点検", cls: ["LOC:90-FP"], freq: 6, unit: "MONTHS", worktype: "INSP", dur: 6, crew: 2, craft: "CIVIL", law: true, contractor: true, contract: "annual", tasks: ["消火ポンプの起動試験", "消火栓の点検", "自動火災報知設備の作動確認", "点検結果報告書の作成"] },
+  { jp: "WB-2Y", desc: "【法定】計量機 定期検査", cls: ["WBRIDGE"], freq: 2, unit: "YEARS", worktype: "INSP", dur: 4, crew: 1, craft: "MECH", law: true, contractor: true, tasks: ["分銅による器差の確認", "検査の受検"] },
+  { jp: "DOOR-6M", desc: "ごみ投入扉 定期点検", cls: ["DOOR"], freq: 6, unit: "MONTHS", worktype: "PM", dur: 2, crew: 2, craft: "MECH", tasks: ["開閉の作動確認", "ヒンジ・シール材の点検", "油圧シリンダの漏れ確認"] },
+  { jp: "HYDU-6M", desc: "油圧ユニット 定期点検", cls: ["HYDU"], freq: 6, unit: "MONTHS", worktype: "PM", dur: 2, crew: 1, craft: "MECH", tasks: ["作動油の汚れ・量の確認", "フィルタエレメントの点検", "吐出圧力の確認"], materials: [["HYDFILTER", 1]] },
+  { jp: "CTWR-6M", desc: "冷却塔 清掃・点検", cls: ["CTWR"], freq: 6, unit: "MONTHS", worktype: "PM", dur: 4, crew: 2, craft: "MECH", tasks: ["散水装置の清掃", "充填材の点検", "水質の確認"] },
+  { jp: "VALVE-2Y", desc: "調節弁・電動弁 作動点検", cls: ["CVALVE", "MOV"], freq: 2, unit: "YEARS", worktype: "PM", dur: 2, crew: 1, craft: "INST", tasks: ["全開・全閉の作動確認", "開度指示とポジショナの確認", "グランド部の漏れ確認"] },
+  { jp: "GEARBOX-1Y", desc: "減速機 潤滑油交換・点検", cls: ["GEARBOX"], freq: 1, unit: "YEARS", worktype: "PM", dur: 3, crew: 2, craft: "MECH", tasks: ["潤滑油の交換", "歯面の点検", "振動測定"], materials: [["OILGEAR", 1]] },
+  { jp: "MIXER-6M", desc: "撹拌機・混練機 定期点検", cls: ["MIXER"], freq: 6, unit: "MONTHS", worktype: "PM", dur: 2, crew: 1, craft: "MECH", tasks: ["パドル・羽根の摩耗確認", "軸封部の点検", "給脂"], materials: [["GREASE", 1]] },
+  { jp: "WTREAT-3M", desc: "水処理装置 定期点検", cls: ["WTREAT"], freq: 3, unit: "MONTHS", worktype: "PM", dur: 2, crew: 1, craft: "MECH", tasks: ["処理水質の確認", "ろ材・樹脂の状態確認", "薬品の補充"] },
+  { jp: "AIRDRY-6M", desc: "除湿乾燥機 定期点検", cls: ["AIRDRY"], freq: 6, unit: "MONTHS", worktype: "PM", dur: 1, crew: 1, craft: "MECH", tasks: ["露点の確認", "フィルタの清掃", "ドレントラップの点検"] },
+  { jp: "UNIT-1M", desc: "装置 月例点検", cls: ["LOC-UNIT"], freq: 1, unit: "MONTHS", worktype: "INSP", dur: 2, crew: 1, craft: "OPER", tasks: ["機器の外観点検", "漏れ・異音・異臭の確認", "計器の指示値の記録", "点検表の作成"] },
+  { jp: "LINE-OH", desc: "炉 定期整備（全停止）", cls: ["LOC-LINE"], freq: 6, unit: "MONTHS", worktype: "PM", dur: 240, crew: 8, craft: "MECH", contractor: true, tasks: ["炉の停止・冷却", "炉内・煙道の清掃", "各機器の点検整備", "立上げ・試運転"] },
 ];
 
 /** 炉の定期整備の子 WO にする分類（そのラインの資産） */
@@ -1017,3 +1021,62 @@ export const GIVEN_NAMES: Array<[string, string]> = [
   ["悠斗", "YUTO"], ["真由美", "MAYUMI"], ["勇気", "YUKI"], ["達也", "TATSUYA"], ["聡", "SATOSHI"], ["光", "HIKARU"],
   ["優花", "YUKA"], ["俊介", "SHUNSUKE"], ["貴之", "TAKAYUKI"], ["正樹", "MASAKI"], ["奈々", "NANA"], ["蓮", "REN"],
 ];
+
+// ---------------------------------------------------------------------------
+// 回転資産（ROTATING の品目）と予備品・在庫・外注（第 2 版で足したもの）
+// ---------------------------------------------------------------------------
+
+/** 回転品目にする分類と、品目番号の接頭辞・置く倉庫（E は電気・計装倉庫） */
+export const ROTATING_CLASSES: Record<string, { prefix: string; store: "M" | "E"; commodity: string }> = {
+  MOTOR: { prefix: "RMT", store: "E", commodity: "ELEC" },
+  INV: { prefix: "RIV", store: "E", commodity: "ELEC" },
+  XMTR: { prefix: "RXM", store: "E", commodity: "INST" },
+  CVALVE: { prefix: "RCV", store: "M", commodity: "MECH" },
+};
+
+/** 資産の予備品（SPAREPART）にする部品（分類 → [品目のキー, 数量]） */
+export const SPARE_PARTS: Record<string, Array<[string, number]>> = {
+  PUMP: [["BEARING", 2], ["MSEAL", 1], ["GASKET", 2]],
+  FAN: [["BEARING", 2], ["VBELT", 3]],
+  COMP: [["BEARING", 2], ["AIRFILTER", 1], ["OILCOMP", 1]],
+  CONV: [["BEARING", 4]],
+  HYDU: [["HYDFILTER", 2], ["OILHYD", 1]],
+  BAGF: [["PULSEVALVE", 2], ["FILTERBAG", 20]],
+  CRANE: [["WIREROPE", 1], ["GRABTOOTH", 2]],
+  ANLZ: [["ANLZPART", 2]],
+  DCS: [["DCSCARD", 1]],
+  UPS: [["BATTERY", 4]],
+  EGEN: [["BATTERY", 2]],
+};
+
+/** 是正保全で部品を交換したときに払い出す品目のキー（原因 → キー） */
+export const CAUSE_ITEMS: Record<string, Array<[string, number]>> = {
+  BRGDMG: [["BEARING", 2]],
+  SEALWEAR: [["MSEAL", 1]],
+  LOOSE: [["GASKET", 2]],
+  VLVWEAR: [["GASKET", 2]],
+  FILTCLOG: [["AIRFILTER", 1]],
+  HYDFAIL: [["HYDFILTER", 1]],
+  BLIND: [["FILTERBAG", 10]],
+  PULSEFL: [["PULSEVALVE", 1]],
+  SENSOR: [["ANLZPART", 1]],
+  PRBCLOG: [["ANLZPART", 1]],
+  SMPPUMP: [["ANLZPART", 1]],
+  BATTERY: [["BATTERY", 2]],
+  ELECFAIL: [["CONTACTOR", 1], ["FUSE", 2]],
+  RELAY: [["RELAY", 2]],
+};
+
+/** 部署（作業指示の独自属性 EXT_DEPT の値。ドメイン EXTDEPT） */
+export const DEPTS: Array<[string, string]> = [["FAC", "施設課"], ["EIC", "電気計装課"], ["GEN", "総務課"]];
+
+/** 作業タイプ（表。値の一覧だけ） */
+export const WORKTYPES: Array<[string, string]> = [
+  ["PM", "予防保全"], ["CM", "是正保全"], ["EM", "緊急保全"], ["CAL", "校正"], ["INSP", "点検・検査"], ["CP", "更新工事"],
+];
+
+/** 外注の作業の 1 時間あたりの単価（円。人数 × 時間に掛ける） */
+export const CONTRACT_RATE: [number, number] = [7000, 12000];
+
+/** 東部の機器台帳（Excel）だけにある変更の基準日（これより後の機器の変更は Maximo の資産に入っていない） */
+export const LEDGER_CUTOFF = { y: 2025, m: 4 };

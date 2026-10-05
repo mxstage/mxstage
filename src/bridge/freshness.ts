@@ -14,7 +14,7 @@ import { join, relative } from "node:path";
 import { isReservedSkillName, NAME_PATTERN, SKILL_FILE, normalizeText } from "../shared/skillFile.ts";
 
 /** 橋渡しが起動したときに読み込むコード（リポジトリの根からの位置）。ここが変わったら、起動し直すまで古い */
-export const BRIDGE_CODE_PATHS: readonly string[] = ["src/bridge", "src/shared", "package.json"];
+export const BRIDGE_CODE_PATHS: readonly string[] = ["src/bridge", "src/shared", "src/demo", "package.json"];
 
 /**
  * 作業画面と Skill のビルドのもと。どれかが dist/app/index.html より新しければビルドし直しが要る。

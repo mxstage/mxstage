@@ -9,6 +9,7 @@
 import { request as httpsRequest } from "node:https";
 import { request as httpRequest } from "node:http";
 import type { ClientRequest, IncomingMessage, RequestOptions, ServerResponse } from "node:http";
+import { isReservedDemoHost } from "../shared/demo.ts";
 
 /**
  * 上流（Maximo）への要求の時間の上限。応答の頭が届くまでの時間と、本文が途切れている時間の両方に使う。
@@ -84,6 +85,10 @@ export function parseMaximoBase(value: string | undefined, allowedHosts: string[
   }
   if (base.protocol !== "https:" || base.username || base.password || (base.pathname !== "/" && base.pathname !== "") || base.search || base.hash) {
     return { status: 400, error: "invalid_base", message: "X-Maximo-Base は https://host[:port] の形で指定してください。" };
+  }
+  // デモの予約のホスト（*.mxstage.invalid）は手元の仮想 Maximo だけが受ける。ネットへは出さない（src/bridge/demo.ts）
+  if (isReservedDemoHost(base.hostname)) {
+    return { status: 400, error: "reserved_host", message: "This host is reserved for the built-in demo. Connect to the demo from Settings > Demo." };
   }
   // 許可リストが空なら制限しない（ローカルなので既定は無制限）
   if (allowedHosts.length > 0) {

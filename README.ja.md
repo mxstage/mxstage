@@ -7,7 +7,6 @@
 [![IBM Maximo / MAS Manage](https://img.shields.io/badge/IBM_Maximo-MAS_Manage-0f62fe)](#必要なもの)
 [![EAM / CMMS](https://img.shields.io/badge/category-EAM_%7C_CMMS-6f42c1)](#必要なもの)
 [![MCP server](https://img.shields.io/badge/MCP-server-555555)](https://modelcontextprotocol.io)
-[![Glama MCP server score](https://glama.ai/mcp/servers/mxstage/mxstage/badges/score.svg)](https://glama.ai/mcp/servers/mxstage/mxstage)
 [![テスト環境は無償](https://img.shields.io/badge/free-test_environments-2ea44f)](https://mxstage.tsunagi.app/ja/pricing)
 [![License: BSL 1.1](https://img.shields.io/badge/license-BSL_1.1_%E2%86%92_Apache_2.0-blue)](LICENSE)
 [![Windows](https://img.shields.io/badge/platform-Windows-0078d4)](#必要なもの)
@@ -23,6 +22,7 @@ Maximo（MAS Manage）のデータ整備を、利用者の LLM クライアン�
 - **外へ通信するのは、Maximo と AI アシスタントだけ。** ただし設定の「更新」で **自動で更新する** をオンにしたとき（既定はオフ）だけ、
   橋渡しが 1 日 1 回 GitHub に最新の版の番号を問い合わせる。導入スクリプトで入れたものは作業中でないときに自動で入れ替わり、
   Claude Desktop の拡張機能は新しいファイルをダウンロードして確かめるところまで行う（入れるのは利用者）。
+  また、設定の「デモ」で **データを落としてつなぐ** を押したときだけ、`mxstage-demo.pages.dev` から架空のデータを 1 回落とす（何も送らない）。
 - **Maximo の API キーは、この PC の橋渡しが OS の保護付きで保存し、ブラウザには渡さない**（Windows は DPAPI、macOS はキーチェーンで暗号化）。
   作業画面はどの窓（インストールしたアプリ・ブラウザのタブ・AI アシスタントの中のブラウザ）で開いても、PC を再起動したあとでも自動でつながり、
   Maximo の環境が複数あれば設定で選んで切り替えられる（保存せずに接続することもでき、そのときキーはタブのメモリにだけ置く）。
@@ -40,6 +40,16 @@ Maximo（MAS Manage）のデータ整備を、利用者の LLM クライアン�
 4. 新しいチャットで「MX Stage の状態を見せて」と頼む。
 
 拡張には Node.js も Git も要らない（Claude Desktop が動かす）。ほかの AI アシスタント（ChatGPT デスクトップ・IBM Bob・ターミナルの Claude Code・Antigravity）でも使うときは、下の導入スクリプトを使う。拡張が入っていれば、二重には登録しない。
+
+### Maximo が無くても試す
+
+Maximo が手元に無くても、組み込みのデモで試せる。架空のごみ焼却施設 3 か所（機器・場所・約 5.2 万件の作業指示・在庫と、移行で残りがちなデータ品質の問題）の Maximo を、日本語か英語のデータで、この PC の橋渡しの中で動かす。
+
+1. MX Stage を入れて（上）、`http://127.0.0.1:8788/settings#demo` を開く。
+2. **データを落としてつなぐ** を押す。`mxstage-demo.pages.dev` から架空のデータ（約 10 MB。プログラムは含まない）を 1 回落とし、この版に埋め込んだ SHA-256 で確かめる。
+3. AI に頼む。例: 「北部クリーンセンターの稼働中の機器のデータ品質を調べて、問題を件数付きで一覧にして」
+
+反映はこの PC の中の写しにだけ効き（**初めの状態に戻す** で戻せる）、ライセンスは要らない。使っている間はメモリを約 0.5 GB 使う。Maximo と突き合わせるサンプルの Excel（作業指示番号の無い発注一覧・旧設備台帳・作業日報（A4 の帳票）・Maximo より進んだ機器台帳・星取表）も同じタブにある。詳しくは [docs/demo.md](docs/demo.md)。
 
 ### Claude の plugin（Skill）
 
@@ -205,6 +215,7 @@ LLM に MX Stage の使い方を教えるファイル。**アプリ既定**と**
 
 ## 文書
 
+- [docs/demo.md](docs/demo.md) — Maximo が無くても試す（組み込みのデモ）
 - [docs/local.md](docs/local.md) — 毎日の使い方・更新・取り消し・うまくいかないとき・どこに何を書くか
 - [docs/status.md](docs/status.md) — 今どこまでできているか
 - [docs/publish.md](docs/publish.md) — GitHub へ送る前の検査（客先の情報を送らない）
@@ -216,7 +227,7 @@ npm run typecheck      # tsc（app / bridge）
 npx vitest run         # 試験（app / bridge）
 npm run test:setup     # 導入スクリプトの試験（一時フォルダだけに書き、本物の claude コマンドは呼ばない）
 npm run build          # アプリ既定の Skill の生成と画面のビルド（dist/app）
-npm run dev:app        # 画面の開発サーバ（http://localhost:5173/app?demo=1 で架空のサンプルを表示。中継は開発用の橋渡し 8790 へ）
+npm run dev:app        # 画面の開発サーバ（http://localhost:5173/app?samples=1 で架空のサンプルを表示。中継は開発用の橋渡し 8790 へ）
 node scripts/check-publish.mjs --worktree   # 送る前の検査（docs/publish.md）
 ```
 

@@ -1,6 +1,6 @@
 // 作業画面の上部バー（1 段）。接続の ○、シートタブ、色の意味、オブジェクト構造、設定・作業終了・パネルの出し入れ。
 
-import { Information, Logout, OpenPanelRight, Settings } from "@carbon/icons-react";
+import { DataStructured, Information, Logout, OpenPanelRight, Settings } from "@carbon/icons-react";
 import { Button, IconButton, Toggletip, ToggletipButton, ToggletipContent } from "@carbon/react";
 import { useCallback, useSyncExternalStore, type ReactNode } from "react";
 import type { ObjectStructureCatalog } from "../catalog/catalog";
@@ -35,7 +35,7 @@ export interface TopBarProps {
 }
 
 /**
- * 「オブジェクト構造」へのリンク。読み込み中は進み具合を出す。
+ * 「オブジェクト構造」へのアイコンのリンク。読み込み中は進み具合を出す。
  * 読み込みは 1 件ごとに知らせてくるので、作業画面全体（グリッド）を描き直さないよう、このリンクだけが購読する。
  */
 function StructuresLink({ catalog, baseUrl }: { catalog?: ObjectStructureCatalog; baseUrl?: string | null }) {
@@ -44,11 +44,28 @@ function StructuresLink({ catalog, baseUrl }: { catalog?: ObjectStructureCatalog
     useCallback(() => (catalog && baseUrl ? catalog.snapshot(baseUrl).sync : null), [catalog, baseUrl]),
   );
   const t = pagesMessages().topBar;
+  const loading = sync !== null && sync.state === "running" ? t.structuresLoading(sync.done, sync.total) : "";
+  // ほかの操作（設定・作業の終了）と同じアイコンのボタン。名前と読み込みの進み具合はツールチップと読み上げで伝え、
+  // 読み込み中だけ件数を横に小さく出す
   return (
-    <Link to={STRUCTURES_PATH} className="topbar-link" title={t.structuresTitle}>
-      {t.structures}
-      {sync !== null && sync.state === "running" ? t.structuresLoading(sync.done, sync.total) : ""}
-    </Link>
+    <span className="structures-link">
+      <IconButton
+        kind="ghost"
+        size="md"
+        align="bottom"
+        label={`${t.structures}${loading}`}
+        aria-label={`${t.structures}${loading}`}
+        href={STRUCTURES_PATH}
+        onClick={spaClick(STRUCTURES_PATH)}
+      >
+        <DataStructured />
+      </IconButton>
+      {sync !== null && sync.state === "running" && (
+        <span className="structures-progress muted small" aria-hidden="true">
+          {sync.done}/{sync.total}
+        </span>
+      )}
+    </span>
   );
 }
 

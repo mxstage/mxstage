@@ -8,6 +8,7 @@
 import { randomBytes } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { demoLangOfConnectionId, isReservedDemoHost } from "../shared/demo.ts";
 import { SecretBox, SecretBoxError, type ProtectionKind, type SealedSecret } from "./secretBox.ts";
 
 export const CONNECTIONS_FILE = "connections.json";
@@ -33,7 +34,7 @@ export interface ConnectionEntry {
 
 export interface ConnectionList {
   connections: ConnectionEntry[];
-  /** 最後に使った接続先（新しい窓はこれで自動でつなぐ） */
+  /** 最後に使った接続先（新しい窓はこれで自動でつなぐ）。デモの予約の ID（demo-ja など）のこともある */
   lastUsedId: string | null;
   /** API キーの守り方 */
   protection: ProtectionKind;
@@ -65,7 +66,7 @@ export type SaveConnectionResult = { ok: true; connection: ConnectionEntry } | {
 
 export type ResolveResult = { ok: true; origin: string; apiKey: string } | { ok: false; problem: "not_found" | "unreadable" | "unavailable" };
 
-/** https://host[:port] だけを受ける（/mx の X-Maximo-Base と同じ条件）。正規化したオリジンを返す */
+/** https://host[:port] だけを受ける（/mx の X-Maximo-Base と同じ条件）。正規化したオリジンを返す。デモの予約のホストは受けない */
 export function normalizeConnectionUrl(raw: string): string | null {
   let u: URL;
   try {
@@ -75,6 +76,7 @@ export function normalizeConnectionUrl(raw: string): string | null {
   }
   if (u.protocol !== "https:" || u.username || u.password || u.search || u.hash) return null;
   if (u.pathname !== "/" && u.pathname !== "") return null;
+  if (isReservedDemoHost(u.hostname)) return null;
   return u.origin;
 }
 
@@ -104,7 +106,8 @@ export class ConnectionStore {
     const stored = this.read();
     return {
       connections: stored.connections.map(publicEntry),
-      lastUsedId: stored.connections.some((c) => c.id === stored.lastUsedId) ? stored.lastUsedId : null,
+      // デモの ID は残す（落とし済みかは橋渡しの入口が見て決める。src/bridge/server.ts）
+      lastUsedId: stored.connections.some((c) => c.id === stored.lastUsedId) || demoLangOfConnectionId(stored.lastUsedId) !== null ? stored.lastUsedId : null,
       protection: this.box.kind(),
     };
   }
@@ -171,6 +174,14 @@ export class ConnectionStore {
     const updated = { ...found, lastUsedAt: this.now() };
     this.write({ ...stored, lastUsedId: id, connections: stored.connections.map((c) => (c.id === id ? updated : c)) });
     return publicEntry(updated);
+  }
+
+  /** デモを使った（新しい窓はデモにつなぐ）。予約の ID だけを受ける */
+  useDemo(id: string): boolean {
+    if (demoLangOfConnectionId(id) === null) return false;
+    const stored = this.read();
+    this.write({ ...stored, lastUsedId: id });
+    return true;
   }
 
   /** /mx が使う。接続先の Maximo のオリジンと API キー */

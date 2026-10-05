@@ -1,4 +1,4 @@
-// 開発サーバ（vite dev）でだけ使うサンプルデータ。`?demo=1` を付けて開くと、Maximo に接続しなくても
+// 開発サーバ（vite dev）でだけ使うサンプルデータ。`?samples=1` を付けて開くと、Maximo に接続しなくても
 // 画面（関連する表の同時表示・列の絞り込み・反映パネル）を確かめられる。
 //
 // 本番のビルドには入らない（main.tsx が import.meta.env.DEV の中で動的に import する）。
@@ -104,7 +104,7 @@ function master(name: string, os: string, keyColumn: string, columns: ColumnSche
 }
 
 /** 開発サーバでサンプルのシートを作る（すでに何かあれば何もしない） */
-export function seedDemoWorkspace(workspace: Workspace): void {
+export function seedSampleWorkspace(workspace: Workspace): void {
   if (workspace.sheets.size > 0) return;
   const wo = workOrders();
   workspace.createSheet(wo.meta, wo.rows);

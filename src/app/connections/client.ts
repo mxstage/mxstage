@@ -2,7 +2,10 @@
 // - API キーは橋渡しが OS の保護付きで暗号化して預かる。作業画面はキーを受け取らず、接続先の ID だけを /mx に送る。
 // - どの窓（PWA・普通のタブ・AI クライアントの中のブラウザ）で開いても、開いたときに自動でつなぐ（autoConnect）。
 //   選ぶ順: この窓（ブラウザ）で前に選んだ接続先 → 橋渡しが覚えている最後に使った接続先 → 1 つしか無ければそれ。
+// - 落とし済みのデモ（設定の「デモ」）は別の配列 demo で届く。前に選んでいればデモにもつなぐが、「1 つしか無ければそれ」には数えない。
 
+import { demoLangOfConnectionId } from "../../shared/demo";
+import { demoMessages } from "../demo/messages";
 import type { Environment } from "../license/client";
 
 export const CONNECTIONS_ENDPOINT = "/_mxstage/connections";
@@ -28,6 +31,8 @@ export interface SavedConnectionsSnapshot {
   /** loading: 読み込み中 / ready: 読めた / unavailable: 橋渡しが古い・つながらない */
   status: "loading" | "ready" | "unavailable";
   connections: readonly SavedConnection[];
+  /** 落とし済みのデモ（予約の ID demo-ja・demo-en。常にテスト環境） */
+  demo: readonly SavedConnection[];
   lastUsedId: string | null;
   protection: ProtectionKind | null;
 }
@@ -68,7 +73,7 @@ export class SavedConnectionsClient {
   private readonly fetchImpl: typeof fetch;
   private readonly storage: SelectionStorage | null;
   private readonly now: () => number;
-  private state: SavedConnectionsSnapshot = { status: "loading", connections: [], lastUsedId: null, protection: null };
+  private state: SavedConnectionsSnapshot = { status: "loading", connections: [], demo: [], lastUsedId: null, protection: null };
   private readonly listeners = new Set<() => void>();
 
   constructor(deps: { fetch?: typeof fetch; storage?: SelectionStorage | null; now?: () => number } = {}) {
@@ -87,7 +92,7 @@ export class SavedConnectionsClient {
   }
 
   find(id: string): SavedConnection | null {
-    return this.state.connections.find((c) => c.id === id) ?? null;
+    return this.state.connections.find((c) => c.id === id) ?? this.state.demo.find((c) => c.id === id) ?? null;
   }
 
   /** この窓で前に選んだ接続先の ID */
@@ -115,9 +120,14 @@ export class SavedConnectionsClient {
   }
 
   private apply(json: Record<string, unknown>): void {
-    const connections = Array.isArray(json.connections) ? json.connections.filter(isConnection) : [];
+    const connections = Array.isArray(json.connections) ? json.connections.filter(isConnection).filter((c) => demoLangOfConnectionId(c.id) === null) : [];
+    // デモの名前は画面の言語で出す（橋渡しは英語の名前を返す）
+    const demo = (Array.isArray(json.demo) ? json.demo.filter(isConnection) : []).flatMap((c) => {
+      const lang = demoLangOfConnectionId(c.id);
+      return lang === null ? [] : [{ ...c, name: demoMessages().connectionName[lang], environment: "test" as const }];
+    });
     const protection = json.protection === "dpapi" || json.protection === "keychain" || json.protection === "file" ? json.protection : null;
-    this.state = { status: "ready", connections, lastUsedId: typeof json.lastUsedId === "string" ? json.lastUsedId : null, protection };
+    this.state = { status: "ready", connections, demo, lastUsedId: typeof json.lastUsedId === "string" ? json.lastUsedId : null, protection };
     this.emit();
   }
 

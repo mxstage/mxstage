@@ -40,7 +40,6 @@ export const pagesMessages = defineMessages(
     topBar: {
       structures: "Object structures",
       structuresLoading: (done: number, total: number) => ` (loading ${done}/${total})`,
-      structuresTitle: "View the object structures loaded from Maximo (key columns, child objects, attributes)",
       legend: "Color legend",
       legendHead: "Cell colors",
       legendNote: "Hover over a cell to see its author, reason and the values before and after",
@@ -162,7 +161,6 @@ export const pagesMessages = defineMessages(
     topBar: {
       structures: "オブジェクト構造",
       structuresLoading: (done, total) => `（読み込み中 ${done}/${total}）`,
-      structuresTitle: "Maximo から読み込んだオブジェクト構造（キー列・子オブジェクト・属性）を見る",
       legend: "色の意味",
       legendHead: "セルの色",
       legendNote: "セルにマウスを置くと作者・根拠・変更前後を表示します",

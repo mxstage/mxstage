@@ -19,7 +19,8 @@
     "dev:bridge": "node --experimental-strip-types src/bridge/cli.ts --no-mcp --port 8790 --insecure --allow-host 127.0.0.1 --dev-license",
     "build:mcpb": "node --experimental-strip-types scripts/build-mcpb.ts",
     "build:npm": "node --experimental-strip-types scripts/build-npm.ts",
-    "release:check": "node --experimental-strip-types scripts/release-check.ts"
+    "release:check": "node --experimental-strip-types scripts/release-check.ts",
+    "demo:build": "node --experimental-strip-types scripts/demo-build.ts"
   },
   "dependencies": {
     "@carbon/icons-react": "11.89.0",

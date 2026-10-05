@@ -136,7 +136,14 @@ export function Root({ services }: { services: AppServices }) {
   if (route.kind === "settings") {
     return (
       <>
-        <SettingsPage key={locale} vault={services.vault} license={services.license} connections={services.connections} autoConnect={services.autoConnect} />
+        <SettingsPage
+          key={locale}
+          vault={services.vault}
+          license={services.license}
+          connections={services.connections}
+          autoConnect={services.autoConnect}
+          imports={services.imports ?? null}
+        />
         <Toasts store={services.toasts} />
       </>
     );

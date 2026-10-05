@@ -306,6 +306,17 @@ button.link:hover {
   align-items: center;
 }
 
+/* オブジェクト構造へのアイコン。読み込み中だけ件数を横に出す */
+.structures-link {
+  display: inline-flex;
+  align-items: center;
+}
+
+.structures-progress {
+  margin-left: var(--cds-spacing-01);
+  white-space: nowrap;
+}
+
 /* パネルを隠している間に「最終」以外を見ているときの表示名 */
 .view-hint {
   font-size: var(--cds-label-01-font-size);
@@ -1205,6 +1216,57 @@ body.resizing-row * {
   padding: 0 var(--cds-spacing-04);
   color: var(--cds-support-success);
   font-weight: 600;
+}
+
+/* 設定の「デモ」: サンプルの Excel と頼み方の例（保存した接続先の一覧と同じ並べ方） */
+.demo .actions {
+  margin-top: var(--cds-spacing-05);
+}
+
+.demo .cds--progress-bar {
+  margin: var(--cds-spacing-05) 0;
+}
+
+.demo-files,
+.demo-prompts ul {
+  margin: var(--cds-spacing-03) 0 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--cds-border-subtle-01);
+}
+
+.demo-files li,
+.demo-prompts li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--cds-spacing-03);
+  padding: var(--cds-spacing-04) 0;
+  border-bottom: 1px solid var(--cds-border-subtle-01);
+}
+
+.demo-files li > div:first-child {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+.demo-files li p {
+  margin: var(--cds-spacing-02) 0 0;
+}
+
+.demo-files .actions {
+  flex: 0 0 auto;
+  margin-top: 0;
+}
+
+.demo-prompts li > span {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+.demo-hint {
+  margin: 0 0 var(--cds-spacing-05);
 }
 
 .structures-body {

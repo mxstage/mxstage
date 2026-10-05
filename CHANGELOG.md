@@ -6,10 +6,19 @@ All notable changes to MX Stage are listed here. Versions follow [Semantic Versi
 
 ### Added
 
+- **Try without Maximo.** Settings → Demo downloads fictional sample data (three waste incineration plants, in Japanese or English) and runs a demo Maximo inside the bridge on your PC. Load, fix and commit as with a real Maximo; commits change only the copy on your PC and can be reset. The data (about 10 MB, no programs) comes from `mxstage-demo.pages.dev` only when you press **Download data and connect**, is checked against a SHA-256 built into this version, and works offline afterwards. The demo is always a test environment and needs no license. It takes about 0.5 GB of memory while in use and is released when you close it, after an hour without use, or when MX Stage restarts. See [docs/demo.en.md](docs/demo.en.md).
+- Five sample Excel files to merge with the demo (purchase orders without work order numbers, a legacy equipment register, daily work reports printed as A4 forms (a repair log table in the English data), an equipment register ahead of Maximo, a star chart). **Load into work screen** adds one as if you had dropped it there.
+- A purple **Demo** badge in the top bar while connected to the demo. get_status and open_grid tell the AI about the demo.
+- `--no-demo` turns the demo off.
 - **Diff report (Excel).** The commit panel saves the changes of a sheet as an .xlsx file before you commit: one row per changed cell with the record's key, the column, the old value, the new value, who changed it (the AI assistant or a person), the reason and the time, plus added and deleted rows. A summary sheet gives the Maximo URL, the environment, the object structure, the commit request note, the counts, the changes by column and the work history. After a commit, the write log is added. Keep it as the record of what was approved. The file contains Maximo data; it is made in the work screen and sent nowhere.
+
+### Changed
+
+- The link to the object structures in the top bar is now an icon (with its name as a tooltip), next to Settings. While the definitions load, the count appears beside it.
 
 ### Fixed
 
+- Settings → Updates: the **Update automatically** switch was shown without its styles (as a bare checkbox). The language choices and multi-line text boxes had the same problem.
 - The results by row in the commit panel no longer wrap one character per line in the narrow side panel.
 - After a commit, the commit panel says there are no changes to commit instead of "There are reasons this cannot be committed".
 

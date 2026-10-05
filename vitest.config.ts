@@ -15,7 +15,8 @@ export default defineConfig({
       },
       {
         // dev: 開発用の道具（偽の Maximo に載せる大きなデータの整合）
-        test: { name: "dev", include: ["tests/dev/**/*.test.ts"], environment: "node" },
+        // 全部のデータ（日英）を作って確かめるので、時間の上限を長くする
+        test: { name: "dev", include: ["tests/dev/**/*.test.ts"], environment: "node", testTimeout: 120_000 },
       },
     ],
   },

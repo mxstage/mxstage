@@ -27,128 +27,174 @@ npm run dev:bridge
   （`tests/bridge/repo.test.ts` が確かめます）。
 - 署名の鍵（秘密鍵）は開発メンバーにも渡しません。別のキーが要るときは、販売サイトの試験用の環境（Paddle のサンドボックス）で発行します。
 
-# 開発用の大きなデータ（ごみ焼却施設 3 か所）
+# デモ・開発用の大きなデータ（ごみ焼却施設 3 か所、日本語・英語。第 2 版）
 
 偽の Maximo に、実際の顧客に近い規模・中身のデータを載せて試すためのものです（`dev/datasets/plants/`）。
 架空の広域事業組合（ORGID `KANKYO`）が、ごみ焼却施設を 3 か所（サイト）運営している想定です。名前はすべて架空です。
+同じものを Cloudflare Pages に置き、MX Stage のデモ（Maximo を持たない人が試す）で使います（`npm run demo:build`、公開の手順は `docs/demo-ops.md`）。
 
 ```bash
-npm run dev:fake-maximo -- --dataset plants
+npm run dev:fake-maximo -- --dataset plants             # 日本語
+npm run dev:fake-maximo -- --dataset plants --lang en   # 英語
 npm run dev:bridge
 ```
 
-- 起動すると、オブジェクト構造ごとの件数・メモリ・起動までの時間を出します（データの生成は約 1.5 秒、起動まで約 2.5 秒、メモリ約 0.8 GB）。
-- フラグを付けなければ、これまでどおりの小さなデータ（試験の `sampleSeed`）です。自動の試験（`npx vitest run`）も小さなデータのままです。
+- 起動すると、オブジェクト構造ごとの件数・メモリ・起動までの時間を出します（データの生成は約 2 秒、メモリ約 0.5 GB）。
+- フラグを付けなければ、これまでどおりの小さなデータ（試験の `sampleSeed`）です。自動の試験の app・bridge も小さなデータのままです。
 - 乱数は種付きなので、毎回同じデータになります（作業指示番号・資産番号も同じ）。基準日は 2026-09-30 17:00（これより後の実績はありません）。
+- **日本語と英語は同じ乱数で作る**ので、ID・件数・日付・ステータスは同じです（違うのは文・人の ID・金額の通貨）。
+  英語の文は `dev/datasets/plants/en.ts` の辞書（日本語の正本 → 英語）と `text.ts` の組み立てで作ります。英語の金額は 1 USD = 150 円で換算します。
 - 書き込み（「Maximo に反映」）もできます。偽の Maximo を止めると元に戻ります。
 
-## 施設
+## 施設と Maximo を入れた時期
 
-| サイト | 名前 | 竣工 | 炉 | 場所の接頭辞 | 資産番号 |
-|---|---|---|---|---|---|
-| `KITA` | 北部クリーンセンター | 2006-04（約 20 年） | 3 炉 × 100 t/日。洗煙設備あり、受電 66 kV | `KT-` | 1000001〜 |
-| `MINAMI` | 南部クリーンセンター | 2013-04（約 13 年） | 2 炉 × 120 t/日。場外余熱供給あり | `MN-` | 2000001〜 |
-| `HIGASHI` | 東部クリーンセンター | 2021-04（約 5 年） | 2 炉 × 95 t/日。受電 6.6 kV | `HG-` | 3000001〜 |
+| サイト | 名前 | 竣工 | Maximo を入れた月 | 炉 | 場所の接頭辞 | 資産番号 |
+|---|---|---|---|---|---|---|
+| `KITA` | 北部クリーンセンター / North Clean Center | 2006-04 | 2018-04（旧台帳から移行） | 3 炉 × 100 t/日。洗煙設備あり、受電 66 kV | `KT-` | 1000001〜 |
+| `MINAMI` | 南部クリーンセンター / South Clean Center | 2013-04 | 2018-04（旧台帳から移行） | 2 炉 × 120 t/日。場外余熱供給あり | `MN-` | 2000001〜 |
+| `HIGASHI` | 東部クリーンセンター / East Clean Center | 2021-04 | 2021-04（竣工から） | 2 炉 × 95 t/日。受電 6.6 kV | `HG-` | 3000001〜 |
 
-場所の階層（LOCHIERARCHY、システム `PRIMARY`）は 施設（`KT`）→ 炉系列（`KT-L1`〜）・共通設備（`KT-CM`）→ 設備系統（`KT-1-20` 1号炉 燃焼設備）→
-装置（`KT-1-20-ST` ストーカ）→ 機能位置（`KT-1-GR-201`）です。機能位置の場所コードは「施設の接頭辞-タグ番号」で、
-タグ番号（ASSETTAG）の命名規則は `<炉（共通は 0）>-<種別>-<番号><号機>`（例 `1-P-202A` 1号炉 油圧ポンプ A号機、`0-P-651B` ボイラ給水ポンプ B号機）です。
+- **北部・南部の 2018 年 3 月より前の作業指示・SR・メーターの読みは Maximo に無く**、星取表と旧設備台帳（Excel）にだけあります。
+  Maximo を入れる前に撤去した資産も Maximo にありません。移行に由来するデータ品質の問題は、移した資産に集まります。
+- 場所の階層（LOCHIERARCHY）は 2 つ。`PRIMARY` は 施設（`KT`）→ 炉系列（`KT-L1`〜）・共通設備（`KT-CM`）→ 設備系統（`KT-1-20`）→ 装置（`KT-1-20-ST`）→
+  機能位置（`KT-1-GR-201`）。`ELEC`（電気の系統）は 受電遮断器 → 主変圧器 → 高圧配電盤 → 動力変圧器 → コントロールセンタ → 電動機のある機器。
+  子を持つ場所は `children` が立っています。
+- 場所のタイプ: 運転（OPERATING）のほか、部品倉庫 `KT-STORE`・電気計装倉庫 `KT-ESTORE`（STOREROOM）、修理中 `KT-REPAIR`（REPAIR）、撤去品置場 `KT-SALVAGE`（SALVAGE）。
+- タグ番号（ASSETTAG）の命名規則は `<炉（共通は 0）>-<種別>-<番号><号機>`（例 `1-P-202A`）。
+- 寿命のある分類は年数がたつと更新され、古い資産は `DECOMMISSIONED` で撤去品置場へ移ります。
+- **回転資産**: 電動機・インバータ・伝送器・調節弁は回転品目（ITEM.ROTATING、`RMT-`・`RIV-`・`RXM-`・`RCV-`）で、資産に ITEMNUM があります。
+  予備品の資産（資産番号 x8xxxxx）は倉庫の棚にあり、回転品目の在庫数（INVENTORY.CURBALTOTAL）は倉庫にある予備品の台数と同じです（一部は修理中）。
+- **在庫と払い出し**: 在庫（INVENTORY・INVBALANCES・INVCOST）の発注点・最大在庫・ABC は使った量から決め、残高は払い出し（INVUSE・INVUSELINE。
+  作業指示への払い出しと、月 1 回のグリース）と補充から計算します。資産には予備品の一覧（SPAREPART）があります。
+- **外注**: 外注の作業指示には業者（VENDOR）と、発注の独自属性（`EXT_PONUM`・`EXT_ASSESSAMT` 査定・`EXT_ORDERAMT` 発注・`EXT_ACCEPTAMT` 検収・
+  `EXT_PODATE`・`EXT_ACCEPTDATE`・`EXT_LEGAL` 法規対応・`EXT_DEPT` 部署）があります。2026 年 3 月までは入力済み、
+  **2026 年度上半期（4〜9 月）は未入力で、完了しても COMP のまま**です（発注リストの Excel にだけある）。
+  年間の委託（受変電の年次点検・分析計・DCS・昇降機・消防）は作業指示ごとの金額が無く、契約番号だけです。
+  実機では計算で決まる標準の費用（`ESTSERVCOST`・`ESTATAPPRSERVCOST`・`ACTSERVCOST`）は読み取り専用です。
+- **東部の資産の登録は 2025 年 4 月から止まっています**（その後の更新・増設・仕様の変更・撤去は、東部の機器台帳の Excel にだけある）。
 
-設備系統は 受入・供給 / 燃焼 / 燃焼ガス冷却（ボイラ）/ 排ガス処理（減温塔・ろ過式集じん器・薬剤噴霧・触媒脱硝・洗煙）/ 通風（押込・誘引送風機・煙突）/
-余熱利用（蒸気タービン発電・復水・冷却水・場外余熱供給）/ 給水 / 灰出し / 排水処理 / 電気（受変電・低圧動力・非常用電源）/ 計装（DCS・排ガス分析計）/
-建築・ユーティリティ（圧縮空気・空調換気・消防・昇降機・給排水）です。
-
-- 資産は機能位置ごとに据え、ポンプ・送風機の電動機やインバータ、クレーンの電動機・バケットは子の資産（PARENT）です。
-- 分類（CLASSSTRUCTURE）は 機械設備 → 回転機械 → ポンプ のような階層で、葉の分類に仕様（CLASSSPEC）があり、資産に ASSETSPEC があります
-  （定格出力 kW・電圧・電流・回転数・流量・揚程・材質・型式・製造年など。電動機の電流は出力と電圧から計算）。
-- 寿命のある分類（ポンプ・電動機・インバータ・伝送器・分析計・ろ布・DCS・UPS など）は年数がたつと更新され、古い資産は `DECOMMISSIONED`
-  で撤去品置場（`KT-SALVAGE`）へ移り、同じ機能位置に新しい資産が付きます。北部の DCS は 2019 年、南部の DCS は 2026 年に一斉更新。
-- 稼働時間・起動回数・クレーン運転回数・発電電力量のメーター（ASSETMETER）と、月 1 回の読み（METERREADING）があります。
-- 保全計画（JOBPLAN 49 件、JOBTASK・JOBLABOR・JOBMATERIAL）と PM は、ポンプ 3 か月点検・4 年分解整備、送風機 6 か月点検、電動機の絶縁抵抗測定、
-  伝送器の年次校正（CAL）、排ガス分析計の月次校正（CAL）、装置ごとの月例点検（INSP）、炉の定期整備（春・秋、子の作業指示つき）、
-  法定点検（【法定】クレーン月例・年次自主検査、ボイラ性能検査、安全弁、受変電設備の月次・年次点検、タービン定期事業者検査、消防用設備、昇降機、計量機）などです。
-- 是正保全（CM）・緊急保全（EM）は分類ごとの故障率（初期故障と経年で増える）から作り、故障クラス・問題・原因・処置（FAILURECODE / FAILURELIST、
-  作業指示の FAILUREREPORT）を付けます。約半分は運転員のサービス要求（SR）から起票され、SR と作業指示は ORIGRECORDID / RELATEDRECORD でつながります。
-- ステータスの履歴（WOSTATUS / TKSTATUS）は日付の順で、WAPPR → APPR →（WMATL）→ INPRG → COMP → CLOSE、一部 CAN。基準日に近いものは未完了です。
-- 担当者（PERSON・LABOR）は在籍期間があり、退職者は INACTIVE。作業指示の監督者・リードはその時点に在籍した人です。協力会社の作業責任者もいます。
-
-## 件数
+## 件数（日英で同じ）
 
 | 表（オブジェクト構造） | KITA | MINAMI | HIGASHI | 組織全体 |
 |---|---:|---:|---:|---:|
-| LOCATIONS（MXAPIOPERLOC） | 686 | 512 | 505 | |
-| ASSET（MXAPIASSET） | 1,224（うち撤去済み 463） | 702（126） | 562（5） | |
-| ASSETSPEC / ASSETMETER（MXAPIASSET の子） | | | | 14,045 / 777 |
+| LOCATIONS（MXAPIOPERLOC） | 688 | 514 | 510 | |
+| ASSET（MXAPIASSET。うち撤去済み / 予備品） | 1,190（374 / 54） | 729（118 / 40） | 597（0 / 40） | |
+| ASSETSPEC / ASSETMETER / SPAREPART（MXAPIASSET の子） | | | | 14,806 / 777 / 911 |
 | PM（MXAPIPM） | 684 | 520 | 514 | |
-| WORKORDER（MXAPIWODETAIL・MXAPIWO） | 54,913 | 27,243 | 10,930 | 93,086 |
-| WOSTATUS / FAILUREREPORT（MXAPIWODETAIL の子） | | | | 452,271 / 34,034 |
-| SR（MXAPISR） | 7,628 | 3,533 | 1,447 | 12,608 |
-| METERREADING（MXAPIMETERREADING） | 36,260 | 18,515 | 7,345 | 62,120 |
-| INVENTORY（MXAPIINVENTORY） | 132 | 135 | 137 | |
-| ITEM / JOBPLAN / CLASSSTRUCTURE / ASSETATTRIBUTE | | | | 183 / 49 / 60 / 107 |
+| WORKORDER（MXAPIWODETAIL・MXAPIWO） | 23,643 | 17,179 | 10,930 | 51,752 |
+| WOSTATUS / FAILUREREPORT（MXAPIWODETAIL の子） | | | | 250,740 / 19,857 |
+| SR（MXAPISR） | 3,477 | 2,223 | 1,447 | 7,147 |
+| METERREADING（MXAPIMETERREADING） | 15,096 | 11,730 | 7,345 | 34,171 |
+| INVENTORY（MXAPIINVENTORY） | 176 | 163 | 164 | |
+| INVUSE / INVUSELINE（MXAPIINVUSE） | 3,272 | 2,188 | 1,451 | 6,911 / 7,273 |
+| ITEM（うち回転品目） / JOBPLAN / CLASSSTRUCTURE / ASSETATTRIBUTE | | | | 344（159） / 49 / 60 / 107 |
 | FAILURECODE / FAILURELIST | | | | 105 / 1,235 |
 | PERSON・LABOR / PERSONGROUP / CRAFT | | | | 201 / 15 / 6 |
-| MEASUREUNIT / METER / COMPANIES / MAXDOMAIN | | | | 37 / 5 / 32 / 15 |
+| MEASUREUNIT / METER / COMPANIES / MAXDOMAIN | | | | 37 / 5 / 32 / 17 |
 
-作業指示の作業タイプ: PM 28,391、INSP 35,845、CAL 12,880、CM 14,067、EM 1,903。
-ステータス: CLOSE 86,378、CAN 3,564、COMP 1,960、INPRG 849、APPR 281、WAPPR 45、WMATL 9。
+作業指示の作業タイプ: PM 15,500、INSP 19,686、CAL 7,255、CM 8,231、EM 1,080（ほかに値の一覧だけの CP 更新工事）。
+ステータス: CLOSE 47,589、CAN 2,012、COMP 1,369、INPRG 466、APPR 267、WAPPR 43、WMATL 6。
 
 ## オブジェクト構造
 
-`MXAPIOPERLOC`（子 LOCHIERARCHY・LOCATIONSPEC）、`MXAPIASSET`（子 ASSETSPEC・ASSETMETER）、`MXAPIWODETAIL`（子 WOSTATUS・FAILUREREPORT）、
+`MXAPIOPERLOC`（子 LOCHIERARCHY・LOCATIONSPEC）、`MXAPIASSET`（子 ASSETSPEC・ASSETMETER・SPAREPART）、`MXAPIWODETAIL`（子 WOSTATUS・FAILUREREPORT）、
 `MXAPIWO`（子なし。MXAPIWODETAIL と同じ行）、`MXAPISR`（子 TKSTATUS・RELATEDRECORD）、`MXAPIPM`、`MXAPIJOBPLAN`（子 JOBTASK・JOBLABOR・JOBMATERIAL）、
 `MXAPICLASSSTRUCTURE`（子 CLASSSPEC・CLASSUSEWITH）、`MXAPIASSETATTRIBUTE`、`MXAPIMEASUREUNIT`、`MXAPIFAILURECODE`、`MXAPIFAILURELIST`、
-`MXAPIMETER`、`MXAPIMETERREADING`、`MXAPIITEM`、`MXAPIINVENTORY`（子 INVBALANCES）、`MXAPIPERSON`、`MXAPILABOR`（子 LABORCRAFTRATE）、`MXAPICRAFT`、
-`MXAPIPERSONGROUP`（子 PERSONGROUPTEAM）、`MXAPICOMPANY`、`MXAPIDOMAIN`（子 SYNONYMDOMAIN・ALNDOMAIN）、`MXAPIORGANIZATION`（子 SITE）、`MXAPIINTOBJECT`。
+`MXAPIMETER`、`MXAPIMETERREADING`、`MXAPIITEM`、`MXAPIINVENTORY`（子 INVBALANCES・INVCOST）、`MXAPIINVUSE`（子 INVUSELINE）、`MXAPIPERSON`、
+`MXAPILABOR`（子 LABORCRAFTRATE）、`MXAPICRAFT`、`MXAPIPERSONGROUP`（子 PERSONGROUPTEAM）、`MXAPICOMPANY`、`MXAPIDOMAIN`（子 SYNONYMDOMAIN・ALNDOMAIN）、
+`MXAPIORGANIZATION`（子 SITE）、`MXAPIINTOBJECT`。
 
-ステータス・作業タイプ・サイト・分類・故障コード・担当者・単位などには値の一覧（getlist）があります。
+ステータス・作業タイプ・サイト・分類・故障コード・担当者・単位・業者・部署などには値の一覧（getlist）があります。
+作業計画の番号（JPNUM）は 10 文字、故障コードは 8 文字に収めています（実機の長さ）。
 
 実機での名前・属性を確かめていないもの（偽の Maximo で試すための仮の形）:
 
 - 構造名: `MXAPIASSETATTRIBUTE`、`MXAPIMEASUREUNIT`、`MXAPIMETERREADING`（実機は MXAPIMETERDATA / MXMETERDATA で読みを入れる）、`MXAPICRAFT`、`MXAPICOMPANY`、
   `MXAPIORGANIZATION`、`MXAPICLASSSTRUCTURE` と `MXAPIFAILURECODE` / `MXAPIFAILURELIST` の子の形
-- 子の組み合わせ: MXAPIOPERLOC の LOCHIERARCHY、MXAPISR の TKSTATUS・RELATEDRECORD、MXAPIWODETAIL の WOSTATUS（実機の MXAPIWODETAIL には他にも多くの子がある）
-- ドメイン名: `PMSTATUS`、`JOBPLANSTATUS`、`PERSONSTATUS`、`LABORSTATUS`、`CATEGORY`、`DATATYPE`。作業タイプ（WORKTYPE）は実機では表なので、ドメインには入れず値の一覧だけ
-- 作業タイプ `INSP`（点検・検査）は Maximo の既定に無い、顧客が足す想定の値
+- 子の組み合わせ: MXAPIOPERLOC の LOCHIERARCHY、MXAPISR の TKSTATUS・RELATEDRECORD、MXAPIWODETAIL の WOSTATUS（実機の MXAPIWODETAIL には他にも多くの子がある）、
+  MXAPIASSET の SPAREPART、MXAPIINVENTORY の INVCOST、MXAPIINVUSE の INVUSELINE の属性
+- ドメイン名: `PMSTATUS`、`JOBPLANSTATUS`、`PERSONSTATUS`、`LABORSTATUS`、`CATEGORY`、`DATATYPE`、`INVUSESTATUS`、`EXTDEPT`（独自）。
+  作業タイプ（WORKTYPE）は実機では表なので、ドメインには入れず値の一覧だけ
+- 作業タイプ `INSP`（点検・検査）と `CP`（更新工事）は Maximo の既定に無い、顧客が足す想定の値
+- 作業指示の `EXT_*` は顧客が足した独自属性の想定。`ESTSERVCOST` を実機で直接書けるかは確かめていない（読み取り専用にしてある）
 
-## 仕込んだデータ品質の問題
+## 仕込んだデータ品質の問題（44 種類）
 
-MX Stage で見つけて直す練習用に、わざと入れてある問題です（件数は 3 施設の合計）。
+MX Stage で見つけて直す練習用に、わざと入れてある問題です（件数は 3 施設の合計。日英で同じ）。
+日本語は全角・半角カナ・「No.1炉」、英語は似た字（O と 0、l と 1）・略語（PMP、MTR）・「#1 Line」で表します。
 
 | ID | 内容 | どこに出るか | 件数 |
 |---|---|---|---:|
-| SPEC_MISSING_ALL | 分類はあるが仕様（ASSETSPEC）が 1 行も無い | ASSET.ASSETSPEC | 183 |
-| SPEC_BLANK_VALUES | 仕様の行はあるが値が空（一部の属性） | ASSETSPEC.ALNVALUE / NUMVALUE | 360 |
-| SPEC_UNIT_MIXED | 同じ属性で単位が混在（流量 m3/h と L/min、出力 kW と W、圧力 MPa と kPa） | ASSETSPEC.MEASUREUNITID / NUMVALUE | 46 |
-| SPEC_NUMBER_AS_TEXT | 数値の仕様が英数字の欄に単位付きの文字（全角を含む）で入っている | ASSETSPEC.ALNVALUE / NUMVALUE | 94 |
-| ASSET_NO_CLASS | 資産に分類が無い | ASSET.CLASSSTRUCTUREID | 16 |
-| TAG_FORMAT | タグ番号が命名規則に合わない（小文字・ハイフン無し・炉番号無し） | ASSET.ASSETTAG | 101 |
-| TAG_FULLWIDTH | タグ番号・説明に全角英数字が混じる | ASSET.ASSETTAG / DESCRIPTION | 98 |
-| TAG_LINE_MISMATCH | タグ番号の炉番号が機能位置の炉と食い違う | ASSET.ASSETTAG / LOCATION | 13 |
-| TAG_MISSING | タグ番号が空 | ASSET.ASSETTAG | 46 |
-| TRAILING_SPACE | 値の末尾に空白（半角・全角） | ASSET.ASSETTAG / DESCRIPTION、LOCATIONS.DESCRIPTION | 124 |
-| DESC_HALFWIDTH_KANA | 説明に半角カナが混じる | ASSET.DESCRIPTION | 54 |
-| DESC_LINE_NOTATION | 炉の表記が揺れる（1号炉 / No.1炉 / １号炉） | ASSET.DESCRIPTION / LOCATIONS.DESCRIPTION | 64 |
-| SERIAL_PLACEHOLDER | 製造番号が「不明」「-」「N/A」などの仮の値 | ASSET.SERIALNUM | 72 |
+| SPEC_MISSING_ALL | 分類はあるが仕様（ASSETSPEC）が 1 行も無い | ASSET.ASSETSPEC | 152 |
+| SPEC_BLANK_VALUES | 仕様の行はあるが値が空（一部の属性） | ASSETSPEC.ALNVALUE / NUMVALUE | 299 |
+| SPEC_UNIT_MIXED | 同じ属性で単位が混在（流量 m3/h と L/min、出力 kW と W、圧力 MPa と kPa） | ASSETSPEC.MEASUREUNITID / NUMVALUE | 43 |
+| SPEC_NUMBER_AS_TEXT | 数値の仕様が英数字の欄に単位付きの文字で入っている | ASSETSPEC.ALNVALUE / NUMVALUE | 108 |
+| ASSET_NO_CLASS | 資産に分類が無い | ASSET.CLASSSTRUCTUREID | 17 |
+| TAG_FORMAT | タグ番号が命名規則に合わない（小文字・ハイフン無し・炉番号無し） | ASSET.ASSETTAG | 105 |
+| CHAR_VARIANT | タグ番号・説明に全角英数字（英語は似た字）が混じる | ASSET.ASSETTAG / DESCRIPTION | 76 |
+| TAG_LINE_MISMATCH | タグ番号の炉番号が機能位置の炉と食い違う | ASSET.ASSETTAG / LOCATION | 16 |
+| TAG_MISSING | タグ番号が空 | ASSET.ASSETTAG | 24 |
+| TRAILING_SPACE | 値の末尾に空白（半角・全角 / ノーブレークスペース） | ASSET.ASSETTAG / DESCRIPTION、LOCATIONS.DESCRIPTION | 124 |
+| DESC_NOTATION_VARIANT | 説明の表記の揺れ（半角カナ / 略語・大文字） | ASSET.DESCRIPTION | 60 |
+| DESC_LINE_NOTATION | 炉の表記が揺れる（1号炉 / No.1炉 / １号炉、Line 1 / #1 Line） | ASSET.DESCRIPTION / LOCATIONS.DESCRIPTION | 56 |
+| SERIAL_PLACEHOLDER | 製造番号が「不明」「-」「N/A」などの仮の値 | ASSET.SERIALNUM | 94 |
+| SERIAL_MISSING | 製造番号が空 | ASSET.SERIALNUM | 46 |
 | ASSET_NO_INSTALLDATE | 設置日が空 | ASSET.INSTALLDATE | 24 |
-| ASSET_DUPLICATE | 同じ機能位置・同じタグの稼働中の資産が二重に登録（説明の表記違い・仕様なし・設置日なし。資産番号 x9xxxxx） | ASSET | 18 |
-| DECOM_AT_POSITION | 撤去済みの資産が機能位置に残ったまま | ASSET.LOCATION / STATUS | 61 |
-| LOCATION_NO_CLASS | 機能位置に分類が無い | LOCATIONS.CLASSSTRUCTUREID | 105 |
-| PM_DECOMMISSIONED_ASSET | PM が撤去済みの資産を指したまま（次回日が過去で止まっている） | PM.ASSETNUM / NEXTDATE | 45 |
-| WO_NO_FAILURE_CODE | 是正・緊急保全に故障コードが無い | WORKORDER.FAILURECODE / PROBLEMCODE | 1,980 |
-| WO_FREETEXT_ONLY | 故障の内容が件名・長い説明の自由記述だけ（「振動ｱﾘ」「止まった件」など） | WORKORDER.DESCRIPTION / DESCRIPTION_LONGDESCRIPTION | 1,583 |
-| WO_PROBLEM_ONLY | 問題コードはあるが故障クラスが空、故障報告も無い | WORKORDER.FAILURECODE / FAILUREREPORT | 769 |
-| WO_NO_LABOR_HOURS | 完了した是正保全に実績工数が無い（0） | WORKORDER.ACTLABHRS | 929 |
-| WO_LOCATION_MISMATCH | 作業指示の場所が資産の機能位置と違う（装置の場所） | WORKORDER.LOCATION | 495 |
-| WO_STALE_OPEN | 半年以上前に着手したまま INPRG で閉じていない | WORKORDER.STATUS / ACTFINISH | 842 |
-| SR_NO_ASSET | 資産・機能位置を特定しない運転員の連絡（装置の場所だけ） | SR.ASSETNUM | 3,825 |
+| ASSET_NO_MANUFACTURER | 製造元が空 | ASSET.MANUFACTURER | 40 |
+| ASSET_DUPLICATE | 同じ機能位置・同じタグの稼働中の資産が二重に登録（資産番号 x9xxxxx） | ASSET | 14 |
+| DECOM_AT_POSITION | 撤去済みの資産が機能位置に残ったまま | ASSET.LOCATION / STATUS | 56 |
+| LOCATION_NO_CLASS | 機能位置に分類が無い | LOCATIONS.CLASSSTRUCTUREID | 86 |
+| LOC_NOT_IN_HIERARCHY | 機能位置が場所の階層（PRIMARY）に入っていない | LOCATIONS.LOCHIERARCHY | 10 |
+| LOC_WRONG_PARENT | 機能位置の親が別の装置・設備系統 | LOCATIONS.LOCHIERARCHY.PARENT | 10 |
+| LOC_TYPE_WRONG | 機能位置のタイプが OPERATING でない | LOCATIONS.TYPE | 6 |
+| PM_DECOMMISSIONED_ASSET | PM が撤去済みの資産を指したまま（次回日が過去で止まっている） | PM.ASSETNUM / NEXTDATE | 39 |
+| WO_NO_FAILURE_CODE | 是正・緊急保全に故障コードが無い | WORKORDER.FAILURECODE / PROBLEMCODE | 1,100 |
+| WO_FREETEXT_ONLY | 故障の内容が件名・長い説明の自由記述だけ | WORKORDER.DESCRIPTION / DESCRIPTION_LONGDESCRIPTION | 945 |
+| WO_PROBLEM_ONLY | 問題コードはあるが故障クラスが空、故障報告も無い | WORKORDER.FAILURECODE / FAILUREREPORT | 463 |
+| WO_NO_LABOR_HOURS | 完了した是正保全に実績工数が無い（0） | WORKORDER.ACTLABHRS | 585 |
+| WO_LOCATION_MISMATCH | 作業指示の場所が資産の機能位置と違う（装置の場所） | WORKORDER.LOCATION | 295 |
+| WO_STALE_OPEN | 半年以上前に着手したまま INPRG で閉じていない | WORKORDER.STATUS / ACTFINISH | 458 |
+| SR_NO_ASSET | 資産・機能位置を特定しない運転員の連絡（装置の場所だけ） | SR.ASSETNUM | 2,069 |
 | ITEM_DUPLICATE | 同じ部品が別の品目番号・別の表記で重複（Z- で始まる品目） | ITEM | 10 |
+| ITEM_ROTATING_FLAG_WRONG | 資産が使う回転品目に ROTATING の印が無い | ITEM.ROTATING | 2 |
+| ROT_ASSET_NO_ITEM | 回転資産の分類なのに品目が付いていない | ASSET.ITEMNUM | 40 |
+| ROT_BALANCE_MISMATCH | 回転品目の在庫数が倉庫の予備品の台数と合わない | INVENTORY.CURBALTOTAL / ASSET.LOCATION | 8 |
+| ROT_STUCK_IN_REPAIR | 修理に出した予備品が 1 年以上戻っていない | ASSET.LOCATION（REPAIR） | 6 |
+| SPAREPART_OBSOLETE_ITEM | 資産の予備品の一覧が廃止の品目を指している | ASSET.SPAREPART.ITEMNUM | 70 |
 | INV_OBSOLETE_STOCK | 廃止の品目に在庫が残っている | INVENTORY.CURBALTOTAL / ITEM.STATUS | 17 |
-| INV_MIN_OVER_MAX | 発注点が最大在庫を超える | INVENTORY.MINLEVEL / MAXLEVEL | 9 |
+| INV_MIN_OVER_MAX | 発注点が最大在庫を超える | INVENTORY.MINLEVEL / MAXLEVEL | 14 |
+| INV_ABC_STALE | ABC 分類が使用金額と合っていない | INVENTORY.ABCTYPE | 15 |
+| INV_NO_BIN | 既定の棚が空 | INVENTORY.BINNUM | 10 |
+| INV_STALE_COUNT | 実地棚卸が 2 年以上前のまま | INVBALANCES.PHYSCNTDATE | 25 |
+| INV_ZERO_COST | 平均単価が 0 | INVENTORY.AVGCOST / INVCOST.AVGCOST | 10 |
+| INV_NO_VENDOR | 購入先が空 | INVENTORY.VENDOR | 13 |
 
-旧台帳から移行した想定の北部・南部に多く、東部は少なめです。件数は `generatePlants().problems` でも取れます。
+件数は `generatePlants().problems` でも取れます。
+
+## Excel のサンプル（5 種、日英）
+
+`dev/demo/excel/builders.ts` がデータと同じ種から作るので、Maximo のデータと本当に突き合わせられます。正解は `dist/demo-data-truth/v2/<言語>/truth.json`（公開しない）。
+
+| ID | ファイル | 中身と仕掛け | 突き合わせる先 |
+|---|---|---|---|
+| `purchase-orders` | 発注一覧（2026 年度上半期） | **作業指示番号が無い**（件名・施設・時期で結ぶ）。金額の書式の揺れ（「1,234千円」「123.4万円」「¥」/「$12,340」「12.3k」）、和暦・「5/12」の日付、姓だけの担当、部門の揺れ、施設ごとの小計の行、年間の委託（1 行で多くの作業指示）、作業指示の無い購入、変更契約の 2 行目、取消 | COMP の外注の作業指示の `EXT_*`・SUPERVISOR・VENDOR（一部は先に間違いが入っている） |
+| `legacy-register` | 旧設備台帳（平成 30 年 3 月末、北部・南部） | 古い形式のタグ（`1P202A`、`1-P202A`、`1 P 202A`）、和暦（H18.4・平成18年4月）、メーカー名の揺れ、2 段の見出し。その後に更新した資産の古い製造番号を、新しい資産に写さないことが仕掛け | SERIALNUM の仮の値・空、INSTALLDATE の空、MANUFACTURER の空 |
+| `repair-log` | 修理記録（北部、2026-04〜09、月ごとのシート） | 自由記述、通称（IDF・BFP）、同じ日の行は日付のセルを結合、関係の無い行、「2h」「半日」 | 故障コードの無い是正・緊急保全の FAILURECODE・PROBLEMCODE・FAILUREREPORT。ACTLABHRS は読み取り専用 |
+| `east-register` | 東部の機器台帳（現場管理、Maximo より新しい） | 2025-04 以降の更新・増設・仕様の変更・名前の変更・撤去。製造番号を Maximo で直したのに台帳が古いままの行（台帳の更新日が古い） | 既存の資産の更新・ASSETSPEC、新しい資産、撤去（DECOMMISSIONED） |
+| `star-chart` | 星取表（北部・南部、Maximo を入れる前） | 設備系統ごとのシート、○点検 ◎分解整備 ●更新 △補修 ★法定、予定と実績の 2 行、年度は和暦と西暦の 2 段、設備の列は結合、「◎(5月)」「△(A)」の注記 | 履歴の作業指示（印 1 つを CLOSE の作業指示 1 件） |
+
+## 公開するファイル
+
+`npm run demo:build` が `dist/demo-data/` に書き出します（形は `dev/demo/format.ts`）。
+
+- `v2/manifest.json`: 版、ファイルごとの大きさ・SHA-256・件数。製品はこの SHA-256 を埋め込んで確かめる予定です。
+- `v2/<言語>/osdefs.json.gz`（構造の定義と値の一覧）、`v2/<言語>/os/<構造>.ndjson.gz`（記録）、`v2/<言語>/excel/<ID>.xlsx`。1 言語で約 9 MB。
+- `index.html`（Excel のダウンロード）、`_headers`（キャッシュと CORS）、`robots.txt`。
 
 ## 試験
 
-`tests/dev/plants-dataset.test.ts` が、東部の全期間と北部の直近 1 年を作って、場所・親・分類の仕様・PM・作業計画の参照、
-作業指示の日付の順序とステータスの履歴、値の一覧に無い値が無いこと、偽の Maximo での読み込み（子・絞り込み・ページ送り・getlist・書き込み後の結果）を確かめます。
+- `tests/dev/plants-dataset.test.ts`: 東部の全期間と北部の直近 1 年で、場所・親・分類の仕様・PM・作業計画の参照、作業指示の日付の順序とステータスの履歴、
+  値の一覧に無い値が無いこと、偽の Maximo での読み込みと書き込み。
+- `tests/dev/plants-v2.test.ts`: 全部（日英）を作って、日英で ID・件数・日付が同じ、英語に日本語が残らない、最大長、場所の階層（PRIMARY・ELEC）、
+  Maximo を入れた日、回転資産と在庫・払い出し、外注、正解の参照先。
+- `tests/dev/demo-files.test.ts`: Excel を作業画面の読み取りで読めるか・CRC・同じ入力から同じバイト列か、公開するファイルを読み戻すと同じ偽の Maximo になるか。

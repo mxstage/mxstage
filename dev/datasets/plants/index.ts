@@ -1,12 +1,12 @@
-// 開発用の大きなデータ: 架空の広域事業組合（ORGID KANKYO）の、ごみ焼却施設 3 か所（稼働 20 年・13 年・5 年）。
-// npm run dev:fake-maximo -- --dataset plants で偽の Maximo に載せる。内容と件数・仕込んだデータ品質の問題は dev/README.md。
+// 開発用・デモ用の大きなデータ: 架空の広域事業組合（ORGID KANKYO）の、ごみ焼却施設 3 か所（稼働 20 年・13 年・5 年）。
+// npm run dev:fake-maximo -- --dataset plants [--lang en] で偽の Maximo に載せる。内容と件数・仕込んだデータ品質の問題は dev/README.md。
 
 import { withDefinitions, type FakeSeed } from "../../../tests/fakes/fake-maximo.ts";
 import { generatePlants, type PlantsData, type PlantsOptions } from "./generate.ts";
 import { plantsObjectStructures } from "./structures.ts";
 
-export { generatePlants, NOW } from "./generate.ts";
-export type { PlantsData, PlantsOptions, DataProblem } from "./generate.ts";
+export { generatePlants, NOW, DATASET_VERSION } from "./generate.ts";
+export type { PlantsData, PlantsOptions, DataProblem, PlantsTruth } from "./generate.ts";
 export { plantsObjectStructures } from "./structures.ts";
 
 /** 偽の Maximo の種（オブジェクト構造の定義 MXAPIINTOBJECT を含む）と、生成したデータ */
@@ -15,6 +15,14 @@ export function plantsSeed(opts: PlantsOptions & { baseUrl?: string } = {}): { s
   // 長く動かすので、要求の記録（試験用）は残さない
   const seed: FakeSeed = { logRequests: false, objectStructures: plantsObjectStructures(data) };
   if (opts.baseUrl !== undefined) seed.baseUrl = opts.baseUrl;
+  if (data.lang === "en") {
+    withDefinitions(seed, [], "INTEGRATION");
+    const def = seed.objectStructures.MXAPIINTOBJECT!;
+    def.attrs.intobjectname!.title = "Object Structure";
+    def.attrs.description!.title = "Description";
+    def.attrs.usewith!.title = "Use With";
+    return { seed, data };
+  }
   return { seed: withDefinitions(seed), data };
 }
 

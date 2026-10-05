@@ -1177,6 +1177,57 @@ body.resizing-row * {
   font-weight: 600;
 }
 
+/* 設定の「デモ」: サンプルの Excel と頼み方の例（保存した接続先の一覧と同じ並べ方） */
+.demo .actions {
+  margin-top: var(--cds-spacing-05);
+}
+
+.demo .cds--progress-bar {
+  margin: var(--cds-spacing-05) 0;
+}
+
+.demo-files,
+.demo-prompts ul {
+  margin: var(--cds-spacing-03) 0 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--cds-border-subtle-01);
+}
+
+.demo-files li,
+.demo-prompts li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--cds-spacing-03);
+  padding: var(--cds-spacing-04) 0;
+  border-bottom: 1px solid var(--cds-border-subtle-01);
+}
+
+.demo-files li > div:first-child {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+.demo-files li p {
+  margin: var(--cds-spacing-02) 0 0;
+}
+
+.demo-files .actions {
+  flex: 0 0 auto;
+  margin-top: 0;
+}
+
+.demo-prompts li > span {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+.demo-hint {
+  margin: 0 0 var(--cds-spacing-05);
+}
+
 .structures-body {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);

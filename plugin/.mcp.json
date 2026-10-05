@@ -2,7 +2,7 @@
   "mcpServers": {
     "mxstage": {
       "command": "npx",
-      "args": ["-y", "@mxstage/mxstage@0.2.5"]
+      "args": ["-y", "@mxstage/mxstage@0.2.6"]
     }
   }
 }

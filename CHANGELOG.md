@@ -4,6 +4,8 @@ All notable changes to MX Stage are listed here. Versions follow [Semantic Versi
 
 ## Unreleased
 
+## 0.2.6 — 2026-10-05
+
 ### Added
 
 - **New records.** Rows added as new parents (add_rows without parentRowKey, on a sheet loaded from Maximo) are created in Maximo when you commit: assets, locations, items, work orders and so on, with their child rows. MX Stage first searches Maximo by the sheet's key columns and does not send a record that already exists; after creating it, it finds the record by its key again, checks the values and the added child rows, and shows the record as Maximo created it (including defaults and child rows Maximo added). Every key column must be filled (Maximo's automatic numbering is not used). The commit panel and the confirmation show how many records will be created.

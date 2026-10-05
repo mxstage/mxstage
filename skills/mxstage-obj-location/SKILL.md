@@ -2,7 +2,7 @@
 name: mxstage-obj-location
 description: "MX Stage object Skill for Maximo locations and systems (MXAPIOPERLOC): correcting attributes and specifications, and the rules for hierarchy, systems and status."
 metadata:
-  version: "1.0.0"
+  version: "1.1.0"
   category: "object"
 ---
 
@@ -20,9 +20,13 @@ Key: SITEID and LOCATION. Usual children: LOCATIONSPEC (specifications), LOCHIER
 
 ## What it cannot do now
 
-- **Create locations or hierarchies** (registration, migration). Maximo creates hierarchies from the top down; list the records for the user to create.
+- **Place locations in a hierarchy or system** while creating them, unless the user has confirmed on a test environment how their structure takes the parent (LOCHIERARCHY or the parent attribute). Locations themselves can be created (below).
 - **Change status** (operating, not ready, decommissioned). Maximo's action checks open work orders, purchase orders, reservations and active PMs and propagates to child locations. Tell the user to use Change Status in the Locations application.
 - **Move a location to another parent or system.** Maximo changes the hierarchy through PARENT and SYSTEMID handling; changing existing locations this way has known problems. Do not change LOCHIERARCHY rows; tell the user to use the Locations application, or verify on a test environment first if the user insists.
+
+## New locations
+
+New locations can be created (New records in mxstage-core-change). Keys: SITEID and LOCATION. Usually needed: DESCRIPTION and TYPE. Create from the top of the hierarchy down, one level per commit, and check each level in Maximo before the next.
 
 ## Traps
 

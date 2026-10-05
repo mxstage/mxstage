@@ -2,7 +2,7 @@
 name: mxstage-obj-purchasing
 description: "MX Stage object Skill for Maximo purchase requisitions and orders (MXAPIPR, MXAPIPO): correcting records waiting for approval, and why approved orders and receipts are out of reach."
 metadata:
-  version: "1.0.0"
+  version: "1.1.0"
   category: "object"
 ---
 
@@ -22,8 +22,11 @@ Purchase requisitions: MXAPIPR, key SITEID and PRNUM, lines PRLINE. Purchase ord
 
 - **Change approved orders.** An approved purchase order is changed through a revision (a new REVISIONNUM) in Maximo. Ask the user to revise it in the Purchase Orders application; the revision can then be corrected here while it is waiting for approval.
 - **Receive, return or invoice.** These are transactions.
-- **Create requisitions or orders** (migration).
 - Cancelled and closed records are history.
+
+## New requisitions
+
+Purchase requisitions can be created with their lines (New records in mxstage-core-change; keys SITEID and PRNUM). They start waiting for approval and go through the customer's approval. Do not create purchase orders this way unless the user asks; orders are usually created from requisitions in Maximo.
 
 ## Traps
 

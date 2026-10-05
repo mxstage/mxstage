@@ -2,7 +2,7 @@
 name: mxstage-obj-reference
 description: "MX Stage object Skill for Maximo reference data: people, labor, crafts, person groups, companies, domains and failure codes (MXAPIPERSON, MXAPILABOR, MXAPIPERSONGROUP, MXAPICOMPANY, MXAPIDOMAIN)."
 metadata:
-  version: "1.0.0"
+  version: "1.1.0"
   category: "object"
 ---
 
@@ -27,10 +27,13 @@ metadata:
 
 ## What it cannot do now
 
-- Create people, labor, companies or domains (migration).
 - Deactivate people or labor, or change their status: these are status actions.
 - Build failure hierarchies (failure class, problem, cause, remedy); create them in Maximo.
 - Change synonym domains of statuses beyond descriptions: internal values drive Maximo logic.
+
+## New records
+
+People, labor, crafts, person groups, companies and domains can be created (New records in mxstage-core-change). Create a person before the labor record that points to it, and a craft before the labor crafts that use it. New domain values are child rows of an existing domain, not new records.
 
 ## Traps
 

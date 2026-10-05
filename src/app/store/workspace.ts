@@ -1083,6 +1083,28 @@ export class Workspace {
     return { rows, nextCursor, revision: this._revision, total: matched.length };
   }
 
+  /**
+   * 別のシート（取り込んだファイルなど）の行から、追加する行の値を作る（add_rows の from）。値は LLM を通らない。
+   * columns は「追加先の列 → 元のシートの列」。filter は元のシートの最終ビューに当てる。親の行（1 行に 1 件）だけを返す。
+   * 元のシートが子の行を持つなら、同じ親の子の行は 1 件にまとめず、そのまま返す（追加先で同じキーは衝突として返る）
+   */
+  rowsFrom(sourceName: string, columns: Readonly<Record<string, string>>, filter: readonly TypedFilter[] = [], max = 200): Record<string, CellValue>[] {
+    const source = this.getSheet(sourceName);
+    const pairs = Object.entries(columns);
+    if (pairs.length === 0) throw new StoreError("invalid_args", "from.columns needs at least one column");
+    for (const [, src] of pairs) if (!source.hasColumn(src)) throw columnNotFound(src, source.name);
+    const predicate = compileFilters(filter, (c) => source.hasColumn(c));
+    const matched = source.viewRows("final").filter((r) => predicate((c) => source.finalValue(r, c)));
+    if (matched.length > max) {
+      throw new StoreError("invalid_args", `${matched.length} rows of ${source.name} match; add up to ${max} at a time (narrow from.filter)`, { matched: matched.length, max });
+    }
+    return matched.map((r) => {
+      const values: Record<string, CellValue> = {};
+      for (const [target, src] of pairs) values[target] = source.finalValue(r, src);
+      return values;
+    });
+  }
+
   /** 最終ビューを列の値でグループ化して件数を数える。null と空文字は同じグループ（null）にする */
   aggregate(sheetName: string, opts: AggregateOptions): AggregateResult {
     const sheet = this.getSheet(sheetName);

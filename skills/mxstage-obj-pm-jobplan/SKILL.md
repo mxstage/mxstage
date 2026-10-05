@@ -2,7 +2,7 @@
 name: mxstage-obj-pm-jobplan
 description: "MX Stage object Skill for Maximo PMs, job plans and routes (MXAPIPM, MXAPIJOBPLAN, routes): reviewing PM schedules, correcting draft job plans, and the traps of master PMs and job plan revisions."
 metadata:
-  version: "1.0.0"
+  version: "1.1.0"
   category: "object"
 ---
 
@@ -22,9 +22,13 @@ PMs: MXAPIPM, key SITEID and PMNUM, children such as PMSEQUENCE (job plan sequen
 ## What it cannot do now
 
 - Activate or deactivate PMs, or change job plan status. These are Maximo status actions; tell the user to use the applications.
-- Create PMs, job plans or routes (migration).
+- Create routes with their stops in one step if the structure does not take the stops as children; check on a test environment first.
 - **Revise an active job plan.** When job plan revisions are enabled, active job plans are read-only; Maximo creates a revision (a copy with a higher PLUSCREVNUM) that is edited and then activated. Ask the user to create the revisions in Maximo, then load and correct them here, then the user activates them.
 - Generate work orders.
+
+## New PMs and job plans
+
+PMs and job plans can be created (New records in mxstage-core-change). Create the job plan first (with its tasks, labor and materials as children), then the PM that uses it, in a later commit. Job plans: key JPNUM (and the organisation or site); with revisions on, a new job plan starts as a draft and the user activates it in Maximo. PMs: keys SITEID and PMNUM; give the asset or location, the job plan, the frequency and its unit. New PMs start inactive; the user activates them.
 
 ## Traps
 

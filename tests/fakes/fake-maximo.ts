@@ -312,6 +312,15 @@ export function createFakeMaximo(seed: FakeSeed): FakeMaximo {
     }
     if (segs[0] === "jsonschemas" && segs.length === 2 && method === "GET") return json(200, schemaOf(osOf(segs[1]!)));
     if (segs[0] === "os" && segs.length === 2 && method === "GET") return collection(osOf(segs[1]!), params);
+    // 新規作成: 一覧への POST（x-method-override なし）
+    if (segs[0] === "os" && segs.length === 2 && method === "POST") {
+      if (headers.get("x-method-override")) throw new FakeHttpError(400, "BMXAA_FAKE_METHOD", "x-method-override is not used to create records");
+      requireLean(params);
+      if (bodyText === null || typeof body !== "object" || body === null || Array.isArray(body)) {
+        throw new FakeHttpError(400, "BMXAA_FAKE_BODY", "body must be a JSON object");
+      }
+      return create(osOf(segs[1]!), headers, body as Record<string, unknown>);
+    }
     // 値の一覧: /os/<os>/<ID>/getlist~<属性>、子は /os/<os>/<ID>/<子>/<子の ID>/getlist~<属性>
     if (segs[0] === "os" && (segs.length === 4 || segs.length === 6) && method === "GET" && segs[segs.length - 1]!.toLowerCase().startsWith("getlist~")) {
       const os = osOf(segs[1]!);
@@ -491,6 +500,53 @@ export function createFakeMaximo(seed: FakeSeed): FakeMaximo {
     dataVersion++;
     if (headers.get("properties")) return json(200, render(os, rec, { all: true, attrs: new Set(), children: new Map() }, true));
     return new Response(null, { status: 204 });
+  }
+
+  /**
+   * 新規作成。キーの属性と必須の属性が要る。同じキーのレコードがあれば 400（実機の BMXAA4129E に似せる）。
+   * 子は追加だけ（ID は Maximo が振る）。状態の初期値・自動採番・分類から仕様の行を作るなどの業務ロジックは持たない
+   */
+  function create(os: FakeOsState, headers: Headers, body: Record<string, unknown>): Response {
+    const txid = headers.get("transactionid");
+    if (txid && state.transactionIds.has(txid)) throw new FakeHttpError(409, "BMXAA9549E", "transaction already processed");
+    const attrs: Record<string, CellValue> = {};
+    for (const a of Object.keys(os.def.attrs)) attrs[a] = null;
+    const children: Record<string, FakeChild[]> = {};
+    for (const kind of Object.keys(os.def.children ?? {})) children[kind] = [];
+    const draft: FakeRecord = { uid: "", rowstamp: 0, attrs, children };
+    for (const [rawKey, v] of Object.entries(body)) {
+      const key = rawKey.toLowerCase();
+      const cdef = os.def.children?.[key];
+      if (cdef) {
+        if (!Array.isArray(v)) throw new FakeHttpError(400, "BMXAA_FAKE_CHILD_ARRAY", `${key} must be an array`);
+        for (const item of v) {
+          if (typeof item === "object" && item !== null && ("_action" in item || cdef.idAttr in lowerKeys(item as Record<string, CellValue>))) {
+            throw new FakeHttpError(400, "BMXAA_FAKE_ACTION", "children of a new record can only be added");
+          }
+        }
+        applyChildren(draft, key, cdef, v, true);
+        continue;
+      }
+      const adef = os.def.attrs[key];
+      if (!adef || key.startsWith("_")) throw new FakeHttpError(400, "BMXAA_FAKE_UNKNOWN_ATTR", `attribute ${key} does not exist`);
+      if (adef.readOnly && !os.def.keyAttrs.includes(key)) throw new FakeHttpError(400, "BMXAA0031E", `attribute ${key} is read-only`);
+      checkValue(key, adef, v);
+      attrs[key] = (v ?? null) as CellValue;
+    }
+    for (const k of os.def.keyAttrs) {
+      if (attrs[k] === null || attrs[k] === "") throw new FakeHttpError(400, "BMXAA4195E", `${k} is required`);
+    }
+    for (const [a, d] of Object.entries(os.def.attrs)) {
+      if (d.required && (attrs[a] === null || attrs[a] === "")) throw new FakeHttpError(400, "BMXAA4195E", `${a} is required`);
+    }
+    const dup = os.records.some((r) => os.def.keyAttrs.every((k) => String(r.attrs[k] ?? "") === String(attrs[k] ?? "")));
+    if (dup) throw new FakeHttpError(400, "BMXAA4129E", "a record with the same key already exists");
+    const rec: FakeRecord = { uid: `_R${uidCounter++}`, rowstamp: nextRowstamp(), attrs, children: draft.children };
+    os.records.push(rec);
+    if (txid) state.transactionIds.add(txid);
+    dataVersion++;
+    if (headers.get("properties")) return json(201, render(os, rec, { all: true, attrs: new Set(), children: new Map() }, true));
+    return new Response(null, { status: 201, headers: { location: hrefOf(os.name, rec.uid) } });
   }
 
   function applyChildren(draft: FakeRecord, kind: string, cdef: FakeChildDef, items: unknown[], merge: boolean): void {

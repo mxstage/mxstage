@@ -2,7 +2,7 @@
 name: mxstage-core-match
 description: "MX Stage basic operation: match two sheets (Maximo against Maximo, or an imported file against Maximo) with match_sheets and composite keys, and handle unmatched and ambiguous rows."
 metadata:
-  version: "1.0.0"
+  version: "1.1.0"
   category: "core"
 ---
 
@@ -35,7 +35,7 @@ Show the four counts to the user before changing anything.
 - Move values for matched rows with apply_rule and a lookup (see mxstage-core-change): run with dryRun first.
 - **Left-only, right-only and ambiguous rows are not changed.** List them with counts and examples and ask the user what to do (another key, a manual decision, leave them).
 - Never fill unmatched rows by picking the closest value.
-- Records that exist only in the file cannot be created by MX Stage; report them as a list for the user to create in Maximo.
+- Records that exist only in the file can be created as new records if the user agrees (New records in mxstage-core-change). Never create them just because they did not match: a wrong key or spelling looks the same.
 
 ## Typical uses
 

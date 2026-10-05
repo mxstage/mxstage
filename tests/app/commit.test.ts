@@ -163,7 +163,7 @@ describe("CommitController: 例 (a) を最後まで", () => {
 
     const req = h.controller.request(PERMIT_SHEET, "完了済み許可申請 2 件の申請完了日を変更", "llm");
     expect(req).toMatchObject({ state: "requested", blockers: [], needsDeleteConfirm: false, needsNullConfirm: false, requestedBy: "llm" });
-    expect(req.counts).toEqual({ parents: 2, changedCells: 2, addedRows: 0, deletedRows: 0 });
+    expect(req.counts).toEqual({ parents: 2, changedCells: 2, addedRows: 0, deletedRows: 0, newRecords: 0 });
 
     const running = h.controller.run(PERMIT_SHEET, {});
     await untilCanary(h);
@@ -468,5 +468,62 @@ describe("CommitController: 送信前の検査で止まった場合", () => {
     expect(done.state).toBe("failed");
     // 変更は作業画面に残る
     expect(workspace.getDiff("WO").changedCells).toBe(1);
+  });
+});
+
+describe("CommitController: 新規作成", () => {
+  it("add_rows で足した親と子を作り、作ったレコードを Maximo から読み直してシートの base にする", async () => {
+    const h = harness();
+    await loadPermits(h);
+    const parent = await h.call("add_rows", {
+      sheet: PERMIT_SHEET,
+      rows: [{ SITEID: "BEDFORD", WONUM: "WO2100", DESCRIPTION: "新しい許可申請" }],
+      baseRevision: h.workspace.revision,
+      reason: "新しい作業指示を登録",
+    });
+    expect(parent.applied).toBe(1);
+    const child = await h.call("add_rows", {
+      sheet: PERMIT_SHEET,
+      parentRowKey: pk("WO2100"),
+      rows: [{ "EXT_WOPERMIT.EXT_AUTHORITY": "消防", "EXT_WOPERMIT.EXT_PERMITTYPE": "届出" }],
+      baseRevision: h.workspace.revision,
+      reason: "許可申請を足す",
+    });
+    expect(child.applied).toBe(1);
+    h.fake.state.requests.length = 0;
+
+    const req = h.controller.request(PERMIT_SHEET, "新しい作業指示 1 件", "llm");
+    expect(req.blockers).toEqual([]);
+    expect(req.counts).toMatchObject({ parents: 1, newRecords: 1, addedRows: 2 });
+    const done = await h.controller.run(PERMIT_SHEET, {});
+    expect(done.state).toBe("done");
+    expect(done.results).toMatchObject([{ rowKey: pk("WO2100"), status: "verified" }]);
+
+    const rec = h.fake.find("mxapiwo", (r) => r.attrs.wonum === "WO2100")!;
+    expect(rec.attrs).toMatchObject({ siteid: "BEDFORD", description: "新しい許可申請" });
+    expect(rec.children.ext_wopermit?.map((c) => c.attrs.ext_authority)).toEqual(["消防"]);
+    const [post] = posts(h.fake);
+    expect(post!.path).toBe("/maximo/api/os/mxapiwo?lean=1");
+
+    // 作ったレコードは Maximo の値（子の ID も）で base になり、差分が消える
+    expect(h.workspace.getDiff(PERMIT_SHEET)).toMatchObject({ changedCells: 0, addedRows: 0, deletedRows: 0 });
+    const sheet = h.workspace.getSheet(PERMIT_SHEET);
+    const id = rec.children.ext_wopermit![0]!.attrs.ext_wopermitid as number;
+    expect(sheet.rowValues(ck("WO2100", id), "base")).toMatchObject({ WONUM: "WO2100", "EXT_WOPERMIT.EXT_AUTHORITY": "消防" });
+    expect(h.controller.writeLog()[0]).toMatchObject({ parentKey: pk("WO2100"), result: "verified", ops: { add: 1 } });
+  });
+
+  it("同じキーの作業指示が Maximo にもうあれば作らずに conflict にし、足した行は作業画面に残す", async () => {
+    const h = harness();
+    await loadPermits(h);
+    await h.call("add_rows", { sheet: PERMIT_SHEET, rows: [{ SITEID: "BEDFORD", WONUM: "WO2100", DESCRIPTION: "新規" }], baseRevision: h.workspace.revision, reason: "登録" });
+    h.fake.state.os.mxapiwo!.records.push({ uid: "_Z", rowstamp: 1, attrs: { siteid: "BEDFORD", wonum: "WO2100" }, children: {} });
+    h.fake.state.requests.length = 0;
+    h.controller.request(PERMIT_SHEET, "新規 1 件", "llm");
+    const done = await h.controller.run(PERMIT_SHEET, {});
+    expect(done.state).toBe("failed");
+    expect(done.results).toMatchObject([{ status: "conflict" }]);
+    expect(posts(h.fake)).toHaveLength(0);
+    expect(h.workspace.getDiff(PERMIT_SHEET).addedRows).toBe(1);
   });
 });

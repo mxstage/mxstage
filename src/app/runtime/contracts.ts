@@ -41,6 +41,8 @@ export interface CommitCounts {
   changedCells: number;
   addedRows: number;
   deletedRows: number;
+  /** Maximo に新しく作るレコード（追加した親の行）の数。0 なら省くことがある */
+  newRecords?: number;
 }
 
 /** 反映パネルの状態（シートごと） */

@@ -996,7 +996,15 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
 
     add_rows: (args) => {
       assertNotBusy(args.sheet);
-      const res = workspace.addRows(args.sheet, args.rows, {
+      // rows（LLM が書いた数行）か from（別のシートの行を作業画面の中で写す）のどちらか 1 つ
+      if ((args.rows === undefined) === (args.from === undefined)) {
+        throw invalidArgs("Give either rows or from (not both, not neither).");
+      }
+      if (args.from !== undefined && args.parentRowKey !== undefined) {
+        throw invalidArgs("from adds new records; it cannot be combined with parentRowKey.");
+      }
+      const rows = args.rows ?? workspace.rowsFrom(args.from!.sheet, args.from!.columns, args.from!.filter ?? []);
+      const res = workspace.addRows(args.sheet, rows, {
         author: "llm",
         reason: args.reason,
         baseRevision: args.baseRevision,

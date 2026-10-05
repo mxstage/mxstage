@@ -2,7 +2,7 @@
 name: mxstage-obj-workorder
 description: "MX Stage object Skill for Maximo work orders and service requests (MXAPIWODETAIL, MXAPISR): correcting open work orders, planned labor and materials, status rules, and closed history."
 metadata:
-  version: "1.0.0"
+  version: "1.1.0"
   category: "object"
 ---
 
@@ -30,9 +30,12 @@ Work orders: MXAPIWODETAIL (with tasks, planned labor WPLABOR, planned materials
 
 ## What it cannot do now
 
-- Create work orders (migration, follow-up work).
 - Report actuals (labor, materials, tools). Actuals are transactions; tell the user to report them in Maximo.
 - Change closed history. If history is wrong, Maximo needs its own correction process.
+
+## New work orders
+
+Work orders and service requests can be created (New records in mxstage-core-change). Keys: SITEID and WONUM (TICKETID for service requests); MX Stage does not take Maximo's automatic numbers. Usually needed: DESCRIPTION, and the asset or location, work type and priority. Maximo sets the initial status (usually waiting for approval). Planned labor and materials can be added as child rows of the new work order. Do not create work orders that a PM should generate.
 
 ## Traps
 

@@ -1199,3 +1199,118 @@ describe("性質: 計画を fake に適用すると期待状態と一致する",
     120_000,
   );
 });
+
+// ---------------------------------------------------------------------------
+// 新規作成（追加した親の行）
+// ---------------------------------------------------------------------------
+
+describe("新規作成", () => {
+  const newWo = (wonum: string, extra: Record<string, CellValue> = {}): CommitChanges["addedRows"][number] => ({
+    rowKey: pk(wonum),
+    parentKey: pk(wonum),
+    childName: null,
+    values: { SITEID: "BEDFORD", WONUM: wonum, DESCRIPTION: "新しい作業", STATUS: null, ESTDUR: 2, CHANGEBY: null, ...extra },
+  });
+  const newChild = (wonum: string, n: number, location: string): CommitChanges["addedRows"][number] => ({
+    rowKey: makeChildRowKey(pk(wonum), "MULTIASSETLOCCI", `new~${n}`),
+    parentKey: pk(wonum),
+    childName: "MULTIASSETLOCCI",
+    values: { SITEID: "BEDFORD", WONUM: wonum, DESCRIPTION: "新しい作業", ESTDUR: 2, "MULTIASSETLOCCI.LOCATION": location, "MULTIASSETLOCCI.MULTIID": null },
+  });
+  const run = (s: Setup, plans: CommitPlan[]) => executeCommit(s.client, plans, { waitForCanaryContinue: async () => true, meta: s.meta, os: "MXAPIWO", makeTransactionId: txIds });
+
+  it("計画: キーを含む値の入った親の列と、追加した子だけ。href は持たない", async () => {
+    const { meta, records } = await setup();
+    const plans = planCommit(meta, records, { ...none(), addedRows: [newWo("WO9001"), newChild("WO9001", 1, "L1")] });
+    expect(plans).toHaveLength(1);
+    expect(plans[0]).toMatchObject({
+      parentKey: pk("WO9001"),
+      href: "",
+      create: { keys: { SITEID: "BEDFORD", WONUM: "WO9001" } },
+      attrs: { SITEID: "BEDFORD", WONUM: "WO9001", DESCRIPTION: "新しい作業", ESTDUR: 2 },
+      children: { MULTIASSETLOCCI: [{ action: "Add", attrs: { LOCATION: "L1" } }] },
+    });
+    expect(plans[0]!.attrs).not.toHaveProperty("CHANGEBY");
+  });
+
+  it("一覧へ x-method-override なしで POST し、キーで探し直して確かめ、作ったレコードの href を返す", async () => {
+    const s = await setup();
+    const plans = planCommit(s.meta, s.records, { ...none(), addedRows: [newWo("WO9001"), newChild("WO9001", 1, "L1")] });
+    const [r] = await run(s, plans);
+    expect(r).toMatchObject({ rowKey: pk("WO9001"), status: "verified", sent: true });
+    const rec = woOf(s.fake, "WO9001");
+    expect(rec.attrs).toMatchObject({ siteid: "BEDFORD", description: "新しい作業", estdur: 2 });
+    expect(rec.children.multiassetlocci?.map((c) => c.attrs.location)).toEqual(["L1"]);
+    expect(r!.createdHref).toBe(s.fake.hrefOf("mxapiwo", rec.uid));
+    const [post] = posts(s.fake);
+    expect(post!.path).toBe("/maximo/api/os/mxapiwo?lean=1");
+    expect(post!.headers).not.toHaveProperty("x-method-override");
+    expect(post!.headers).not.toHaveProperty("patchtype");
+    expect(post!.body).toEqual({ siteid: "BEDFORD", wonum: "WO9001", description: "新しい作業", estdur: 2, multiassetlocci: [{ location: "L1" }] });
+  });
+
+  it("同じキーのレコードが Maximo にもうあれば送らない（conflict）", async () => {
+    const s = await setup();
+    const plans = planCommit(s.meta, s.records, { ...none(), addedRows: [newWo("WO9001")] });
+    s.fake.state.os.mxapiwo!.records.push({ uid: "_X", rowstamp: 1, attrs: { siteid: "BEDFORD", wonum: "WO9001" }, children: {} });
+    const [r] = await run(s, plans);
+    expect(r).toMatchObject({ status: "conflict", sent: false });
+    expect(posts(s.fake)).toHaveLength(0);
+  });
+
+  it("送った後の通信エラーは、キーで探して作られていても unknown（応答を受け取れていない）。Maximo の誤りは error", async () => {
+    const s = await setup();
+    s.fake.state.failures.push({ method: "POST", phase: "after", kind: "network" });
+    const [r] = await run(s, planCommit(s.meta, s.records, { ...none(), addedRows: [newWo("WO9001")] }));
+    expect(r).toMatchObject({ status: "unknown", sent: true });
+    expect(woOf(s.fake, "WO9001")).toBeDefined();
+
+    const t = await setup();
+    const [e] = await run(t, planCommit(t.meta, t.records, { ...none(), addedRows: [newWo("WO9002", { ESTDUR: "x" as unknown as number })] }));
+    expect(e).toMatchObject({ status: "error", sent: true, reasonCode: "BMXAA_FAKE_TYPE" });
+  });
+
+  it("409（同じ transactionid）は、キーで探して作られていれば verified", async () => {
+    const s = await setup();
+    const plans = planCommit(s.meta, s.records, { ...none(), addedRows: [newWo("WO9001")] });
+    // 前の送信で作られていたが応答を受け取れなかった、という状況を作る
+    s.fake.state.os.mxapiwo!.records.push({ uid: "_Y", rowstamp: 1, attrs: { siteid: "BEDFORD", wonum: "WO9001", description: "新しい作業", estdur: 2 }, children: {} });
+    s.fake.state.transactionIds.add("tx-0");
+    // 送る前の確かめでは見つからないことにする（前の送信の直後に同じ計画を流した場合）
+    const realFetch = s.fake.fetch;
+    let gets = 0;
+    const client = new MaximoClient({
+      baseUrl: s.fake.baseUrl,
+      apiKey: () => s.fake.apiKey,
+      via: "direct",
+      fetchImpl: async (input, init) => {
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (method === "GET" && gets++ === 0) return new Response(JSON.stringify({ member: [] }), { status: 200, headers: { "content-type": "application/json" } });
+        return realFetch(input, init);
+      },
+      sleep: async () => {},
+    });
+    const [r] = await executeCommit(client, plans, { waitForCanaryContinue: async () => true, meta: s.meta, os: "MXAPIWO", makeTransactionId: txIds });
+    expect(r).toMatchObject({ status: "verified", httpStatus: 409 });
+    expect(r!.createdHref).toBe(s.fake.hrefOf("mxapiwo", "_Y"));
+  });
+
+  it("キー列の空・構造の分からないシート・取り消した親の下の子は送らない", async () => {
+    const { meta, records } = await setup();
+    expect(codeOf(() => planCommit(meta, records, { ...none(), addedRows: [newWo("WO9001", { SITEID: null })] }))).toBe("INPUT");
+    const imported: SheetMeta = { ...meta, source: { kind: "excel", fileName: "a.xlsx", sheetName: "s" } as SheetMeta["source"] };
+    expect(codeOf(() => planCommit(imported, records, { ...none(), addedRows: [newWo("WO9001")] }))).toBe("INPUT");
+    const cancelled = planCommit(meta, records, { ...none(), addedRows: [newWo("WO9001"), newChild("WO9001", 1, "L1")], deletedRows: [pk("WO9001")] });
+    expect(cancelled).toEqual([]);
+  });
+
+  it("作る計画は送信先を持たず、子は追加だけ（validatePlans）", async () => {
+    const { meta, records } = await setup();
+    const [plan] = planCommit(meta, records, { ...none(), addedRows: [newWo("WO9001")] });
+    const opts = { allowNull: false, deletesConfirmed: false };
+    expect(() => validatePlans([plan!], opts)).not.toThrow();
+    expect(codeOf(() => validatePlans([{ ...plan!, href: "https://maximo.test/maximo/api/os/mxapiwo/_A" }], opts))).toBe("I7");
+    expect(codeOf(() => validatePlans([{ ...plan!, children: { MULTIASSETLOCCI: [{ action: "Delete", idAttr: "MULTIID", id: 1 }] } }], opts))).toBe("I2");
+    expect(codeOf(() => validatePlans([{ ...plan!, create: { keys: { SITEID: "BEDFORD", WONUM: "OTHER" } } }], opts))).toBe("INPUT");
+  });
+});

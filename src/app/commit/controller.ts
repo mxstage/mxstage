@@ -258,6 +258,8 @@ export const createCommitController: CreateCommitController = (deps) => {
       if (attempt.error !== null) blockers.push(attempt.error);
       else if (attempt.plans.length === 0 && changes.unwritableParentEdits.length === 0) blockers.push(noChangesBlocker());
       else counts.parents = attempt.plans.length;
+      // 新しく作るレコード（追加した親の行）。計画を作れなかったときは追加した親の行で数える
+      counts.newRecords = attempt.error === null ? attempt.plans.filter((p) => p.create !== undefined).length : changes.addedRows.filter((r) => r.childName === null).length;
       // 行がすべて削除された親に残った親の列の変更は、どの行にも付け替えられないので書き込めない（黙って捨てない）。
       // 親の数だけ並べると blockers が際限なく膨らみ、request_commit / get_status の結果が上限を超えるので件数を区切る
       const unwritable = changes.unwritableParentEdits;
@@ -361,7 +363,14 @@ export const createCommitController: CreateCommitController = (deps) => {
   }
 
   /** verified の親を読み直して base を置き換える。置き換えられなかった親は理由を返す */
-  async function applyVerified(sheet: string, sheetId: number, since: number, conn: MaximoConnection, parentKeys: string[]): Promise<Map<string, string>> {
+  async function applyVerified(
+    sheet: string,
+    sheetId: number,
+    since: number,
+    conn: MaximoConnection,
+    parentKeys: string[],
+    created: ReadonlyMap<string, string>,
+  ): Promise<Map<string, string>> {
     const notes = new Map<string, string>();
     if (!workspace.hasSheet(sheet) || workspace.getSheet(sheet).id !== sheetId) {
       for (const pk of parentKeys) notes.set(pk, skipNote("sheet_replaced"));
@@ -369,7 +378,7 @@ export const createCommitController: CreateCommitController = (deps) => {
     }
     let outcome;
     try {
-      outcome = await reloadParents(conn.client, workspace.getSheet(sheet), parentKeys);
+      outcome = await reloadParents(conn.client, workspace.getSheet(sheet), parentKeys, created);
     } catch (e) {
       const why = errorText(e);
       for (const pk of parentKeys) notes.set(pk, m().note.reloadFailed(why));
@@ -478,6 +487,8 @@ export const createCommitController: CreateCommitController = (deps) => {
 
       // 送信前の検査で止まった（1 件も書き込めなかった）ことを結果の state に出すため
       let aborted = false;
+      // 新しく作ったレコード（親キー → Maximo が返した href）。反映のあと画面を読み直すのに使う
+      const created = new Map<string, string>();
       try {
         await executeCommit(conn.client, plans, {
           waitForCanaryContinue: (canary) =>
@@ -487,6 +498,7 @@ export const createCommitController: CreateCommitController = (deps) => {
               emit(sheet);
             }),
           onRow: (r, plan) => {
+            if (r.createdHref !== undefined) created.set(r.rowKey, r.createdHref);
             p.results.push(rowResult(r));
             appendLog(writeLogEntry(plan, r, now()));
             emit(sheet);
@@ -514,7 +526,7 @@ export const createCommitController: CreateCommitController = (deps) => {
 
       const verified = p.results.filter((r) => r.status === "verified").map((r) => r.rowKey);
       if (verified.length > 0) {
-        const notes = await applyVerified(sheet, sheetId, startRevision, conn, verified);
+        const notes = await applyVerified(sheet, sheetId, startRevision, conn, verified, created);
         for (const r of p.results) {
           const note = notes.get(r.rowKey);
           if (note !== undefined && r.status === "verified") r.message = r.message === undefined ? note : m().note.append(r.message, note);

@@ -13,6 +13,9 @@
 //       【Maximo で null をどう送るか（JSON null か "" か）は P0 で確認する】
 // コミット手順: 親ごとに precheck（I9: 読み直して親の _rowstamp・子 ID 集合・触る子の _rowstamp を照合）→ 送信 → verify。
 // 最初に送った 1 件の後にカナリアの確認を待つ。自動再試行はしない。
+// 新規作成（追加した親の行）: シートを読み込んだ構造の一覧へ x-method-override の無い POST。href は持たない。
+//   送る前にキー列の値で探し、あれば送らない（conflict）。送った後もキーで探し直し、1 件で属性と追加した子がそろえば verified。
+//   409・通信エラー・結果の分からない応答は、キーで探した結果で判断する（patch と同じく、応答を受け取れていなければ unknown）。
 // 応答の分類: 2xx → verify / 409 → reconcile（反映済みなら verified、未反映なら unknown）/ reasonCode 付きエラー → error /
 //   通信エラー・タイムアウト・reasonCode の無い 5xx → 読み直した結果を message に書き、状態は unknown（応答を受け取れていないため）
 
@@ -20,13 +23,13 @@ import type { CellValue, ColumnSchema, CommitRowResult } from "../../shared/mode
 import { NEW_CHILD_PREFIX, parseRowKey, type ChildCommitOp, type MaximoChild, type MaximoRecord, type ParentCommitPlan, type SheetMeta } from "../../shared/sheet";
 import { MaximoError, MaximoNetworkError, type MaximoClient } from "./client";
 import { columnChild, parentKeyOf, parseMember } from "./load";
-import { upperKeys } from "./query";
+import { buildWhere, upperKeys } from "./query";
 import { commitEngineMessages as msg } from "../commit/messages";
 
 export type InvariantCode = "I1" | "I2" | "I3" | "I4" | "I5" | "I6" | "I7" | "I8" | "I10" | "INPUT";
 
 /** INPUT の違反のうち、利用者に次にできることを個別に案内するもの（文言の言語に依らず見分けるため） */
-export type InvariantHint = "parentAdd" | "parentDelete" | "unknownParent" | "conflictingParentValues" | "addedParentMismatch";
+export type InvariantHint = "parentAdd" | "parentDelete" | "unknownParent" | "conflictingParentValues" | "addedParentMismatch" | "newParentKeys";
 
 export class CommitInvariantError extends Error {
   readonly code: InvariantCode;
@@ -55,12 +58,18 @@ const ATTR_RE = /^[A-Za-z0-9_]+$/;
 export interface CommitPlan extends ParentCommitPlan {
   /** 子オブジェクト名 → 子 ID（文字列）→ 読み込み時の _rowstamp */
   expectedChildRowstamps?: Record<string, Record<string, string | null>>;
+  /**
+   * 新規作成（作業画面で足した親の行）。href は持たない（""）。送信先はシートを読み込んだ構造の一覧（/api/os/<構造>）だけ。
+   * keys はシートのキー列（大文字）とその値。送る前と送った後に、このキーで Maximo を検索して確かめる
+   */
+  create?: { keys: Record<string, CellValue> };
 }
 
 /**
  * シートの差分（store の実装に依存しない素直な形）。
  * - cells: Base と異なる最終値のセル。親の列は親行・子行どちらの行キーでもよい。
- * - addedRows: 追加した子行（親の追加は未対応）。values の子の列は "CHILD.ATTR"。親の列が入っていてもよいが、親の値の変更は cells で渡す。
+ * - addedRows: 追加した行。子行の values の子の列は "CHILD.ATTR"。親の列が入っていてもよいが、親の値の変更は cells で渡す。
+ *   親の行（childName が null、行キー = 親キー = キー列の値）は新規作成になる（Maximo から読み込んだシートで、キー列があるときだけ）。
  * - deletedRows: 削除した子行の行キー（親の削除は未対応）。
  */
 export interface CommitChanges {
@@ -88,6 +97,8 @@ interface ParentAcc {
   changes: Map<string, Map<string, ChildChangeAcc>>;
   deletes: Map<string, Map<string, MaximoChild>>;
   adds: Map<string, Array<Record<string, CellValue>>>;
+  /** 新規作成の親（record は追加した親の行の値から作った仮のもの） */
+  create: boolean;
 }
 
 /** 差分からコミット計画（親 1 件につき HTTP 1 回）を作る。不変条件に違反すれば例外 */
@@ -105,14 +116,29 @@ export function planCommit(meta: SheetMeta, records: MaximoRecord[], changes: Co
     byKey.set(k, r);
     order.push(k);
   }
+  // 新規作成する親（追加した親の行）。親キー → その行
+  const newParents = new Map<string, CommitChanges["addedRows"][number]>();
   const accs = new Map<string, ParentAcc>();
   const accOf = (parentKey: string): ParentAcc => {
     let acc = accs.get(parentKey);
     if (acc) return acc;
     const record = byKey.get(parentKey);
-    if (!record) throw new CommitInvariantError("INPUT", msg().invariant.parentNotLoaded(parentKey), "unknownParent");
-    assertHref(record.href);
-    acc = { record, parentSets: new Map(), kinds: [], changes: new Map(), deletes: new Map(), adds: new Map() };
+    if (record) {
+      assertHref(record.href);
+      acc = { record, parentSets: new Map(), kinds: [], changes: new Map(), deletes: new Map(), adds: new Map(), create: false };
+    } else {
+      const added = newParents.get(parentKey);
+      if (!added) throw new CommitInvariantError("INPUT", msg().invariant.parentNotLoaded(parentKey), "unknownParent");
+      // 親の列の値（行に入っている値）を、読み込んだレコードと同じ形（大文字の属性名）で持つ
+      const attrs: Record<string, CellValue> = {};
+      for (const [col, v] of Object.entries(added.values)) {
+        const name = col.toUpperCase();
+        const schema = cols.get(name);
+        if (name.includes(".") || (schema !== undefined && columnChild(schema) !== null)) continue;
+        attrs[name] = v;
+      }
+      acc = { record: { href: "", rowstamp: null, attrs, children: {} }, parentSets: new Map(), kinds: [], changes: new Map(), deletes: new Map(), adds: new Map(), create: true };
+    }
     accs.set(parentKey, acc);
     return acc;
   };
@@ -136,8 +162,19 @@ export function planCommit(meta: SheetMeta, records: MaximoRecord[], changes: Co
 
   // 追加行の行キーは「親キー#子オブジェクト名:new~N」に限る。既存の子の行キーと取り違えると、
   // その行の削除が「追加の取り消し」として黙って捨てられるため、先に止める
+  // 親の行の追加は新規作成。送信先（構造の一覧）と、作った後に探すキーが要る
+  const createOs = meta.source.kind === "maximo" ? meta.source.os : null;
   for (const row of changes.addedRows) {
-    if (!row.childName) throw new CommitInvariantError("INPUT", msg().invariant.parentAddUnsupported, "parentAdd");
+    if (!row.childName) {
+      if (createOs === null) throw new CommitInvariantError("INPUT", msg().invariant.parentAddUnsupported, "parentAdd");
+      if (keyCols.size === 0) throw new CommitInvariantError("INPUT", msg().invariant.newParentNeedsKeys, "newParentKeys");
+      if (row.rowKey !== row.parentKey || parseRowKey(row.rowKey).childName !== null) {
+        throw new CommitInvariantError("INPUT", msg().invariant.addedRowParentMismatch(row.rowKey));
+      }
+      if (byKey.has(row.parentKey) || newParents.has(row.parentKey)) throw new CommitInvariantError("INPUT", msg().invariant.duplicateParentKey(row.parentKey));
+      newParents.set(row.parentKey, row);
+      continue;
+    }
     const ap = parseRowKey(row.rowKey);
     if (ap.parentKey !== row.parentKey) throw new CommitInvariantError("INPUT", msg().invariant.addedRowParentMismatch(row.rowKey));
     if (!ap.isNewChild || ap.childName?.toUpperCase() !== row.childName.toUpperCase()) {
@@ -167,6 +204,13 @@ export function planCommit(meta: SheetMeta, records: MaximoRecord[], changes: Co
     touchKind(acc, kind);
     deletedExisting.add(rowKey);
   }
+  // 取り消した新規の親の下に足した子も送らない
+  for (const pk of [...newParents.keys()]) {
+    if (!cancelledAdds.has(pk)) continue;
+    newParents.delete(pk);
+    for (const r of changes.addedRows) if (r.parentKey === pk) cancelledAdds.add(r.rowKey);
+  }
+  for (const pk of newParents.keys()) accOf(pk);
 
   // 2) セル変更
   const addOverrides = new Map<string, Record<string, CellValue>>();
@@ -212,7 +256,8 @@ export function planCommit(meta: SheetMeta, records: MaximoRecord[], changes: Co
   // 3) 追加
   for (const row of changes.addedRows) {
     if (cancelledAdds.has(row.rowKey)) continue;
-    if (!row.childName) throw new CommitInvariantError("INPUT", msg().invariant.parentAddUnsupported, "parentAdd");
+    // 親の行（新規作成）は計画にまとめるときに属性を集める
+    if (!row.childName) continue;
     const kind = row.childName.toUpperCase();
     if (!selectedKinds.has(kind)) throw new CommitInvariantError("INPUT", msg().invariant.childNotInSheet(kind));
     if (parseRowKey(row.rowKey).parentKey !== row.parentKey) throw new CommitInvariantError("INPUT", msg().invariant.addedRowParentMismatch(row.rowKey));
@@ -251,10 +296,14 @@ export function planCommit(meta: SheetMeta, records: MaximoRecord[], changes: Co
   // 4) 計画にまとめる
   const plans: CommitPlan[] = [];
   let totalDeletes = 0;
-  for (const key of order) {
+  for (const key of [...order, ...newParents.keys()]) {
     const acc = accs.get(key);
     if (!acc) continue;
     const rec = acc.record;
+    if (acc.create) {
+      plans.push(createPlan(key, acc, cols, meta.keyColumns, keyCols));
+      continue;
+    }
     const attrs: Record<string, CellValue> = {};
     for (const [a, v] of acc.parentSets) {
       const base = rec.attrs[a] ?? null;
@@ -311,6 +360,37 @@ export function planCommit(meta: SheetMeta, records: MaximoRecord[], changes: Co
   return plans;
 }
 
+/**
+ * 新規作成の計画。送るのは値の入った親の列（キー列を含む。読み取り専用の列は送らない）と、追加した子だけ。
+ * 既存の子の変更・削除は起こらない（読み込んだ子が無いので、その前に I2 で止まる）
+ */
+function createPlan(parentKey: string, acc: ParentAcc, cols: Map<string, ColumnSchema>, keyColumns: string[], keyCols: Set<string>): CommitPlan {
+  const attrs: Record<string, CellValue> = {};
+  const values = new Map(Object.entries(acc.record.attrs));
+  for (const [a, v] of acc.parentSets) values.set(a, v);
+  for (const [a, v] of values) {
+    if (isNullish(v)) continue;
+    const schema = cols.get(a);
+    if (!schema || columnChild(schema) !== null) continue;
+    if (!ATTR_RE.test(a)) throw new CommitInvariantError("I5", msg().invariant.invalidColumnAttr(a));
+    if (schema.readOnly && !keyCols.has(a)) throw new CommitInvariantError("I5", msg().invariant.readOnlyColumn(a));
+    attrs[a] = v;
+  }
+  const keys: Record<string, CellValue> = {};
+  for (const k of keyColumns) {
+    const K = k.toUpperCase();
+    const v = attrs[K];
+    if (v === undefined || isNullish(v)) throw new CommitInvariantError("INPUT", msg().invariant.newParentKeyMissing(K), "newParentKeys");
+    keys[K] = v;
+  }
+  const children: Record<string, ChildCommitOp[]> = {};
+  for (const kind of acc.kinds) {
+    const adds = acc.adds.get(kind) ?? [];
+    if (adds.length > 0) children[kind] = adds.map((a) => ({ action: "Add" as const, attrs: a }));
+  }
+  return { parentKey, href: "", expectedRowstamp: null, expectedChildIds: {}, attrs, children, create: { keys } };
+}
+
 function findLoadedChild(record: MaximoRecord, kind: string, childId: string | null): MaximoChild {
   const list = record.children[kind];
   if (!list) throw new CommitInvariantError("I2", msg().invariant.childNotLoaded(kind));
@@ -332,10 +412,11 @@ function assertHref(href: string): void {
 }
 
 /** 列定義に照らして送ってよい列か（I5）。keySet を渡すと親のキー列も拒否する */
-function assertWritableColumn(colMap: Map<string, ColumnSchema>, keySet: Set<string> | null, name: string): void {
+function assertWritableColumn(colMap: Map<string, ColumnSchema>, keySet: Set<string> | null, name: string, newKey = false): void {
   const col = colMap.get(name);
   if (!col) throw new CommitInvariantError("I5", msg().invariant.columnNotInSheet(name));
-  if (col.readOnly) throw new CommitInvariantError("I5", msg().invariant.readOnlyColumn(name));
+  // 新規作成のキー列は、読み取り専用と示されていても作るときには送る
+  if (col.readOnly && !newKey) throw new CommitInvariantError("I5", msg().invariant.readOnlyColumn(name));
   if (keySet?.has(name)) throw new CommitInvariantError("I5", msg().invariant.keyColumnChanged(name));
 }
 
@@ -359,7 +440,7 @@ export interface ValidatePlanOptions {
 }
 
 /** 計画そのものの不変条件を検査する（送信前にもう一度呼ぶ） */
-export function validatePlans(plans: ParentCommitPlan[], opts: ValidatePlanOptions): void {
+export function validatePlans(plans: readonly CommitPlan[], opts: ValidatePlanOptions): void {
   if (plans.length > COMMIT_LIMITS.maxParentsPerPlan) {
     throw new CommitInvariantError("I8", msg().invariant.tooManyParents(COMMIT_LIMITS.maxParentsPerPlan, plans.length));
   }
@@ -372,15 +453,31 @@ export function validatePlans(plans: ParentCommitPlan[], opts: ValidatePlanOptio
   for (const plan of plans) {
     if (seen.has(plan.parentKey)) throw new CommitInvariantError("INPUT", msg().invariant.duplicatePlan(plan.parentKey));
     seen.add(plan.parentKey);
-    assertHref(plan.href);
-    // 送信先はオリジンを捨てたパスで決まるので、パスで重複を見る（キー列の選び方の誤りで同じレコードに 2 回送らない）
-    const hrefPath = plan.href.replace(/^[A-Za-z][A-Za-z0-9+.-]*:\/\/[^/]*/, "");
-    if (seenHref.has(hrefPath)) throw new CommitInvariantError("INPUT", msg().invariant.duplicateHref(plan.parentKey));
-    seenHref.add(hrefPath);
+    const create = plan.create;
+    if (create === undefined) {
+      assertHref(plan.href);
+      // 送信先はオリジンを捨てたパスで決まるので、パスで重複を見る（キー列の選び方の誤りで同じレコードに 2 回送らない）
+      const hrefPath = plan.href.replace(/^[A-Za-z][A-Za-z0-9+.-]*:\/\/[^/]*/, "");
+      if (seenHref.has(hrefPath)) throw new CommitInvariantError("INPUT", msg().invariant.duplicateHref(plan.parentKey));
+      seenHref.add(hrefPath);
+    } else {
+      // 新規作成: href を持たず、キーの値をすべて送り、子は追加だけ
+      if (plan.href !== "" || plan.expectedRowstamp !== null) throw new CommitInvariantError("I7", msg().invariant.createWithHref(plan.parentKey));
+      const keyNames = Object.keys(create.keys);
+      if (keyNames.length === 0) throw new CommitInvariantError("INPUT", msg().invariant.newParentNeedsKeys, "newParentKeys");
+      for (const k of keyNames) {
+        const v = create.keys[k];
+        if (v === undefined || isNullish(v) || !sameCell(v, plan.attrs[k])) throw new CommitInvariantError("INPUT", msg().invariant.newParentKeyMissing(k), "newParentKeys");
+      }
+      for (const [kind, ops] of Object.entries(plan.children)) {
+        if (ops.some((o) => o.action !== "Add")) throw new CommitInvariantError("I2", msg().invariant.opIdNotLoaded(kind, "Change"));
+      }
+    }
     for (const [a, v] of Object.entries(plan.attrs)) {
       if (!ATTR_RE.test(a) || a.startsWith("_")) throw new CommitInvariantError("I5", msg().invariant.invalidAttrName(a));
-      if (isNullish(v) && !opts.allowNull) throw new CommitInvariantError("I10", msg().invariant.parentNullNeedsAllow(a));
-      if (colMap) assertWritableColumn(colMap, keySet, a.toUpperCase());
+      if (isNullish(v) && (create !== undefined || !opts.allowNull)) throw new CommitInvariantError("I10", msg().invariant.parentNullNeedsAllow(a));
+      // 新規作成ではキー列も送る（値は作るレコードのキー）
+      if (colMap) assertWritableColumn(colMap, create !== undefined ? null : keySet, a.toUpperCase(), create !== undefined && keySet.has(a.toUpperCase()));
     }
     let deletes = 0;
     for (const [kind, ops] of Object.entries(plan.children)) {
@@ -494,6 +591,59 @@ export function assertSafePatchRequest(req: PatchRequest, plan: ParentCommitPlan
   }
 }
 
+export interface CreateRequest {
+  url: string;
+  method: "POST";
+  headers: {
+    transactionid: string;
+    properties: "*";
+    "content-type": "application/json";
+  };
+  body: Record<string, unknown>;
+}
+
+/**
+ * 新規作成の要求（構造の一覧への POST。x-method-override は付けない）。collectionPath は /maximo/api/os/<構造>。
+ * 本文はキーを含む親の属性と、追加する子の配列だけ（子に ID・_action は付けない）
+ */
+export function buildCreateRequest(plan: CommitPlan, transactionId: string, collectionPath: string): CreateRequest {
+  if (typeof transactionId !== "string" || !/^[A-Za-z0-9_.:~-]{1,128}$/.test(transactionId)) throw new CommitInvariantError("INPUT", msg().invariant.invalidTransactionId);
+  if (plan.create === undefined) throw new CommitInvariantError("INPUT", msg().invariant.createWithHref(plan.parentKey));
+  const body: Record<string, unknown> = lowerAttrs(plan.attrs);
+  for (const [kind, ops] of Object.entries(plan.children)) {
+    if (ops.length === 0) throw new CommitInvariantError("I6", msg().invariant.emptyChildArray(kind));
+    const key = kind.toLowerCase();
+    if (key in body) throw new CommitInvariantError("INPUT", msg().invariant.childNameCollides(kind));
+    body[key] = ops.map((op) => {
+      if (op.action !== "Add") throw new CommitInvariantError("I2", msg().invariant.opIdNotLoaded(kind, op.action));
+      return lowerAttrs(op.attrs);
+    });
+  }
+  const req: CreateRequest = {
+    url: `${collectionPath}?lean=1`,
+    method: "POST",
+    headers: { transactionid: transactionId, properties: "*", "content-type": "application/json" },
+    body,
+  };
+  assertSafeCreateRequest(req, plan, collectionPath);
+  return req;
+}
+
+/** 新規作成の送信直前の検査: 一覧への POST、上書きの指定なし、キーをすべて送る、子は追加だけ */
+export function assertSafeCreateRequest(req: CreateRequest, plan: CommitPlan, collectionPath: string): void {
+  const h = req.headers as Record<string, unknown>;
+  if (req.method !== "POST" || "x-method-override" in h || "patchtype" in h) throw new CommitInvariantError("I1", msg().invariant.createNotPost);
+  if (!/^\/[A-Za-z0-9_./-]*\/os\/[a-z0-9_]+$/.test(collectionPath) || req.url !== `${collectionPath}?lean=1`) throw new CommitInvariantError("I7", msg().invariant.targetMismatch);
+  for (const [k, v] of Object.entries(plan.create?.keys ?? {})) {
+    if (!sameCell(v, req.body[k.toLowerCase()] as CellValue | undefined)) throw new CommitInvariantError("INPUT", msg().invariant.newParentKeyMissing(k), "newParentKeys");
+  }
+  for (const [k, v] of Object.entries(req.body)) {
+    if (!Array.isArray(v)) continue;
+    if (v.length === 0) throw new CommitInvariantError("I6", msg().invariant.emptyChildArray(k));
+    if (v.some((item) => typeof item !== "object" || item === null || "_action" in item)) throw new CommitInvariantError("I2", msg().invariant.opIdNotLoaded(k, "Change"));
+  }
+}
+
 function lowerAttrs(attrs: Record<string, CellValue>): Record<string, CellValue> {
   const out: Record<string, CellValue> = {};
   for (const [a, v] of Object.entries(attrs)) out[a.toLowerCase()] = v;
@@ -508,6 +658,8 @@ export interface CommitRowOutcome extends CommitRowResult {
   transactionId: string | null;
   /** リクエストを Maximo へ送った（結果が不明な場合を含む） */
   sent: boolean;
+  /** 新規作成を確かめたときの、作ったレコードの href（Maximo が返したもの。画面を読み直すのに使う） */
+  createdHref?: string;
 }
 
 export interface ExecuteCommitOptions {
@@ -615,25 +767,45 @@ interface Snapshot {
   children: Record<string, MaximoChild[]>;
 }
 
-interface PreparedPlan {
-  /** 読み直しに使う path（クエリなし） */
-  path: string;
-  /** 送信に使う path（?lean=1 付き） */
-  postPath: string;
-  transactionId: string;
-  req: PatchRequest;
-}
+type PreparedPlan =
+  | {
+      kind: "patch";
+      /** 読み直しに使う path（クエリなし） */
+      path: string;
+      /** 送信に使う path（?lean=1 付き） */
+      postPath: string;
+      transactionId: string;
+      req: PatchRequest;
+    }
+  | {
+      kind: "create";
+      /** 構造の一覧の path（/maximo/api/os/<構造>。キーで探すのにも使う） */
+      path: string;
+      postPath: string;
+      transactionId: string;
+      req: CreateRequest;
+    };
 
 /**
  * 1 件も送らないうちに、全計画の送信先（I7）・transactionid・本文（I1/I6）を組み立てて検査する。
  * 違反は CommitInvariantError（何も送っていない）。
  */
-function preparePlans(client: MaximoClient, plans: ParentCommitPlan[], makeTx: (plan: ParentCommitPlan, index: number) => string, os?: string): PreparedPlan[] {
+function preparePlans(client: MaximoClient, plans: CommitPlan[], makeTx: (plan: ParentCommitPlan, index: number) => string, os?: string): PreparedPlan[] {
   if (os !== undefined && !/^[A-Za-z0-9_]+$/.test(os)) throw new CommitInvariantError("I7", msg().invariant.invalidOs(JSON.stringify(os)));
   // 構造が分かっていれば、その構造のレコードだけを送信先にする（/maximo/api/os/mxapiwo/...）
   const osPrefix = `${client.apiRoot}/os/${os === undefined ? "" : `${os}/`}`.toLowerCase();
   const usedTx = new Set<string>();
-  return plans.map((plan, index) => {
+  return plans.map((plan, index): PreparedPlan => {
+    if (plan.create !== undefined) {
+      // 新規作成は、シートを読み込んだ構造の一覧にだけ送る（構造が分からなければ送らない）
+      if (os === undefined) throw new CommitInvariantError("I7", msg().invariant.createNeedsOs(plan.parentKey));
+      const path = `${client.apiRoot}/os/${os.toLowerCase()}`;
+      const transactionId = makeTx(plan, index);
+      if (usedTx.has(transactionId)) throw new CommitInvariantError("INPUT", msg().invariant.duplicateTransactionId);
+      usedTx.add(transactionId);
+      const req = buildCreateRequest(plan, transactionId, path);
+      return { kind: "create", path, postPath: req.url, transactionId, req };
+    }
     let path: string;
     try {
       path = client.hrefToPath(plan.href);
@@ -654,7 +826,7 @@ function preparePlans(client: MaximoClient, plans: ParentCommitPlan[], makeTx: (
     if (usedTx.has(transactionId)) throw new CommitInvariantError("INPUT", msg().invariant.duplicateTransactionId);
     usedTx.add(transactionId);
     const req = buildPatchRequest(plan, transactionId);
-    return { path, postPath: client.hrefToPath(req.url), transactionId, req };
+    return { kind: "patch", path, postPath: client.hrefToPath(req.url), transactionId, req };
   });
 }
 
@@ -665,6 +837,7 @@ async function commitOne(client: MaximoClient, plan: CommitPlan, prep: PreparedP
     const fromOps = ops.find((o) => o.action !== "Add");
     idAttrs[kind] = (idAttrsOpt[kind.toUpperCase()] ?? (fromOps && "idAttr" in fromOps ? fromOps.idAttr : null))?.toUpperCase() ?? null;
   }
+  if (prep.kind === "create") return commitCreate(client, plan, prep, idAttrs);
   const { path, transactionId, req } = prep;
   const select = snapshotSelect(plan, idAttrs);
 
@@ -716,6 +889,125 @@ async function commitOne(client: MaximoClient, plan: CommitPlan, prep: PreparedP
   const mismatches = verifyAgainstPlan(plan, before, after, idAttrs);
   if (mismatches.length === 0) return { ...base, status: "verified", httpStatus, transactionId, sent: true };
   return { ...base, status: "unknown", httpStatus, message: msg().row.verifyMismatch(mismatches.join(", ")), transactionId, sent: true };
+}
+
+/**
+ * 新規作成を 1 件。
+ * 1) 送る前に、キーで Maximo を探す。もうあれば送らない（conflict。二重に作らない・人が作った分を上書きしない）
+ * 2) 一覧へ POST。409（transactionid の重複）・通信エラー・結果の分からない応答は、キーで探し直して判断する
+ * 3) キーで探し直し、ちょうど 1 件あり、送った属性と追加した子がそろっていれば verified（その href を返す）。
+ *    Maximo が自動で足した子（分類の仕様の行など）は、送った子の照合の邪魔にしない
+ */
+async function commitCreate(
+  client: MaximoClient,
+  plan: CommitPlan,
+  prep: Extract<PreparedPlan, { kind: "create" }>,
+  idAttrs: Record<string, string | null>,
+): Promise<CommitRowOutcome> {
+  const base = { rowKey: plan.parentKey };
+  const { transactionId, req } = prep;
+  const select = snapshotSelect(plan, idAttrs);
+  let existing: MaximoRecord[];
+  try {
+    existing = await findByKeys(client, prep.path, plan, select, idAttrs);
+  } catch (e) {
+    return { ...base, status: "error", ...errFields(e), message: msg().row.precheckFailed(errMessage(e)), transactionId: null, sent: false };
+  }
+  if (existing.length > 0) return { ...base, status: "conflict", message: msg().row.alreadyExists, transactionId: null, sent: false };
+
+  assertSafeCreateRequest(req, plan, prep.path);
+  let httpStatus: number | undefined;
+  try {
+    const res = await client.post(prep.postPath, { ...req.headers }, req.body);
+    httpStatus = res.status;
+  } catch (e) {
+    if (e instanceof MaximoError) {
+      if (e.status === 409) return reconcileCreate(client, plan, prep.path, select, idAttrs, transactionId, msg().row.duplicateTransaction, e, "verified");
+      if (e.reasonCode) return { ...base, status: "error", httpStatus: e.status, reasonCode: e.reasonCode, message: e.message, transactionId, sent: true };
+      if (e.status >= 500 || e.status < 400) {
+        const cause = e.status >= 500 ? `HTTP ${e.status}` : msg().row.unreadableResponse(e.status);
+        return reconcileCreate(client, plan, prep.path, select, idAttrs, transactionId, cause, e, "unknown");
+      }
+      return { ...base, status: "error", httpStatus: e.status, message: e.message, transactionId, sent: true };
+    }
+    if (e instanceof MaximoNetworkError) {
+      return reconcileCreate(client, plan, prep.path, select, idAttrs, transactionId, e.timedOut ? msg().row.timeout : msg().row.networkError, null, "unknown");
+    }
+    return { ...base, status: "error", message: msg().row.stoppedBeforeSend(errMessage(e)), transactionId: null, sent: false };
+  }
+
+  let found: MaximoRecord[];
+  try {
+    found = await findByKeys(client, prep.path, plan, select, idAttrs);
+  } catch (e) {
+    return { ...base, status: "unknown", httpStatus, message: msg().row.verifyFailed(errMessage(e)), transactionId, sent: true };
+  }
+  if (found.length !== 1) return { ...base, status: "unknown", httpStatus, message: msg().row.createdNotFound(found.length), transactionId, sent: true };
+  const created = found[0]!;
+  const mismatches = verifyCreated(plan, created);
+  if (mismatches.length > 0) return { ...base, status: "unknown", httpStatus, message: msg().row.verifyMismatch(mismatches.join(", ")), transactionId, sent: true };
+  return { ...base, status: "verified", httpStatus, transactionId, sent: true, createdHref: created.href };
+}
+
+async function reconcileCreate(
+  client: MaximoClient,
+  plan: CommitPlan,
+  path: string,
+  select: string,
+  idAttrs: Record<string, string | null>,
+  transactionId: string,
+  cause: string,
+  err: MaximoError | null,
+  whenReflected: "verified" | "unknown",
+): Promise<CommitRowOutcome> {
+  const fields: Partial<CommitRowOutcome> = {};
+  if (err) {
+    fields.httpStatus = err.status;
+    if (err.reasonCode) fields.reasonCode = err.reasonCode;
+  }
+  let found: MaximoRecord[];
+  try {
+    found = await findByKeys(client, path, plan, select, idAttrs);
+  } catch (e) {
+    return { rowKey: plan.parentKey, ...fields, status: "unknown", message: msg().row.reconcileReadFailed(cause, errMessage(e)), transactionId, sent: true };
+  }
+  const created = found.length === 1 ? found[0]! : null;
+  const mismatches = created === null ? [msg().row.createdNotFound(found.length)] : verifyCreated(plan, created);
+  if (mismatches.length > 0) {
+    return { rowKey: plan.parentKey, ...fields, status: "unknown", message: msg().row.reconcileNotApplied(cause, mismatches.join(", ")), transactionId, sent: true };
+  }
+  if (whenReflected === "unknown") return { rowKey: plan.parentKey, ...fields, status: "unknown", message: msg().row.reconcileLooksApplied(cause), transactionId, sent: true };
+  return { rowKey: plan.parentKey, ...fields, status: "verified", message: msg().row.reconcileVerified(cause), transactionId, sent: true, createdHref: created!.href };
+}
+
+/** 新規作成のキー（シートのキー列の値）で、構造の一覧を探す。多くても 2 件まで読む（1 件かどうかが分かればよい） */
+async function findByKeys(client: MaximoClient, collectionPath: string, plan: CommitPlan, select: string, idAttrs: Record<string, string | null>): Promise<MaximoRecord[]> {
+  const keys = plan.create?.keys ?? {};
+  const names = Object.keys(keys);
+  if (names.length === 0) throw new CommitInvariantError("INPUT", msg().invariant.newParentNeedsKeys, "newParentKeys");
+  const { where } = buildWhere(
+    names.map((k) => ({ attr: k, op: "eq" as const, value: keys[k] ?? null })),
+    new Set(names),
+  );
+  const json = await client.get(`${collectionPath}?lean=1&oslc.where=${encodeURIComponent(where)}&oslc.select=${encodeURIComponent(select)}&oslc.pageSize=2`);
+  const members = typeof json === "object" && json !== null && Array.isArray((json as { member?: unknown }).member) ? (json as { member: unknown[] }).member : null;
+  if (members === null) throw new Error(msg().row.unreadableResponse(200));
+  const records = members.map((m) => parseMember(m, upperKeys(idAttrs), { requireHref: true }));
+  // Maximo の = は大文字と小文字を区別しないことがあるので、キーの値がそのまま一致するものだけを数える
+  return records.filter((r) => names.every((k) => sameValue(keys[k] ?? null, r.attrs[k])));
+}
+
+/** 作ったレコードが計画どおりか。送った親の属性と、追加した子（1 対 1）。一致しない項目の名前だけを返す */
+function verifyCreated(plan: CommitPlan, rec: MaximoRecord): string[] {
+  const mism: string[] = [];
+  for (const [a, v] of Object.entries(plan.attrs)) if (!sameValue(v, rec.attrs[a.toUpperCase()])) mism.push(a.toUpperCase());
+  for (const [kind, ops] of Object.entries(plan.children)) {
+    const K = kind.toUpperCase();
+    const adds = ops.filter((o): o is Extract<ChildCommitOp, { action: "Add" }> => o.action === "Add");
+    const list = upperKeys(rec.children)[K] ?? [];
+    if (!matchAdds(adds, list)) mism.push(msg().mismatch.addNotApplied(K));
+  }
+  return mism;
 }
 
 async function reconcile(

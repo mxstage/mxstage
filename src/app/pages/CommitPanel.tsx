@@ -144,6 +144,12 @@ export function CommitPanel({ commits, sheet, version, connected, locked, onMess
           <dt>{t.counts.changedCells}</dt>
           <dd>{c.changedCells}</dd>
         </div>
+        {(c.newRecords ?? 0) > 0 && (
+          <div>
+            <dt>{t.counts.newRecords}</dt>
+            <dd>{c.newRecords}</dd>
+          </div>
+        )}
         <div>
           <dt>{t.counts.addedRows}</dt>
           <dd>{c.addedRows}</dd>

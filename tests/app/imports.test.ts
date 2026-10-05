@@ -467,6 +467,34 @@ describe("describe_import / apply_mapping", () => {
     expect(c.blockers.length).toBeGreaterThan(0);
   });
 
+  it("add_rows の from: 取り込んだシートの行から、作業画面の中で新しいレコードの行を作る（値は引数を通らない）", async () => {
+    const h = harness();
+    maximoAssets(h.workspace);
+    h.imports.add({ importId: "i1", fileName: "機器一覧.xlsx", contentType: "", bytes: await workbookBytes(), sha256: "" });
+    const r = await h.call("apply_mapping", { importId: "i1", sourceSheet: "機器一覧", headerRow: 3, name: "台帳", rename: { "機器\n番号": "ASSETNUM", サイト: "SITEID" } });
+    const columns = { SITEID: "SITEID", ASSETNUM: "ASSETNUM", DESCRIPTION: "タグ" };
+    const add = await h.call("add_rows", {
+      sheet: "資産",
+      from: { sheet: "台帳", columns, filter: [{ attr: "ASSETNUM", op: "eq", value: "A5003" }] },
+      baseRevision: r.revision,
+      reason: "機器一覧にだけある機器を登録",
+    });
+    expect(add).toMatchObject({ applied: 1, rowKeys: [makeParentKey(["BEDFORD", "A5003"])] });
+    const q = await h.call("query_rows", { sheet: "資産", filter: [{ attr: "ASSETNUM", op: "eq", value: "A5003" }], columns: ["SITEID", "ASSETNUM", "DESCRIPTION"] });
+    const src = await h.call("query_rows", { sheet: "台帳", filter: [{ attr: "ASSETNUM", op: "eq", value: "A5003" }], columns: ["タグ"] });
+    expect(q.rows[0].values).toEqual({ SITEID: "BEDFORD", ASSETNUM: "A5003", DESCRIPTION: src.rows[0].values["タグ"] });
+
+    // もうある機器（A5001）とキーの空いた行は衝突として返し、足さない
+    const again = await h.call("add_rows", { sheet: "資産", from: { sheet: "台帳", columns }, baseRevision: add.revision, reason: "全部" });
+    expect(again.applied).toBe(0);
+    expect(again.conflicts.length).toBeGreaterThan(0);
+
+    const both = await h.fail("add_rows", { sheet: "資産", rows: [{ SITEID: "BEDFORD", ASSETNUM: "X1" }], from: { sheet: "台帳", columns }, baseRevision: add.revision, reason: "x" });
+    expect(both.code).toBe(RelayErrorCode.INVALID_ARGS);
+    const neither = await h.fail("add_rows", { sheet: "資産", baseRevision: add.revision, reason: "x" });
+    expect(neither.code).toBe(RelayErrorCode.INVALID_ARGS);
+  });
+
   it("apply_mapping: 列名・キー列の誤りは近い名前を添えて INVALID_ARGS。空の見出しの行は候補を添える", async () => {
     const h = harness();
     h.imports.add({ importId: "i1", fileName: "機器一覧.xlsx", contentType: "", bytes: await workbookBytes(), sha256: "" });

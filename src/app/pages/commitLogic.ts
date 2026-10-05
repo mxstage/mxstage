@@ -65,7 +65,10 @@ export function canConfirmCommit(panel: CommitPanelState, checks: ConfirmChecks)
 export function confirmLines(panel: CommitPanelState): string[] {
   const c = panel.counts;
   const t = m().confirmLine;
-  return [t.sheet(panel.sheet), t.parents(c.parents), t.changedCells(c.changedCells), t.addedRows(c.addedRows), t.deletedRows(c.deletedRows)];
+  const lines = [t.sheet(panel.sheet), t.parents(c.parents), t.changedCells(c.changedCells), t.addedRows(c.addedRows), t.deletedRows(c.deletedRows)];
+  // 新しく作るレコードは取り消せない（Maximo の削除が要る）ので、あるときは別の行で示す
+  if ((c.newRecords ?? 0) > 0) lines.splice(2, 0, t.newRecords(c.newRecords ?? 0));
+  return lines;
 }
 
 /** 反映パネルの状態の表示名（今の言語） */

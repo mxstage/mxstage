@@ -2,7 +2,7 @@
 name: mxstage-core-import
 description: "MX Stage basic operation: receive Excel or CSV files (including MXLoader sheets), choose the header row, map columns to Maximo attributes and reconcile the file with Maximo sheets."
 metadata:
-  version: "1.0.0"
+  version: "1.1.0"
   category: "core"
 ---
 
@@ -35,7 +35,7 @@ apply_mapping with the sheet and headerRow.
 1. Load the matching Maximo records (mxstage-core-load), narrowed to the file's site, classification or values.
 2. Match with match_sheets (mxstage-core-match).
 3. Move values to the Maximo sheet with a lookup in apply_rule (mxstage-core-change), dry run first.
-4. Report rows of the file that did not match and rows that were ambiguous. Records only in the file cannot be created here.
+4. Report rows of the file that did not match and rows that were ambiguous. Records only in the file can become new records after the user agrees (New records in mxstage-core-change); the values still move from the file with a lookup, not by copying rows into tool arguments.
 
 ## Notes
 

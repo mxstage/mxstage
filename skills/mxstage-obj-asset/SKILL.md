@@ -2,7 +2,7 @@
 name: mxstage-obj-asset
 description: "MX Stage object Skill for Maximo assets and their meters (MXAPIASSET): bulk corrections of the asset register, specifications, meters, and the traps of classification changes, moves and status."
 metadata:
-  version: "1.0.0"
+  version: "1.1.0"
   category: "object"
 ---
 
@@ -21,7 +21,6 @@ Key: SITEID and ASSETNUM (ASSETNUM is unique only within a site). Usual children
 
 ## What it cannot do now
 
-- **Create assets** (registration, migration). Say so and list the records to create; the user creates them in Maximo or with their loading tool.
 - **Change status** (operating, not ready, decommissioned). Maximo changes asset status through its own action, which propagates to child assets and stops when active PMs, routes or open work orders exist. Editing STATUS in the sheet does not run that action. Tell the user to use Change Status in the Assets application.
 - **Swap assets, or read meter history.** Meter readings are entered through Maximo's reading actions (see below).
 
@@ -33,6 +32,15 @@ Key: SITEID and ASSETNUM (ASSETNUM is unique only within a site). Usual children
 4. **Rotating assets** (with ITEMNUM) take their specifications from the item. A change on the asset can be overwritten from the item; fix the item when the item is wrong.
 5. **Decommissioned assets** should not be changed. Exclude them in the range unless the task is about them.
 6. **Site**: the same ASSETNUM can exist at several sites. Always match and look up with SITEID and ASSETNUM.
+
+## New assets
+
+New assets can be created (New records in mxstage-core-change). Keys: SITEID and ASSETNUM; MX Stage does not take Maximo's automatic numbers, so ASSETNUM must be known.
+
+- Usually needed: DESCRIPTION, and the references (LOCATION, PARENT, CLASSSTRUCTUREID, ITEMNUM for rotating assets) must already exist; load them with load_master to check.
+- Maximo sets the initial status (usually not ready) and, with a classification, adds the classification's specification rows. Fill specification values in a later commit, after the sheet shows those rows.
+- Create parent assets before their children (an earlier commit).
+- Rotating assets need the item in the site's inventory or an issue; if Maximo rejects them, report the message.
 
 ## Meters
 

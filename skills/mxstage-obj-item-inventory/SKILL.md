@@ -2,7 +2,7 @@
 name: mxstage-obj-item-inventory
 description: "MX Stage object Skill for Maximo items, inventory and storerooms (MXAPIITEM, MXAPIINVENTORY): item master cleanup, reorder settings, default bins, and why balances cannot be adjusted here."
 metadata:
-  version: "1.0.0"
+  version: "1.1.0"
   category: "object"
 ---
 
@@ -24,8 +24,15 @@ Items: MXAPIITEM, key ITEMNUM and ITEMSETID, children such as ITEMSPEC (specific
 - **Adjust balances or costs** (quantities, opening balances, average or standard cost). These are inventory transactions in Maximo; tell the user to use Inventory's adjustment actions or their loading tool.
 - **Physical counts** are entered through a non-persistent count attribute and a reconciliation in Maximo. Only if the structure exposes the count attribute, after a test on one record, and never for rotating items.
 - **Receipts, issues and transfers** are transactions.
-- **Create items, inventory records or storerooms** (migration).
+- **Create storerooms** (they are locations of type storeroom; see mxstage-obj-location).
 - **Change item status** (active, pending obsolescence, obsolete, planning). Status exists at the item set, organisation and inventory level, and obsolete is only reached from pending obsolescence. Tell the user to use the applications.
+
+## New items and inventory records
+
+Items and inventory records can be created (New records in mxstage-core-change).
+
+- Items: keys ITEMNUM and ITEMSETID; usually DESCRIPTION, ORDERUNIT and ISSUEUNIT, and the commodity and classification if the customer uses them. Maximo adds the organisation record; the item starts in a pending or planning status by the customer's settings.
+- Inventory records (an item in a storeroom): keys ITEMNUM, ITEMSETID, LOCATION and SITEID. The item and storeroom must exist first (an earlier commit). Balances start at zero; quantities are not set here.
 
 ## Traps
 

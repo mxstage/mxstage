@@ -18,8 +18,15 @@ export interface ReloadOutcome {
  * 親ごとに、読み込み時の href をそのシートの select で GET し直す。
  * 行はシートに出ていた子（読み込み時にあった子のうちシートに行があったもの）と、読み込み時に無かった子（反映で追加した子）だけにする。
  * 読み込み時に子の属性の条件で外していた子を、反映をきっかけにシートへ出さないため。
+ * 新しく作った親（created: 親キー → 作ったときに Maximo が返した href）は、その href で読み、Maximo にある子をすべて出す
+ * （送った子のほか、分類の仕様の行など Maximo が足した子も見えるように）。
  */
-export async function reloadParents(client: MaximoClient, sheet: Sheet, parentKeys: readonly string[]): Promise<ReloadOutcome> {
+export async function reloadParents(
+  client: MaximoClient,
+  sheet: Sheet,
+  parentKeys: readonly string[],
+  created: ReadonlyMap<string, string> = new Map(),
+): Promise<ReloadOutcome> {
   const meta = sheet.meta;
   const names = meta.columns.map((c) => c.name);
   const select = buildSelect([...meta.keyColumns, ...names], meta.childIdAttrs, new Set(names));
@@ -29,7 +36,8 @@ export async function reloadParents(client: MaximoClient, sheet: Sheet, parentKe
   const replacements: ParentReplacement[] = [];
   const failures = new Map<string, string>();
   for (const pk of parentKeys) {
-    const old = byKey.get(pk);
+    const createdHref = created.get(pk);
+    const old = byKey.get(pk) ?? (createdHref !== undefined ? { href: createdHref, rowstamp: null, attrs: {}, children: {} } : undefined);
     if (old === undefined) {
       failures.set(pk, m().reload.parentNotFound);
       continue;

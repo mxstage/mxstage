@@ -261,10 +261,20 @@ export const TOOL_DEFS = {
   add_rows: tool({
     name: "add_rows",
     title: "Add rows",
-    description: "Adds rows to a sheet (including child objects). To add child rows under a parent row, give parentRowKey.",
+    description:
+      "Adds rows to a sheet. To add child rows under a parent row, give parentRowKey. Without parentRowKey, each row is a new record that is created in Maximo when a person commits: give every key column (for example SITEID and ASSETNUM) and the attributes Maximo requires, then add its child rows with parentRowKey set to the new row's key. Records that already exist in Maximo are not created again. " +
+      "Give either rows (a few rows you write) or from (rows taken inside the work screen from another sheet, such as an imported file, so that row data never passes through the AI).",
     inputSchema: z.strictObject({
       sheet: sheetName,
-      rows: z.array(z.record(z.string(), cellValue)).min(1).max(200),
+      rows: z.array(z.record(z.string(), cellValue)).min(1).max(200).optional(),
+      from: z
+        .strictObject({
+          sheet: sheetName.describe("Sheet to take the rows from (for example an imported file)"),
+          columns: z.record(z.string(), z.string()).describe('Column of this sheet → column of the source sheet (e.g. {"ASSETNUM":"Asset No."})'),
+          filter: z.array(typedFilter).max(20).optional().describe("Rows of the source sheet to take (up to 200 rows)"),
+        })
+        .optional()
+        .describe("New records from another sheet (without parentRowKey)"),
       parentRowKey: z.string().optional(),
       baseRevision: z.number().int().min(0),
       reason: z.string().max(500),

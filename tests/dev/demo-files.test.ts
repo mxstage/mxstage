@@ -3,7 +3,7 @@
 
 import { inflateRawSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
-import { allExcel } from "../../dev/demo/excel/builders";
+import { allExcel, type DailyRowTruth } from "../../dev/demo/excel/builders";
 import { crc32, writeXlsx } from "../../dev/demo/excel/xlsx";
 import { filesToSeed, seedToFiles } from "../../src/demo/format";
 import { plantsSeed } from "../../dev/datasets/plants/index";
@@ -34,6 +34,22 @@ function checkZip(bytes: Uint8Array): number {
     n++;
   }
   return n;
+}
+
+/** ZIP の中の 1 つのファイルを文字列で読む */
+function zipEntry(bytes: Uint8Array, name: string): string {
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let at = 0;
+  while (dv.getUint32(at, true) === 0x04034b50) {
+    const size = dv.getUint32(at + 18, true);
+    const nameLen = dv.getUint16(at + 26, true);
+    const extra = dv.getUint16(at + 28, true);
+    const entry = new TextDecoder().decode(bytes.subarray(at + 30, at + 30 + nameLen));
+    const data = bytes.subarray(at + 30 + nameLen + extra, at + 30 + nameLen + extra + size);
+    if (entry === name) return new TextDecoder().decode(inflateRawSync(data));
+    at += 30 + nameLen + extra + size;
+  }
+  throw new Error(`${name} not found`);
 }
 
 describe.each(["ja", "en"] as const)("Excel のサンプル（%s）", (lang) => {
@@ -79,6 +95,34 @@ describe.each(["ja", "en"] as const)("Excel のサンプル（%s）", (lang) => 
     const f = files[lang].find((x) => x.id === "repair-log")!;
     const rows = (f.truth as { rows: Array<{ failurecodeMissing: boolean }> }).rows;
     expect(rows.filter((r) => r.failurecodeMissing).length).toBeGreaterThan(30);
+  });
+
+  it.runIf(lang === "ja")("作業日報: A4 縦の帳票を 1 日 1 枚並べ、常駐の委託・業者の修繕・Maximo に無い修理が混ざる", () => {
+    const f = files.ja.find((x) => x.id === "repair-log")!;
+    expect(f.title).toContain("作業日報");
+    const truth = f.truth as { rows: DailyRowTruth[]; reports: Record<string, number> };
+    expect(Object.keys(truth.reports)).toEqual(["4月", "5月", "6月", "7月", "8月", "9月"]);
+    for (const n of Object.values(truth.reports)) expect(n).toBeGreaterThanOrEqual(20);
+    const rows = truth.rows;
+    expect(rows.some((r) => r.contract === "SPOT" && r.ponum !== undefined && r.vendor !== undefined)).toBe(true);
+    expect(rows.filter((r) => r.kind === "NEW" && r.fresh !== undefined).length).toBeGreaterThan(10);
+    expect(rows.some((r) => r.kind === "PM" && r.wonum !== undefined)).toBe(true);
+    // 同じ修理が 2 行に分かれる（「同上」）
+    const resident = rows.filter((r) => r.contract === "RESIDENT" && r.kind === "WO").map((r) => `${r.report}|${r.wonum}`);
+    expect(resident.length).toBeGreaterThan(new Set(resident).size);
+    // 印刷: A4 縦、1 枚ごとに改ページ、印刷範囲
+    const bytes = writeXlsx(f.sheets, { title: f.title, creator: "test", lang: "ja" });
+    const sheet = zipEntry(bytes, "xl/worksheets/sheet1.xml");
+    expect(sheet).toContain('<pageSetup paperSize="9" orientation="portrait" fitToWidth="1" fitToHeight="0"/>');
+    expect(sheet).toContain(`<rowBreaks count="${truth.reports["4月"]! - 1}"`);
+    expect(zipEntry(bytes, "xl/workbook.xml")).toContain('<definedName name="_xlnm.Print_Area" localSheetId="0">');
+  });
+
+  it.runIf(lang === "en")("修理記録（英語）は表のまま（帳票の書式も印刷の設定も無い）", () => {
+    const f = files.en.find((x) => x.id === "repair-log")!;
+    const bytes = writeXlsx(f.sheets, { title: f.title, creator: "test", lang: "en" });
+    expect(zipEntry(bytes, "xl/worksheets/sheet1.xml")).not.toContain("pageSetup");
+    expect(zipEntry(bytes, "xl/styles.xml")).toContain('<cellXfs count="11">');
   });
 
   it("東部の台帳: 更新・増設・仕様の変更・名前の変更・撤去・Maximo の方が新しい行がある", () => {

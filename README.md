@@ -62,7 +62,7 @@ No Maximo at hand? MX Stage includes a demo: a fictional Maximo with three waste
 2. Choose **Download data and connect**. MX Stage downloads about 10 MB of fictional data (no programs) once from `mxstage-demo.pages.dev` and checks it against a SHA-256 built into this version.
 3. Ask your AI assistant, for example "Check the data quality of the operating assets at North Clean Center and list the problems with counts."
 
-Commits change only the copy on your PC (**Reset to the initial state** puts it back), and no license is needed. The demo takes about 0.5 GB of memory while in use. Five sample Excel files to merge with Maximo (purchase orders without work order numbers, a legacy equipment register, a repair log, an equipment register ahead of Maximo, a star chart) are in the same tab. See [docs/demo.en.md](docs/demo.en.md).
+Commits change only the copy on your PC (**Reset to the initial state** puts it back), and no license is needed. The demo takes about 0.5 GB of memory while in use. Five sample Excel files to merge with Maximo (purchase orders without work order numbers, a legacy equipment register, daily work reports printed as A4 forms (a repair log table in the English data), an equipment register ahead of Maximo, a star chart) are in the same tab. See [docs/demo.en.md](docs/demo.en.md).
 
 ### Claude plugin (Skills)
 

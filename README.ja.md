@@ -7,7 +7,6 @@
 [![IBM Maximo / MAS Manage](https://img.shields.io/badge/IBM_Maximo-MAS_Manage-0f62fe)](#必要なもの)
 [![EAM / CMMS](https://img.shields.io/badge/category-EAM_%7C_CMMS-6f42c1)](#必要なもの)
 [![MCP server](https://img.shields.io/badge/MCP-server-555555)](https://modelcontextprotocol.io)
-[![Glama MCP server score](https://glama.ai/mcp/servers/mxstage/mxstage/badges/score.svg)](https://glama.ai/mcp/servers/mxstage/mxstage)
 [![テスト環境は無償](https://img.shields.io/badge/free-test_environments-2ea44f)](https://mxstage.tsunagi.app/ja/pricing)
 [![License: BSL 1.1](https://img.shields.io/badge/license-BSL_1.1_%E2%86%92_Apache_2.0-blue)](LICENSE)
 [![Windows](https://img.shields.io/badge/platform-Windows-0078d4)](#必要なもの)

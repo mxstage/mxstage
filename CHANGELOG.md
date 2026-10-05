@@ -4,6 +4,8 @@ All notable changes to MX Stage are listed here. Versions follow [Semantic Versi
 
 ## Unreleased
 
+## 0.2.5 — 2026-10-05
+
 ### Added
 
 - **Filters in the one-row-per-record view.** Column headers in the wide specification view open the same filter menu as other tables. Missing and empty values count as empty, and items outside the record's classification appear as "(not in classification)", so you can list the records missing a given item.

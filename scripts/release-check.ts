@@ -2,7 +2,7 @@
 //   1. 型検査・試験・導入の試験
 //   2. 画面のビルドと .mcpb の作成（scripts/build-mcpb.ts）
 //   3. .mcpb の橋渡しを空いたポートで起動し、MCP の initialize と tools/list が通ること、
-//      実装していないツールが無いこと、最初の呼び出しに基本手順が付くことを確かめる
+//      実装していないツールが無いこと、最初の呼び出しに目次と Skill の一覧が付くことを確かめる
 //   4. npm のパッケージ（scripts/build-npm.ts）を作り、入口が起動できること
 //   5. 客先の情報が送るものに入っていないこと（scripts/check-publish.mjs --worktree）
 // 本物の状態フォルダ（~/.config/mxstage）とふだんのポート 8788 には触れない。
@@ -70,7 +70,7 @@ async function smokeTestBundle(): Promise<void> {
       serverInfo?.name === "mxstage" ? null : `serverInfo.name が mxstage ではない（${serverInfo?.name}）`,
       tools.length > 0 ? null : "tools/list が空",
       ...["import_rows", "export_sheet"].filter((n) => tools.includes(n)).map((n) => `実装していないツール ${n} が載っている`),
-      /MX Stage basic procedure/.test(texts) ? null : "最初の呼び出しに基本手順が付いていない",
+      /MX Stage rules and Skill index/.test(texts) && /mxstage-core-load/.test(texts) ? null : "最初の呼び出しに目次と Skill の一覧が付いていない",
     ].filter((p): p is string => p !== null);
     if (problems.length > 0) throw new Error(problems.join(" / "));
     process.stdout.write(`ok: ${serverInfo?.name} ${serverInfo?.version}、ツール ${tools.length} 個、最初の呼び出しに基本手順が付く\n`);

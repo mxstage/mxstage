@@ -7,6 +7,7 @@
 // - import_rows / export_sheet は未実装（tools に含めないので RelaySocket が未対応として返す）。
 
 import type { z } from "zod";
+import { demoLangOfBaseUrl } from "../../shared/demo";
 import type { ApplyResult, CellValue, ColumnSchema, CommitRowResult, SheetSummary } from "../../shared/model";
 import { RelayErrorCode, type InvokeMsg } from "../../shared/protocol";
 import type { SheetRow } from "../../shared/sheet";
@@ -257,6 +258,18 @@ export function licenseStatusView(gate: LicenseGate, baseUrl: string): Record<st
   return { environment: environment ?? "not_set", license };
 }
 
+/** get_status の maximo に載せるデモの案内（組み込みのデモにつないでいるときだけ） */
+export function demoStatusView(baseUrl: string): Record<string, unknown> {
+  const language = demoLangOfBaseUrl(baseUrl);
+  if (language === null) return {};
+  return {
+    demo: {
+      language,
+      note: "This is the built-in demo: a fictional Maximo (three waste incineration plants) running on the user's PC. Commits change only that copy; the user can reset it in Settings > Demo. Sample Excel files are in Settings > Demo.",
+    },
+  };
+}
+
 /** get_status のシートの詳しさ。full=列の定義まで / columns=列名だけ / counts=列名も省く */
 export type StatusDetail = "full" | "columns" | "counts";
 
@@ -327,7 +340,7 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
   const now = deps.now ?? Date.now;
   const settingsUrl = settingsUrlOf(deps.appUrl);
   const structuresUrl = structuresUrlOf(deps.appUrl);
-  const notConnected = `Not connected to Maximo. Ask the user to connect to Maximo in the work screen settings (${settingsUrl}).`;
+  const notConnected = `Not connected to Maximo. Ask the user to connect to Maximo in the work screen settings (${settingsUrl}). If the user has no Maximo, they can try the built-in demo (${settingsUrl}#demo).`;
   const revision = () => workspace.revision;
 
   function errorContext(args: unknown): ErrorContext {
@@ -631,6 +644,7 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
               connectedAt: isoTime(conn.info.connectedAt) ?? null,
               // 環境（本番／テスト）とライセンス。キー・メール・組織名は載せない
               ...(deps.license !== undefined ? licenseStatusView(deps.license, conn.info.baseUrl) : {}),
+              ...demoStatusView(conn.info.baseUrl),
             };
       // 作業画面が Maximo から機械的に読み込んで保存しているオブジェクト構造（接続先ごと）の件数と読み込みの進み具合。
       // 数百件あるので名前は載せない（find_object_structures で探す）

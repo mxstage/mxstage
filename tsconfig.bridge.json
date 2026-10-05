@@ -6,5 +6,5 @@
     "allowImportingTsExtensions": true,
     "erasableSyntaxOnly": true
   },
-  "include": ["src/bridge/**/*.ts", "src/shared/**/*.ts", "tests/bridge/**/*.ts", "tests/dev/**/*.ts", "dev/**/*.ts", "scripts/dev-fake-maximo.ts", "scripts/demo-build.ts"]
+  "include": ["src/bridge/**/*.ts", "src/shared/**/*.ts", "src/demo/**/*.ts", "tests/bridge/**/*.ts", "tests/dev/**/*.ts", "dev/**/*.ts", "scripts/dev-fake-maximo.ts", "scripts/demo-build.ts"]
 }

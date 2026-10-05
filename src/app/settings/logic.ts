@@ -1,5 +1,6 @@
 // 設定画面の純ロジック: フォームの検査、接続失敗の文言、保存する設定、Skill の一覧。
 
+import { isReservedDemoHost } from "../../shared/demo";
 import { VaultRequestError } from "../keyvault/client";
 import { MaximoError, MaximoNetworkError, type MaximoVia } from "../maximo/client";
 import { localizeVaultMessage, settingsMessages as m } from "./messages";
@@ -52,6 +53,8 @@ export function validateSettingsForm(input: SettingsFormInput): SettingsFormErro
       const loopbackHttp = u.protocol === "http:" && LOOPBACK_HOSTS.has(u.hostname);
       if (u.username || u.password || u.search || u.hash) {
         errors.baseUrl = t.urlExtras;
+      } else if (isReservedDemoHost(u.hostname)) {
+        errors.baseUrl = t.urlDemo;
       } else if (u.protocol !== "https:" && !(input.via === "direct" && loopbackHttp)) {
         errors.baseUrl = t.urlHttps;
       } else if (input.via === "proxy" && path !== "") {

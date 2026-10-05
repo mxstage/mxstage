@@ -4,6 +4,7 @@
 // - キーに無い接続先は、利用者が接続のときに本番かテストかを申告する（localStorage の mxstage.maximo.environments）。
 // - 反映の直前には、橋渡しでもう一度確かめる（authorize）。確かめられなければ本番には書かない。
 
+import { demoLangOfBaseUrl } from "../../shared/demo";
 import { licenseHostOf } from "../../shared/license";
 import type { AuthorizeProblem, LicenseEntry, LicenseProblem } from "../../shared/license";
 import { normalizeScope } from "../../shared/scope";
@@ -183,6 +184,8 @@ export class LicenseClient implements LicenseGate {
   }
 
   environmentOf(baseUrl: string): Environment | null {
+    // 組み込みのデモ（この PC の中の架空の Maximo）は常にテスト。本番にはならない
+    if (demoLangOfBaseUrl(baseUrl) !== null) return "test";
     if (this.licenseFor(baseUrl) !== null) return "production";
     return this.declared(baseUrl);
   }

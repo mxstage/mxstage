@@ -1,7 +1,7 @@
 // 橋渡しの HTTP サーバ。127.0.0.1 だけで待ち受け、次の 5 つを 1 つのオリジンで配る。
 //   - 画面（dist/app の静的ファイル）
 //   - 作業タブとの WebSocket（/ws。mxrelay.v1）
-//   - Maximo への転送（/mx/*）
+//   - Maximo への転送（/mx/*。デモの接続先は手元の仮想 Maximo へ。src/bridge/demo.ts）
 //   - Excel の単回アップロード（/import/:importId）
 //   - 橋渡し同士の内部経路（/_mxstage/*。src/bridge/peer.ts）
 // すべての入口で接続元・Host・Origin を検査する（DNS リバインディング対策）。
@@ -20,7 +20,9 @@ import { handleMaximoProxy } from "./mx.ts";
 import type { UpstreamRequest } from "./mx.ts";
 import { PEER_PREFIX, handlePeerRequest, readBody } from "./peer.ts";
 import type { LicenseStore } from "./license.ts";
-import type { ConnectionStore } from "./connections.ts";
+import type { ConnectionEntry, ConnectionStore } from "./connections.ts";
+import { handleDemoRequest, isDemoPath, type DemoManager } from "./demo.ts";
+import { DEMO_CONNECTION_IDS, DEMO_ORIGINS, demoLangOfConnectionId } from "../shared/demo.ts";
 import { HANDOFF_PATHS, Handoffs } from "./handoff.ts";
 import type { UpdateManager } from "./updates.ts";
 import type { BridgeKeyStore } from "./bridgeKey.ts";
@@ -63,6 +65,8 @@ export interface BridgeServerOptions {
   connections?: ConnectionStore | null;
   /** 新しい版の確認と入れ替え（設定の「更新」）。省くと /_mxstage/updates は 503 */
   updates?: UpdateManager | null;
+  /** Maximo が無くても試せるデモ（設定の「デモ」）。省く・null（--no-demo）なら /_mxstage/demo は 404、デモの接続先は使えない */
+  demo?: DemoManager | null;
 }
 
 /** 作業画面の設定が読む Skill の一覧（本文は含めない） */
@@ -215,14 +219,36 @@ async function handleLicenseRequest(req: IncomingMessage, res: ServerResponse, p
   else sendJson(res, 403, { ok: false, error: "license_required", problem: result.problem, host: result.host, licensedHosts: result.licensedHosts });
 }
 
+/** 落とし済みのデモ（予約の ID・オリジン。常にテスト環境） */
+function demoConnections(demo: DemoManager | null): ConnectionEntry[] {
+  if (demo === null) return [];
+  return demo.readyLanguages().map((lang) => ({
+    id: DEMO_CONNECTION_IDS[lang],
+    name: lang === "ja" ? "MX Stage demo (Japanese)" : "MX Stage demo (English)",
+    baseUrl: DEMO_ORIGINS[lang],
+    environment: "test",
+    createdAt: 0,
+    updatedAt: 0,
+    lastUsedAt: null,
+  }));
+}
+
+/** 一覧（保存した接続先と、落とし済みのデモ。最後に使ったのが消したデモなら null にする） */
+function connectionListing(store: ConnectionStore, demo: DemoManager | null): ReturnType<ConnectionStore["list"]> & { demo: ConnectionEntry[] } {
+  const list = store.list();
+  const demoList = demoConnections(demo);
+  const staleDemo = demoLangOfConnectionId(list.lastUsedId) !== null && !demoList.some((d) => d.id === list.lastUsedId);
+  return { ...list, lastUsedId: staleDemo ? null : list.lastUsedId, demo: demoList };
+}
+
 /**
  * 保存した接続先の入口（作業画面の「設定」→「接続」と、開いたときの自動接続が使う）。API キーは返さない。
- *   GET  /_mxstage/connections         一覧と、最後に使った接続先
+ *   GET  /_mxstage/connections         一覧と、最後に使った接続先（落とし済みのデモは別の配列 demo）
  *   POST /_mxstage/connections         { id?, name, baseUrl, environment, apiKey? } を保存する
  *   POST /_mxstage/connections/remove  { id } を消す
- *   POST /_mxstage/connections/use     { id } を最後に使った接続先にする
+ *   POST /_mxstage/connections/use     { id } を最後に使った接続先にする（デモの ID も受ける）
  */
-async function handleConnectionsRequest(req: IncomingMessage, res: ServerResponse, pathname: string, store: ConnectionStore | null): Promise<void> {
+async function handleConnectionsRequest(req: IncomingMessage, res: ServerResponse, pathname: string, store: ConnectionStore | null, demo: DemoManager | null): Promise<void> {
   const method = (req.method ?? "GET").toUpperCase();
   const allowed = pathname === CONNECTIONS_PATH ? ["GET", "POST"] : ["POST"];
   if (!allowed.includes(method)) {
@@ -234,7 +260,7 @@ async function handleConnectionsRequest(req: IncomingMessage, res: ServerRespons
     return;
   }
   if (method === "GET") {
-    sendJson(res, 200, { ok: true, ...store.list() });
+    sendJson(res, 200, { ok: true, ...connectionListing(store, demo) });
     return;
   }
   const body = await readJsonBody(req, CONNECTIONS_BODY_LIMIT);
@@ -254,8 +280,8 @@ async function handleConnectionsRequest(req: IncomingMessage, res: ServerRespons
       environment: body.environment === "production" || body.environment === "test" ? body.environment : null,
       ...(typeof body.apiKey === "string" ? { apiKey: body.apiKey } : {}),
     });
-    if (saved.ok) sendJson(res, 200, { ok: true, connection: saved.connection, ...store.list() });
-    else sendJson(res, 422, { ok: false, error: "connection_rejected", problem: saved.problem, ...store.list() });
+    if (saved.ok) sendJson(res, 200, { ok: true, connection: saved.connection, ...connectionListing(store, demo) });
+    else sendJson(res, 422, { ok: false, error: "connection_rejected", problem: saved.problem, ...connectionListing(store, demo) });
     return;
   }
   if (typeof body.id !== "string") {
@@ -263,11 +289,17 @@ async function handleConnectionsRequest(req: IncomingMessage, res: ServerRespons
     return;
   }
   if (pathname === CONNECTIONS_REMOVE_PATH) {
-    sendJson(res, 200, { ok: true, removed: store.remove(body.id), ...store.list() });
+    sendJson(res, 200, { ok: true, removed: store.remove(body.id), ...connectionListing(store, demo) });
+    return;
+  }
+  if (demoLangOfConnectionId(body.id) !== null) {
+    const entry = demoConnections(demo).find((d) => d.id === body.id);
+    if (entry && store.useDemo(entry.id)) sendJson(res, 200, { ok: true, connection: entry, ...connectionListing(store, demo) });
+    else sendJson(res, 404, { ok: false, error: "connection_not_found", message: "The demo data has not been downloaded." });
     return;
   }
   const used = store.use(body.id);
-  if (used) sendJson(res, 200, { ok: true, connection: used, ...store.list() });
+  if (used) sendJson(res, 200, { ok: true, connection: used, ...connectionListing(store, demo) });
   else sendJson(res, 404, { ok: false, error: "connection_not_found", message: "The saved connection was not found." });
 }
 
@@ -335,7 +367,9 @@ export async function startBridgeServer(opts: BridgeServerOptions): Promise<Brid
       const pathname = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
       // ライセンスの入口は作業画面（同一オリジン）からだけ受ける
       // ライセンスと保存した接続先の入口は作業画面（同一オリジン）からだけ受ける
-      isTicketPath = pathname.startsWith("/import/") || (pathname.startsWith(PEER_PREFIX) && !LICENSE_PATHS.includes(pathname) && !CONNECTIONS_PATHS.includes(pathname) && !HANDOFF_PATHS.includes(pathname) && !UPDATES_PATHS.includes(pathname));
+      isTicketPath =
+        pathname.startsWith("/import/") ||
+        (pathname.startsWith(PEER_PREFIX) && !LICENSE_PATHS.includes(pathname) && !CONNECTIONS_PATHS.includes(pathname) && !HANDOFF_PATHS.includes(pathname) && !UPDATES_PATHS.includes(pathname) && !isDemoPath(pathname));
     } catch {
       isTicketPath = false;
     }
@@ -391,7 +425,12 @@ export async function startBridgeServer(opts: BridgeServerOptions): Promise<Brid
     }
 
     if (CONNECTIONS_PATHS.includes(url.pathname)) {
-      await handleConnectionsRequest(req, res, url.pathname, opts.connections ?? null);
+      await handleConnectionsRequest(req, res, url.pathname, opts.connections ?? null, opts.demo ?? null);
+      return;
+    }
+
+    if (isDemoPath(url.pathname)) {
+      await handleDemoRequest(req, res, url.pathname, opts.demo ?? null);
       return;
     }
 
@@ -407,6 +446,17 @@ export async function startBridgeServer(opts: BridgeServerOptions): Promise<Brid
       if (connectionId !== undefined) {
         if (!isSameOriginBrowserRequest(req, boundPort)) {
           sendJson(res, 403, { ok: false, error: "forbidden_origin", message: "Saved connections can only be used from the work screen." });
+          return;
+        }
+        // デモの予約の ID は、保存した接続先を引く前に手元の仮想 Maximo へ回す（ネットには出ない）
+        const demoLang = demoLangOfConnectionId(connectionId);
+        if (demoLang !== null) {
+          const demo = opts.demo ?? null;
+          if (demo === null) {
+            sendJson(res, 404, { ok: false, error: "connection_not_found", message: "The demo is turned off in this bridge." });
+            return;
+          }
+          await demo.handleMx(req, res, url, demoLang);
           return;
         }
         const store = opts.connections ?? null;

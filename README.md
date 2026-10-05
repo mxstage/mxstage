@@ -19,7 +19,7 @@ Website: https://mxstage.tsunagi.app · Contact: mxstage@tsunagi.app
 
 - **Your AI works on a staging sheet, not on Maximo.** The AI assistant loads Maximo data into a sheet in the *work screen* (a browser tab), analyses it and proposes changes with reasons. You see every changed cell.
 - **Only a person can commit.** The AI's tools cannot write to Maximo. Changes are written only when you press **Commit to Maximo** in the work screen. MX Stage writes one record first, checks it, then continues, and stops on conflicts. Any batch of changes can be undone before you commit.
-- **Nothing leaves your PC except calls to your Maximo and your AI assistant.** There is no MX Stage cloud and no telemetry. The only exception is optional: if you turn on **Settings → Updates → Update automatically** (off by default), the bridge asks GitHub once a day for the latest version number. Installs made with the setup script then update themselves while no work is open; the Claude Desktop extension downloads and checks the new file for you to install. A small local process (the *bridge*) serves the work screen, talks MCP to your AI assistant and relays requests to Maximo, so Maximo needs no CORS settings. Your Maximo API key is saved on this PC by the bridge, encrypted with Windows data protection (DPAPI) or the macOS Keychain, and is never sent to the browser. Every window of the work screen — the installed app, a browser tab, or the browser inside your AI assistant — connects automatically, even after a restart, and you can switch between saved Maximo environments in Settings. (You can also connect without saving; the key then stays only in the tab's memory.)
+- **Nothing leaves your PC except calls to your Maximo and your AI assistant.** There is no MX Stage cloud and no telemetry. There are two optional exceptions: if you turn on **Settings → Updates → Update automatically** (off by default), the bridge asks GitHub once a day for the latest version number; and if you choose **Settings → Demo → Download data and connect**, it downloads fictional sample data once from `mxstage-demo.pages.dev` (nothing is sent). Installs made with the setup script then update themselves while no work is open; the Claude Desktop extension downloads and checks the new file for you to install. A small local process (the *bridge*) serves the work screen, talks MCP to your AI assistant and relays requests to Maximo, so Maximo needs no CORS settings. Your Maximo API key is saved on this PC by the bridge, encrypted with Windows data protection (DPAPI) or the macOS Keychain, and is never sent to the browser. Every window of the work screen — the installed app, a browser tab, or the browser inside your AI assistant — connects automatically, even after a restart, and you can switch between saved Maximo environments in Settings. (You can also connect without saving; the key then stays only in the tab's memory.)
 - **Teach it your procedures.** Save a procedure worked out in a conversation as a *Skill*; the AI follows it next time.
 
 ## Why not call the Maximo REST API from the AI directly?
@@ -53,6 +53,16 @@ Several Maximo MCP servers let the AI call the REST API. That is fine for readin
 4. In a new chat, ask "show the MX Stage status".
 
 The extension needs no Node.js or Git: Claude Desktop runs it. To use MX Stage from other assistants as well (ChatGPT desktop, IBM Bob, Claude Code in the terminal, Antigravity), use the installer below; it detects the extension and does not register MX Stage twice.
+
+### Try without Maximo
+
+No Maximo at hand? MX Stage includes a demo: a fictional Maximo with three waste incineration plants (assets, locations, about 52,000 work orders, inventory and the data quality problems migrations leave behind), in Japanese or English, running inside the bridge on your PC.
+
+1. Install MX Stage (above), then open `http://127.0.0.1:8788/settings#demo`.
+2. Choose **Download data and connect**. MX Stage downloads about 10 MB of fictional data (no programs) once from `mxstage-demo.pages.dev` and checks it against a SHA-256 built into this version.
+3. Ask your AI assistant, for example "Check the data quality of the operating assets at North Clean Center and list the problems with counts."
+
+Commits change only the copy on your PC (**Reset to the initial state** puts it back), and no license is needed. The demo takes about 0.5 GB of memory while in use. Five sample Excel files to merge with Maximo (purchase orders without work order numbers, a legacy equipment register, a repair log, an equipment register ahead of Maximo, a star chart) are in the same tab. See [docs/demo.en.md](docs/demo.en.md).
 
 ### Claude plugin (Skills)
 
@@ -129,6 +139,7 @@ A Skill is a procedure the AI assistant follows.
 
 The detailed guides are in Japanese for now:
 
+- [docs/demo.en.md](docs/demo.en.md) — trying MX Stage without Maximo (the built-in demo; in English)
 - [docs/local.md](docs/local.md) — daily use, updates, troubleshooting
 - [docs/status.md](docs/status.md) — what works today
 - [docs/publish.md](docs/publish.md) — checks before publishing
@@ -140,7 +151,7 @@ npm run typecheck      # tsc (app and bridge)
 npx vitest run         # tests (app and bridge)
 npm run test:setup     # installer tests (write only to temporary folders)
 npm run build          # build the built-in Skills and the work screen (dist/app)
-npm run dev:app        # dev server for the work screen (http://localhost:5173/app?demo=1 shows sample data; relays to the dev bridge on 8790)
+npm run dev:app        # dev server for the work screen (http://localhost:5173/app?samples=1 shows sample data; relays to the dev bridge on 8790)
 npm run dev:fake-maximo  # a fake Maximo at https://127.0.0.1:9797 (API key: test-api-key)
 npm run dev:bridge     # a bridge on port 8790 that accepts the development license for the fake Maximo
 ```

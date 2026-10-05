@@ -1,4 +1,4 @@
-// デモのデータを作り、Cloudflare Pages に置くファイルを dist/demo-data に書き出す（中身は dev/demo/format.ts）。
+// デモのデータを作り、Cloudflare Pages に置くファイルを dist/demo-data に書き出す（形は src/demo/format.ts）。
 // 正解（Excel の場面の答え・データ品質の問題の一覧）は dist/demo-data-truth に書き出し、公開しない。
 //
 //   npm run demo:build            日本語と英語の両方
@@ -10,10 +10,10 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { allExcel } from "../dev/demo/excel/builders.ts";
 import { writeXlsx } from "../dev/demo/excel/xlsx.ts";
-import { DEMO_FORMAT, filesToSeed, seedToFiles, sha256, type DemoManifest, type ManifestFile } from "../dev/demo/format.ts";
+import { DEMO_FORMAT, filesToSeed, seedToFiles, sha256, type DemoManifest, type ManifestFile } from "../src/demo/format.ts";
 import { DATASET_VERSION, plantsSeed } from "../dev/datasets/plants/index.ts";
 import type { Lang } from "../dev/datasets/plants/text.ts";
-import { createFakeMaximo } from "../tests/fakes/fake-maximo.ts";
+import { createFakeMaximo } from "../src/demo/fakeMaximo.ts";
 
 const ROOT = join(import.meta.dirname, "..");
 const OUT = join(ROOT, "dist", "demo-data");

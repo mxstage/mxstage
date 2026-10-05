@@ -128,4 +128,11 @@ describe("リポジトリ全体の決まり", () => {
     const missing = [...LEGACY_NAME_ALLOWED].filter((f) => !files.includes(f));
     expect(missing).toEqual([]);
   });
+
+  it("製品のコード（src/）は開発用のコード（dev/・scripts/・tests/）を読み込まない（デモのデータの作り方は製品に入れない）", () => {
+    const sources = repoFiles().filter((f) => f.startsWith("src/") && /\.(ts|tsx)$/.test(f));
+    expect(sources.length).toBeGreaterThan(50);
+    const offenders = sources.filter((f) => /from\s+["'](\.\.\/)+(dev|scripts|tests)\//.test(readFileSync(join(ROOT, f), "utf8")));
+    expect(offenders).toEqual([]);
+  });
 });

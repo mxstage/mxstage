@@ -3,6 +3,8 @@
 
 import { Tag } from "@carbon/react";
 import { useCallback, useSyncExternalStore } from "react";
+import { demoLangOfBaseUrl } from "../../shared/demo";
+import { demoMessages } from "../demo/messages";
 import { Link } from "../ui/Link";
 import { settingsPath } from "../ui/routes";
 import type { LicenseClient } from "./client";
@@ -17,6 +19,18 @@ export function EnvironmentTag({ license, baseUrl, now = Date.now }: { license: 
     useCallback((l: () => void) => license.subscribe(l), [license]),
     useCallback(() => license.snapshot().version, [license]),
   );
+  // 組み込みのデモは「デモ」の札だけ（常にテストで、ライセンスは要らない）
+  if (demoLangOfBaseUrl(baseUrl) !== null) {
+    return (
+      <span className="env-tags" data-version={version}>
+        <Link to={settingsPath("demo")} className="env-tag-link" title={demoMessages().badgeHelp}>
+          <Tag type="purple" size="sm" className="env-tag env-demo">
+            {demoMessages().badge}
+          </Tag>
+        </Link>
+      </span>
+    );
+  }
   const badge = environmentBadge(license, baseUrl, now());
   // 環境が未設定なら、環境を選ぶ「接続」のタブへ。それ以外はライセンスのタブへ
   const to = settingsPath(badge.kind === "undeclared" ? "connection" : "license");

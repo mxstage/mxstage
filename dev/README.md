@@ -185,7 +185,7 @@ MX Stage で見つけて直す練習用に、わざと入れてある問題で�
 
 ## 公開するファイル
 
-`npm run demo:build` が `dist/demo-data/` に書き出します（形は `dev/demo/format.ts`）。
+`npm run demo:build` が `dist/demo-data/` に書き出します（形は `src/demo/format.ts`）。
 
 - `v2/manifest.json`: 版、ファイルごとの大きさ・SHA-256・件数。製品はこの SHA-256 を埋め込んで確かめる予定です。
 - `v2/<言語>/osdefs.json.gz`（構造の定義と値の一覧）、`v2/<言語>/os/<構造>.ndjson.gz`（記録）、`v2/<言語>/excel/<ID>.xlsx`。1 言語で約 9 MB。

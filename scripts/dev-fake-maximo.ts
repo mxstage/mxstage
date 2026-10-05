@@ -1,4 +1,4 @@
-// 開発用の偽の Maximo。試験の偽物（tests/fakes/fake-maximo.ts）を https://127.0.0.1:9797 で動かし、
+// 開発用の偽の Maximo。仮想の Maximo（src/demo/fakeMaximo.ts）を https://127.0.0.1:9797 で動かし、
 // 作業画面から通しで確かめたり、画面を撮影したりするのに使う。本物の Maximo には一切つながない。
 //
 //   npm run dev:fake-maximo              偽の Maximo（https://127.0.0.1:9797、API キーは画面に出す）
@@ -16,7 +16,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { countsTable, plantsSeed } from "../dev/datasets/plants/index.ts";
-import { createFakeMaximo, sampleSeed, withDefinitions, type FakeMaximo } from "../tests/fakes/fake-maximo.ts";
+import { createFakeMaximo, sampleSeed, withDefinitions, type FakeMaximo } from "../src/demo/fakeMaximo.ts";
 
 const DEFAULT_PORT = 9797;
 

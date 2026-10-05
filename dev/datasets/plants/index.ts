@@ -1,7 +1,7 @@
 // 開発用・デモ用の大きなデータ: 架空の広域事業組合（ORGID KANKYO）の、ごみ焼却施設 3 か所（稼働 20 年・13 年・5 年）。
 // npm run dev:fake-maximo -- --dataset plants [--lang en] で偽の Maximo に載せる。内容と件数・仕込んだデータ品質の問題は dev/README.md。
 
-import { withDefinitions, type FakeSeed } from "../../../tests/fakes/fake-maximo.ts";
+import { withDefinitions, type FakeSeed } from "../../../src/demo/fakeMaximo.ts";
 import { generatePlants, type PlantsData, type PlantsOptions } from "./generate.ts";
 import { plantsObjectStructures } from "./structures.ts";
 

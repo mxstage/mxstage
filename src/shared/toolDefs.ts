@@ -72,7 +72,8 @@ export const TOOL_DEFS = {
   open_grid: tool({
     name: "open_grid",
     title: "Open the work screen",
-    description: "Returns the URL of the work screen. If no tab is open, give this URL to the user and ask them to open it in their browser.",
+    description:
+      "Returns the URL of the work screen. If no tab is open, give this URL to the user and ask them to open it in their browser. demoUrl opens the built-in demo (a fictional Maximo on this PC) for users without Maximo.",
     inputSchema: z.strictObject({}),
     annotations: RO,
     runAt: "worker",

@@ -4,16 +4,20 @@ All notable changes to MX Stage are listed here. Versions follow [Semantic Versi
 
 ## Unreleased
 
+## 0.2.7 — 2026-10-06
+
 ### Added
 
 - **Try without Maximo.** Settings → Demo downloads fictional sample data (three waste incineration plants, in Japanese or English) and runs a demo Maximo inside the bridge on your PC. Load, fix and commit as with a real Maximo; commits change only the copy on your PC and can be reset. The data (about 10 MB, no programs) comes from `mxstage-demo.pages.dev` only when you press **Download data and connect**, is checked against a SHA-256 built into this version, and works offline afterwards. The demo is always a test environment and needs no license. It takes about 0.5 GB of memory while in use and is released when you close it, after an hour without use, or when MX Stage restarts. See [docs/demo.en.md](docs/demo.en.md).
 - Five sample Excel files to merge with the demo (purchase orders without work order numbers, a legacy equipment register, daily work reports printed as A4 forms (a repair log table in the English data), an equipment register ahead of Maximo, a star chart). **Load into work screen** adds one as if you had dropped it there.
 - A purple **Demo** badge in the top bar while connected to the demo. get_status and open_grid tell the AI about the demo.
 - `--no-demo` turns the demo off.
-- **Diff report (Excel).** The commit panel saves the changes of a sheet as an .xlsx file before you commit: one row per changed cell with the record's key, the column, the old value, the new value, who changed it (the AI assistant or a person), the reason and the time, plus added and deleted rows. A summary sheet gives the Maximo URL, the environment, the object structure, the commit request note, the counts, the changes by column and the work history. After a commit, the write log is added. Keep it as the record of what was approved. The file contains Maximo data; it is made in the work screen and sent nowhere.
+- **Diff report (Excel).** The commit panel saves the changes of a sheet as an .xlsx file before you commit: one row per changed cell with the record's key, the column, the old value, the new value, who changed it (the AI assistant or a person), the reason and the time, plus added and deleted rows. A summary sheet gives the Maximo URL, the environment, the object structure, the commit request note, the counts, the changes by column and the work history. After a commit, until you change the sheet again, the button saves the changes of that commit together with the write log of that commit (the committed rows are reloaded from Maximo and leave the diff). Keep it as the record of what was approved. The file contains Maximo data; it is made in the work screen and sent nowhere.
 
 ### Changed
 
+- The license links in the work screen (Settings → License and the commit panel's license messages) open the license page in the screen's language (https://mxstage.tsunagi.app/license, /ja/license).
+- The documentation now describes commits as they work: records changed in Maximo after loading are skipped and listed, and a commit stops on an error or an unknown result (it said it stopped on conflicts). It also lists the update and demo downloads among the connections, and the Node.js version for each install channel.
 - The link to the object structures in the top bar is now an icon (with its name as a tooltip), next to Settings. While the definitions load, the count appears beside it.
 
 ### Fixed

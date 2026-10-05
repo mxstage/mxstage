@@ -4,6 +4,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { ObjectStructureCatalog } from "../../src/app/catalog/catalog";
+import { diffReportSheets } from "../../src/app/commit/diffReport";
 import { createCommitController, noChangesBlocker, notConnectedBlocker, notMaximoSheetBlocker, PANEL_REFRESH_MS } from "../../src/app/commit/controller";
 import { MaximoClient } from "../../src/app/maximo/client";
 import { RelayToolError, type ToolContext } from "../../src/app/relay";
@@ -217,6 +218,46 @@ describe("CommitController: 例 (a) を最後まで", () => {
     const csv = h.controller.writeLogCsv();
     expect(csv.split("\r\n")[0]).toBe("at,parentKey,transactionId,change,delete,add,attrs,httpStatus,reasonCode,result");
     for (const value of [NEW_DATE, "2026-04-01", "消防", "m1", "届出"]) expect(csv).not.toContain(value);
+  });
+
+  it("差分レポート用に、反映した回の差分の写しとその回の書き込みログが残る（反映の後に差分が消えても）", async () => {
+    const h = await prepared();
+    expect(h.controller.lastRun(PERMIT_SHEET)).toBeNull();
+    h.controller.request(PERMIT_SHEET, "申請完了日を変更", "llm");
+    const running = h.controller.run(PERMIT_SHEET, {});
+    await untilCanary(h);
+    // 実行中は終わっていない（endRevision が null）
+    expect(h.controller.lastRun(PERMIT_SHEET)!.endRevision).toBeNull();
+    h.controller.continueCanary(PERMIT_SHEET, true);
+    await running;
+
+    expect(h.workspace.getDiff(PERMIT_SHEET).changedCells).toBe(0);
+    const last = h.controller.lastRun(PERMIT_SHEET)!;
+    expect(last.endRevision).toBe(h.workspace.revision);
+    expect(last.snapshot.changedCells).toBe(2);
+    expect(last.snapshot.entries.map((e) => e.after)).toEqual([NEW_DATE, NEW_DATE]);
+    expect(last.snapshot.panel).toMatchObject({ note: "申請完了日を変更", requestedBy: "llm", counts: { parents: 2, changedCells: 2 } });
+    expect(last.log.map((e) => [e.parentKey, e.result])).toEqual([
+      [pk("WO2001"), "verified"],
+      [pk("WO2002"), "verified"],
+    ]);
+    const sheets = diffReportSheets({ snapshot: last.snapshot, writeLog: last.log });
+    expect(sheets.map((x) => x.rows.length)).toEqual([expect.any(Number), 3, 3]);
+
+    // 次の反映は前の回を置き換え、ログも混ざらない
+    const edits = [
+      { rowKey: ck("WO2001", 1002), col: "EXT_WOPERMIT.EXT_PERMITDATE", value: NEW_DATE },
+      { rowKey: ck("WO2002", 1003), col: "EXT_WOPERMIT.EXT_MEMO", value: "m3 (2)" },
+    ];
+    h.workspace.applyEdits(PERMIT_SHEET, edits, { author: "user" });
+    const second = h.controller.run(PERMIT_SHEET, {});
+    await untilCanary(h);
+    h.controller.continueCanary(PERMIT_SHEET, true);
+    await second;
+    const again = h.controller.lastRun(PERMIT_SHEET)!;
+    expect(again.snapshot.changedCells).toBe(2);
+    expect(again.log.map((e) => e.parentKey)).toEqual([pk("WO2001"), pk("WO2002")]);
+    expect(h.controller.writeLog()).toHaveLength(4);
   });
 
   it("カナリアで続行しなければ残りは skipped になり、その親の変更は作業画面に残る", async () => {

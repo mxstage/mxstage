@@ -23,10 +23,11 @@ import {
   type InvariantHint,
   type WriteLogEntry,
 } from "../maximo/commit";
-import type { CommitController, CommitCounts, CommitPanelState, CreateCommitController, MaximoConnection } from "../runtime/contracts";
+import type { CommitController, CommitCounts, CommitPanelState, CreateCommitController, LastRun, MaximoConnection } from "../runtime/contracts";
 import { authorizeFailure, licenseBlocker } from "../license/gate";
 import { getLocale } from "../../shared/i18n";
 import { writeLogCsv } from "./csv";
+import { takeReportSnapshot } from "./diffReport";
 import { commitMessages as m } from "./messages";
 import { reloadParents } from "./reload";
 
@@ -202,6 +203,8 @@ interface Entry {
   cancelledAt: number;
   /** 本番への反映の直前に、橋渡しでライセンスを確かめている間（二重の実行と編集を止める） */
   starting: boolean;
+  /** 最後に実行した反映の写し（差分レポート用。次の反映で置き換える） */
+  lastRun: LastRun | null;
 }
 
 export const createCommitController: CreateCommitController = (deps) => {
@@ -221,7 +224,7 @@ export const createCommitController: CreateCommitController = (deps) => {
   function ensure(sheet: string): Entry {
     let e = entries.get(sheet);
     if (e === undefined) {
-      e = { panel: idlePanel(sheet), canaryResolve: null, cancelled: false, cancelledAt: 0, starting: false };
+      e = { panel: idlePanel(sheet), canaryResolve: null, cancelled: false, cancelledAt: 0, starting: false, lastRun: null };
       entries.set(sheet, e);
     }
     return e;
@@ -468,6 +471,9 @@ export const createCommitController: CreateCommitController = (deps) => {
       const plans = attempt.plans;
       const sheetId = s.id;
       const startRevision = workspace.revision;
+      // 差分レポート用に、送る前の差分と依頼の写しを残す（反映した行は読み直されて差分から消えるため）
+      const lastRun: LastRun = { snapshot: takeReportSnapshot(workspace, sheet, panel(sheet), now()), log: [], endRevision: null };
+      entry.lastRun = lastRun;
 
       const p = entry.panel;
       p.state = "running";
@@ -500,7 +506,9 @@ export const createCommitController: CreateCommitController = (deps) => {
           onRow: (r, plan) => {
             if (r.createdHref !== undefined) created.set(r.rowKey, r.createdHref);
             p.results.push(rowResult(r));
-            appendLog(writeLogEntry(plan, r, now()));
+            const logEntry = writeLogEntry(plan, r, now());
+            appendLog(logEntry);
+            lastRun.log.push(logEntry);
             emit(sheet);
             // 中止されたら、この行（送信済み）を記録してから残りを送らせない。
             // executeCommit には打ち切りの口が無く、onRow が例外を投げると残りを skipped にして返す仕様を使う
@@ -543,6 +551,7 @@ export const createCommitController: CreateCommitController = (deps) => {
       const failedRows = p.results.some((r) => r.status === "error" || r.status === "unknown" || r.status === "conflict");
       p.state = failedRows || aborted ? "failed" : "done";
       p.finishedAt = now();
+      lastRun.endRevision = workspace.revision;
       evalCache.delete(sheet);
       emit(sheet);
       return panel(sheet);
@@ -602,6 +611,11 @@ export const createCommitController: CreateCommitController = (deps) => {
 
     writeLogCsv() {
       return writeLogCsv(log);
+    },
+
+    lastRun(sheet) {
+      const r = entries.get(sheet)?.lastRun ?? null;
+      return r === null ? null : { snapshot: r.snapshot, log: r.log.map((e) => ({ ...e, ops: { ...e.ops, attrs: [...e.ops.attrs] } })), endRevision: r.endRevision };
     },
   };
 

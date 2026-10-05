@@ -2,7 +2,7 @@
 name: mxstage-core-commit
 description: "MX Stage basic operation: check the diff, request the commit to Maximo, explain blockers (including production licenses), and report the commit result row by row."
 metadata:
-  version: "1.1.0"
+  version: "1.1.1"
   category: "core"
 ---
 
@@ -28,7 +28,7 @@ request_commit with a note that gives the target (structure and environment), th
 
 The user reviews the diff in the commit panel and presses the commit button. Do not rush them or assume approval; wait until they tell you.
 
-How MX Stage writes: each record is sent with a merge (child rows that were not changed stay as they are), with an ID that prevents duplicate writes. New records are created only after checking that no record with the same key exists. It writes one record first, checks it, then continues, and stops on conflicts.
+How MX Stage writes: each record is sent with a merge (child rows that were not changed stay as they are), with an ID that prevents duplicate writes. New records are created only after checking that no record with the same key exists. It writes one record first and waits for the user to check it before sending the rest. Records changed in Maximo after loading are not sent (conflict) and the rest continue; it stops on an error or an unknown result.
 
 When the commit creates records, the panel shows how many. Say this count in your note; created records cannot be removed by MX Stage.
 

@@ -3,17 +3,20 @@
 //
 //   概要:   接続先・構造・シート・依頼メモ・件数・列ごとの件数・作業の履歴（バッチ）
 //   差分:   変更 1 セル = 1 行（キー列・子・種類・列・変更前・変更後・作者・根拠・時刻）。追加行は値のある列ごとに 1 行、削除行は 1 行
-//   書き込みログ: 反映した後だけ（キーと結果。属性値は入らない）
+//   書き込みログ: 反映した後だけ（その回・そのシートの分。キーと結果だけで、属性値は入らない）
+//
+// レポートは「写し」（ReportSnapshot）から作る。反映の前は今の差分の写し、反映の後は反映を始めたときの写し
+// （反映した行は Maximo から読み直されて差分から消えるので、controller が反映の直前に残す）とその回の書き込みログ。
 //
 // 属性値をそのまま書くので、Maximo のデータを含むファイルになる。扱いは利用者の組織の決まりに従う（画面の説明にも書く）。
 
-import type { BatchAuthor, CellValue } from "../../shared/model";
+import type { BatchAuthor, BatchInfo, CellValue } from "../../shared/model";
 import { headerLines } from "../../shared/columnLabel";
 import { defineMessages } from "../../shared/i18n";
-import { parseRowKey } from "../../shared/sheet";
+import { parseRowKey, type SheetMeta } from "../../shared/sheet";
 import type { WriteLogEntry } from "../maximo/commit";
 import type { CommitPanelState } from "../runtime/contracts";
-import type { Workspace } from "../store";
+import type { DiffItem, Workspace } from "../store";
 import { commitMessages } from "./messages";
 import { XLSX_STYLE, buildXlsx, type XlsxCell, type XlsxRow, type XlsxSheet } from "./xlsxWriter";
 
@@ -62,6 +65,9 @@ export const diffReportMessages = defineMessages(
     kinds: { change: "Changed", add: "Added row", addRecord: "New record", delete: "Deleted row" },
     authors: { llm: "AI assistant", user: "Person" } as Record<BatchAuthor, string>,
     environments: { test: "Test", production: "Production" },
+    stage: "Stage",
+    stageBefore: "Before commit (for approval)",
+    stageAfter: "Committed (with the write log of this commit)",
     newChild: "(new)",
     empty: "(empty)",
     log: {
@@ -121,6 +127,9 @@ export const diffReportMessages = defineMessages(
     kinds: { change: "変更", add: "追加行", addRecord: "新規レコード", delete: "削除行" },
     authors: { llm: "AI アシスタント", user: "利用者" },
     environments: { test: "テスト", production: "本番" },
+    stage: "段階",
+    stageBefore: "反映の前（承認用）",
+    stageAfter: "反映済み（この回の書き込みログ付き）",
     newChild: "（新規）",
     empty: "（空）",
     log: {
@@ -138,12 +147,25 @@ export const diffReportMessages = defineMessages(
   },
 );
 
-export interface DiffReportInput {
-  workspace: Workspace;
+/** レポートに要るものの写し（シートを後から変えても、写しは変わらない） */
+export interface ReportSnapshot {
   sheet: string;
-  panel?: CommitPanelState | null;
+  meta: SheetMeta;
+  entries: DiffItem[];
+  changedCells: number;
+  addedRows: number;
+  deletedRows: number;
+  batches: BatchInfo[];
+  /** 反映の依頼と件数（パネルの写し）。無ければ省く */
+  panel: Pick<CommitPanelState, "note" | "requestedBy" | "counts" | "target"> | null;
+  takenAt: number;
+}
+
+export interface DiffReportInput {
+  snapshot: ReportSnapshot;
   /** 環境の表示（テスト・本番など）。分からなければ省く */
   environment?: string | null;
+  /** その回・そのシートの書き込みログ（反映の後だけ） */
   writeLog?: readonly WriteLogEntry[];
   now?: number;
 }
@@ -170,52 +192,79 @@ function decode(s: string): string {
   }
 }
 
-/** 差分の全件（ページをたどる） */
-function allDiffEntries(workspace: Workspace, sheet: string) {
-  const out = [];
+/** 今のシートの差分の写しを取る（差分はページをたどって全件） */
+export function takeReportSnapshot(workspace: Workspace, sheet: string, panel: CommitPanelState | null, now: number = Date.now()): ReportSnapshot {
+  const entries: DiffItem[] = [];
   let cursor: string | undefined;
+  let changedCells = 0;
+  let addedRows = 0;
+  let deletedRows = 0;
   for (;;) {
     const res = workspace.getDiff(sheet, { limit: 5_000, ...(cursor !== undefined ? { cursor } : {}) });
-    out.push(...res.entries);
-    if (res.nextCursor === null) return { entries: out, res };
+    entries.push(...res.entries.map((e) => ({ ...e, ...(e.values !== undefined ? { values: { ...e.values } } : {}) })));
+    ({ changedCells, addedRows, deletedRows } = res);
+    if (res.nextCursor === null) break;
     cursor = res.nextCursor;
   }
+  const p =
+    panel === null
+      ? null
+      : {
+          counts: { ...panel.counts },
+          ...(panel.note !== undefined ? { note: panel.note } : {}),
+          ...(panel.requestedBy !== undefined ? { requestedBy: panel.requestedBy } : {}),
+          ...(panel.target !== undefined ? { target: { ...panel.target } } : {}),
+        };
+  return {
+    sheet,
+    meta: workspace.getSheet(sheet).meta,
+    entries,
+    changedCells,
+    addedRows,
+    deletedRows,
+    batches: workspace.listBatches(sheet).map((b) => ({ ...b })),
+    panel: p,
+    takenAt: now,
+  };
 }
 
 /** 差分レポートのブック（シートの並び）を作る。試験しやすいよう、バイト列にする前の形で返す */
 export function diffReportSheets(input: DiffReportInput): XlsxSheet[] {
   const t = diffReportMessages();
-  const { workspace, sheet: sheetName } = input;
-  const sheet = workspace.getSheet(sheetName);
-  const meta = sheet.meta;
+  const snap = input.snapshot;
+  const sheetName = snap.sheet;
+  const meta = snap.meta;
   const now = input.now ?? Date.now();
-  const { entries, res } = allDiffEntries(workspace, sheetName);
+  const entries = snap.entries;
+  const res = snap;
+  const panel = snap.panel;
   const columns = new Map(meta.columns.map((c) => [c.name, c]));
   const label = (col: string) => {
     const c = columns.get(col);
     return c === undefined ? col : headerLines(c).main;
   };
-  const batches = workspace.listBatches(sheetName);
+  const batches = snap.batches;
   const batchTime = new Map(batches.map((b) => [b.batchId, b.createdAt]));
   const source = meta.source;
   const os = source.kind === "maximo" ? source.os : null;
-  const baseUrl = input.panel?.target?.baseUrl ?? (source.kind === "maximo" ? (source.baseUrl ?? null) : null);
+  const baseUrl = panel?.target?.baseUrl ?? (source.kind === "maximo" ? (source.baseUrl ?? null) : null);
 
   // --- 概要 ---
   const summary: XlsxRow[] = [{ cells: [t.title], style: XLSX_STYLE.title }, { cells: [t.notice], style: XLSX_STYLE.wrap }, { cells: [] }];
   summary.push({ cells: [t.item, t.value], style: XLSX_STYLE.header });
   const info: Array<[string, XlsxCell]> = [
     [t.createdAt, formatLocalTime(now)],
+    [t.stage, (input.writeLog ?? []).length > 0 ? t.stageAfter : t.stageBefore],
     [t.target, baseUrl],
     ...(input.environment ? ([[t.environment, input.environment]] as Array<[string, XlsxCell]>) : []),
     [t.structure, os],
     [t.sheet, sheetName],
-    ...(input.panel?.note ? ([[t.note, input.panel.note]] as Array<[string, XlsxCell]>) : []),
-    ...(input.panel?.requestedBy ? ([[t.requestedBy, t.authors[input.panel.requestedBy]]] as Array<[string, XlsxCell]>) : []),
-    ...(input.panel ? ([[t.records, input.panel.counts.parents]] as Array<[string, XlsxCell]>) : []),
+    ...(panel?.note ? ([[t.note, panel.note]] as Array<[string, XlsxCell]>) : []),
+    ...(panel?.requestedBy ? ([[t.requestedBy, t.authors[panel.requestedBy]]] as Array<[string, XlsxCell]>) : []),
+    ...(panel ? ([[t.records, panel.counts.parents]] as Array<[string, XlsxCell]>) : []),
     [t.changedCells, res.changedCells],
     [t.addedRows, res.addedRows],
-    ...(input.panel?.counts.newRecords ? ([[t.newRecords, input.panel.counts.newRecords]] as Array<[string, XlsxCell]>) : []),
+    ...(panel?.counts.newRecords ? ([[t.newRecords, panel.counts.newRecords]] as Array<[string, XlsxCell]>) : []),
     [t.deletedRows, res.deletedRows],
   ];
   for (const [k, v] of info) summary.push({ cells: [k, v], style: XLSX_STYLE.wrap });

@@ -2,7 +2,7 @@
 // 変更・追加・削除が 1 行ずつ載ること、変更前・変更後・作者・根拠が残ること、式として解釈されないこと、ZIP の CRC が合うことを見る。
 
 import { afterEach, describe, expect, it } from "vitest";
-import { diffReportFileName, diffReportSheets, diffReportXlsx } from "../../src/app/commit/diffReport";
+import { diffReportFileName, diffReportSheets, diffReportXlsx, takeReportSnapshot } from "../../src/app/commit/diffReport";
 import { buildXlsx, columnLetter, crc32, safeSheetNames } from "../../src/app/commit/xlsxWriter";
 import { parseXlsx } from "../../src/app/imports/xlsx";
 import { Workspace } from "../../src/app/store/workspace";
@@ -83,7 +83,7 @@ describe("xlsxWriter", () => {
 describe("diff report", () => {
   it("lists every change with before, after, author and reason", async () => {
     setLocale("ja");
-    const wb = await parseXlsx(diffReportXlsx({ workspace: workspace(), sheet: SHEET, environment: "テスト", now: Date.UTC(2026, 9, 5) }));
+    const wb = await parseXlsx(diffReportXlsx({ snapshot: takeReportSnapshot(workspace(), SHEET, null), environment: "テスト", now: Date.UTC(2026, 9, 5) }));
     expect(wb.tables.map((t) => t.name)).toEqual(["概要", "差分"]);
 
     const changes = wb.tables[1]!.rows.map((r) => r.cells);
@@ -113,12 +113,22 @@ describe("diff report", () => {
     expect(summary.get("オブジェクト構造")).toBe("MXAPIASSET");
     expect(summary.get("変更セル")).toBe(1);
     expect(summary.get("削除行")).toBe(1);
+    expect(summary.get("段階")).toBe("反映の前（承認用）");
+  });
+
+  it("keeps the snapshot unchanged when the sheet changes later", () => {
+    const ws = workspace();
+    const snap = takeReportSnapshot(ws, SHEET, null);
+    const before = snap.entries.length;
+    ws.applyEdits(SHEET, [{ rowKey: C11, col: "DESCRIPTION", value: "later" }], { author: "user" });
+    expect(snap.entries.length).toBe(before);
+    expect(takeReportSnapshot(ws, SHEET, null).entries.length).toBe(before + 1);
   });
 
   it("writes cell text as values, never as formulas", () => {
     const ws = workspace();
     ws.applyEdits(SHEET, [{ rowKey: C11, col: "DESCRIPTION", value: "=cmd|' /C calc'!A0" }], { author: "llm", reason: "x" });
-    const bytes = diffReportXlsx({ workspace: ws, sheet: SHEET });
+    const bytes = diffReportXlsx({ snapshot: takeReportSnapshot(ws, SHEET, null) });
     const text = new TextDecoder().decode(bytes);
     expect(text).not.toContain("<f>");
     expect(text).toContain("=cmd|&apos;".replace("&apos;", "'"));
@@ -127,9 +137,9 @@ describe("diff report", () => {
   it("adds the write log only after a commit", () => {
     setLocale("en");
     const ws = workspace();
-    expect(diffReportSheets({ workspace: ws, sheet: SHEET }).length).toBe(2);
+    expect(diffReportSheets({ snapshot: takeReportSnapshot(ws, SHEET, null) }).length).toBe(2);
     const log = [{ at: "2026-10-05T01:00:00.000Z", parentKey: P1, transactionId: "t1", ops: { change: 1, delete: 0, add: 1, attrs: ["ASSETSPEC.NUMVALUE"] }, httpStatus: 200, reasonCode: null, result: "verified" as const }];
-    const sheets = diffReportSheets({ workspace: ws, sheet: SHEET, writeLog: log });
+    const sheets = diffReportSheets({ snapshot: takeReportSnapshot(ws, SHEET, null), writeLog: log });
     expect(sheets.map((s) => s.name)).toEqual(["Summary", "Changes", "Write log"]);
     expect(sheets[2]!.rows[1]!.cells[1]).toBe("KITA / 1000001");
   });

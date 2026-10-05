@@ -66,6 +66,7 @@ class FakeCommits implements CommitController {
     return this.entries;
   };
   writeLogCsv = (): string => "at,parentKey\r\n";
+  lastRun = (): null => null;
 }
 
 let container: HTMLDivElement;

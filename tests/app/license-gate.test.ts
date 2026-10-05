@@ -6,7 +6,7 @@ import { ObjectStructureCatalog } from "../../src/app/catalog/catalog";
 import { blockedMessagePrefix, createCommitController, alreadyRunningMessage } from "../../src/app/commit/controller";
 import { ENVIRONMENTS_STORAGE_KEY, LicenseClient, daysUntilExpiry, type AuthorizeOutcome, type LicenseGate, type LicenseSnapshot } from "../../src/app/license/client";
 import { authorizeFailure, licenseBlocker } from "../../src/app/license/gate";
-import { PRICING_URL } from "../../src/app/license/messages";
+import { LICENSE_URL } from "../../src/app/license/messages";
 import { MaximoClient } from "../../src/app/maximo/client";
 import type { ToolContext } from "../../src/app/relay";
 import type { MaximoConnection } from "../../src/app/runtime/contracts";
@@ -122,7 +122,7 @@ describe("licenseBlocker（反映の関門の文）", () => {
   it("本番でキーが無ければ、理由・買い方・無償で続けられることを言う（LLM もこの文で説明する）", () => {
     const why = licenseBlocker(fakeGate({ environment: "production" }), "https://prod.acme.test/maximo")!;
     expect(why).toContain("https://prod.acme.test");
-    expect(why).toContain(PRICING_URL);
+    expect(why).toContain(LICENSE_URL.ja);
     expect(why).toContain("読み込み・Skill・編集はライセンス無しで続けられます");
     const other = licenseBlocker(fakeGate({ environment: "production", snapshot: { licenses: [ACME] } }), "https://prod.acme.test/maximo")!;
     expect(other).toContain("ライセンスの本番: https://maximo.test");

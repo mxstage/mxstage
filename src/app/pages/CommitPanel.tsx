@@ -2,7 +2,7 @@
 
 import { Accordion, AccordionItem, Button, Checkbox, ListItem, Table, TableBody, TableCell, TableRow, UnorderedList } from "@carbon/react";
 import { useEffect, useId, useMemo, useState } from "react";
-import { diffReportFileName, diffReportMessages, diffReportXlsx } from "../commit/diffReport";
+import { diffReportFileName, diffReportMessages, diffReportXlsx, takeReportSnapshot } from "../commit/diffReport";
 import { commitMessages } from "../commit/messages";
 import type { LicenseClient } from "../license/client";
 import type { Workspace } from "../store";
@@ -109,8 +109,12 @@ export function CommitPanel({ commits, sheet, version, connected, locked, onMess
     }
   };
 
-  // 差分レポート（Excel）。反映の前の承認の証跡にする。作業画面のメモリにある差分だけから作り、どこにも送らない
+  // 差分レポート（Excel）。作業画面のメモリにある差分だけから作り、どこにも送らない。
+  // 反映の後に編集が無ければ、反映した回の写しとその回の書き込みログ（反映した行は差分から消えているため）。
+  // それ以外は今の差分（反映の前の承認の証跡）
   const hasDiff = c.changedCells + c.addedRows + c.deletedRows > 0;
+  const last = commits.lastRun(sheet);
+  const lastFresh = workspace !== undefined && last !== null && last.endRevision !== null && last.endRevision === workspace.revision;
   const saveReport = () => {
     if (workspace === undefined) return;
     try {
@@ -118,11 +122,8 @@ export function CommitPanel({ commits, sheet, version, connected, locked, onMess
       const env = panel.target?.baseUrl ? (license?.environmentOf(panel.target.baseUrl) ?? null) : null;
       const r = diffReportMessages();
       const bytes = diffReportXlsx({
-        workspace,
-        sheet,
-        panel,
+        ...(lastFresh && last !== null ? { snapshot: last.snapshot, writeLog: last.log } : { snapshot: takeReportSnapshot(workspace, sheet, panel, now.getTime()) }),
         environment: env === null ? null : r.environments[env],
-        writeLog: commits.writeLog(),
         now: now.getTime(),
       });
       const name = diffReportFileName(sheet, now);
@@ -215,7 +216,7 @@ export function CommitPanel({ commits, sheet, version, connected, locked, onMess
       </Button>
       <div className="commit-status">
         <span>{t.status(commitStateLabel(panel.state))}</span>
-        {workspace !== undefined && hasDiff && panel.state !== "running" && (
+        {workspace !== undefined && (hasDiff || lastFresh) && panel.state !== "running" && (
           <Button kind="ghost" size="sm" className="report-link" title={diffReportMessages().buttonTitle} onClick={saveReport}>
             {diffReportMessages().button}
           </Button>

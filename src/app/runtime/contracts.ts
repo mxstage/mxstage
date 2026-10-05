@@ -8,6 +8,7 @@ import type { ObjectStructureCatalog } from "../catalog/catalog";
 import type { ImportStore } from "../imports";
 import type { LicenseGate } from "../license/client";
 import type { MaximoClient, MaximoVia } from "../maximo/client";
+import type { ReportSnapshot } from "../commit/diffReport";
 import type { WriteLogEntry } from "../maximo/commit";
 import type { ToolHandler } from "../relay";
 import type { JobRegistry, Workspace } from "../store";
@@ -96,6 +97,19 @@ export interface CommitController extends CommitRequester {
   /** 書き込みログ（キーと結果だけ。属性値を含めない） */
   writeLog(): readonly WriteLogEntry[];
   writeLogCsv(): string;
+  /** そのシートで最後に実行した反映の写し（差分レポート用）。まだ反映していなければ null */
+  lastRun(sheet: string): LastRun | null;
+}
+
+/**
+ * 最後に実行した反映の写し。反映した行は Maximo から読み直されて差分から消えるので、
+ * 反映を始める直前の差分の写しと、その回・そのシートの書き込みログを残す。
+ */
+export interface LastRun {
+  snapshot: ReportSnapshot;
+  log: WriteLogEntry[];
+  /** 反映が終わったときの作業の revision（実行中は null）。これより後に編集があれば、写しは古い */
+  endRevision: number | null;
 }
 
 export interface CommitControllerDeps {

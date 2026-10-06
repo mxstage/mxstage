@@ -2,7 +2,7 @@
 // 保存・確定ボタンは置かない（グリッドの変更はその場で作業状態に入る）。
 
 import { Button, ContentSwitcher, Switch } from "@carbon/react";
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { Runtime } from "../boot/runtime";
 import type { ObjectStructureCatalog } from "../catalog/catalog";
 import type { LicenseClient } from "../license/client";
@@ -43,6 +43,7 @@ import {
   type PaneSplit,
 } from "./panes";
 import { PaneSplitters } from "./PaneSplitters";
+import { AiFollower } from "./follow";
 import { closeSheet, SheetTabs, type SheetTabInfo } from "./SheetTabs";
 import { hostOf, maximoBadge, relayBadge, reopenHint, shouldSuggestReopen } from "./status";
 import { TopBar } from "./TopBar";
@@ -129,6 +130,24 @@ export function AppPage({ runtime, vault, toasts, catalog, license, onEndWork, o
   const current = selected !== null && workspace.hasSheet(selected) ? selected : (sheetNames[0] ?? null);
   // 最後に触った表のシート（反映・変更履歴のパネルはこのシートを出す）。組に無い表を足すと、タブのシートと違うことがある
   const [focused, setFocused] = useState<string | null>(null);
+  // AI が作った・変えた・反映を頼んだシートへ表示を移す（AI の作業を目で追えるように）。人がタブを選んだ直後は動かさない
+  const follower = useRef<AiFollower | null>(null);
+  useEffect(() => {
+    const f = new AiFollower({
+      workspace,
+      commits,
+      show: (sheet) => {
+        setSelected(sheet);
+        setFocused(sheet);
+      },
+    });
+    follower.current = f;
+    const stop = f.start();
+    return () => {
+      stop();
+      follower.current = null;
+    };
+  }, [workspace, commits]);
   const [view, setView] = useState<ViewKind>("final");
 
   const isRunning = (sheet: string) => {
@@ -244,6 +263,7 @@ export function AppPage({ runtime, vault, toasts, catalog, license, onEndWork, o
       tabs={tabInfos}
       current={current}
       onSelect={(name) => {
+        follower.current?.userSelected();
         setSelected(name);
         setFocused(name);
       }}

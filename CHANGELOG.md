@@ -21,6 +21,7 @@ All notable changes to MX Stage are listed here. Versions follow [Semantic Versi
 
 ### Changed
 
+- The work screen follows the AI assistant: when it creates a sheet, changes a sheet or asks for a commit, the screen shows that sheet, so you can see what it is doing. For 15 seconds after you pick a tab yourself, the screen stays where you put it.
 - The license links in the work screen (Settings → License and the commit panel's license messages) open the license page in the screen's language (https://mxstage.tsunagi.app/license, /ja/license).
 - The documentation now describes commits as they work: records changed in Maximo after loading are skipped and listed, and a commit stops on an error or an unknown result (it said it stopped on conflicts). It also lists the update and demo downloads among the connections, and the Node.js version for each install channel.
 - The link to the object structures in the top bar is now an icon (with its name as a tooltip), next to Settings. While the definitions load, the count appears beside it.

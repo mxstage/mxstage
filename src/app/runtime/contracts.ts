@@ -10,6 +10,7 @@ import type { LicenseGate } from "../license/client";
 import type { MaximoClient, MaximoVia } from "../maximo/client";
 import type { ReportSnapshot } from "../commit/diffReport";
 import type { WriteLogEntry } from "../maximo/commit";
+import type { StatusPrefs } from "../maximo/statusPrefs";
 import type { ToolHandler } from "../relay";
 import type { JobRegistry, Workspace } from "../store";
 
@@ -147,6 +148,8 @@ export interface ToolRegistryDeps {
   imports?: ImportStore;
   /** 環境（本番／テスト）とライセンス。get_status に載せる */
   license?: LicenseGate;
+  /** 接続先ごとの過去の作業のステータス（apply_rule の phase で past を省いたとき） */
+  statusPrefs?: StatusPrefs;
   appVersion: string;
   /** 作業画面の URL（例 http://127.0.0.1:8788/app） */
   appUrl: string;

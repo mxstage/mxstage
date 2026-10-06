@@ -2,6 +2,7 @@
 
 import type { ObjectStructureCatalog } from "../catalog/catalog";
 import type { LicenseGate } from "../license/client";
+import type { StatusPrefs } from "../maximo/statusPrefs";
 import { ValueListService } from "../maximo/valueList";
 import type { ImportStore } from "../imports";
 import { RelaySocket, type RelaySocketOptions, type RelayStatus } from "../relay";
@@ -45,6 +46,8 @@ export interface RuntimeOptions {
   catalog: ObjectStructureCatalog;
   /** ライセンスと環境（本番／テスト）。反映の関門が使う。作業終了で作り直さないよう services で作って渡す */
   license?: LicenseGate;
+  /** 接続先ごとの過去の作業のステータス（apply_rule の phase） */
+  statusPrefs?: StatusPrefs;
   factories: RuntimeFactories;
   appVersion: string;
   /** 例 http://127.0.0.1:8788 */
@@ -108,6 +111,7 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
   const registry: TabToolRegistry = opts.factories.createToolRegistry({
     workspace,
     ...(opts.license ? { license: opts.license } : {}),
+    ...(opts.statusPrefs ? { statusPrefs: opts.statusPrefs } : {}),
     jobs,
     connection: opts.connection,
     commits: commitRequesterOf(commits),

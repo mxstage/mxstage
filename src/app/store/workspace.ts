@@ -14,6 +14,7 @@ import type {
   LookupStats,
   MatchSummary,
   NormalizeOption,
+  PhaseStats,
   RuleValue,
   SheetSummary,
   TypedFilter,
@@ -239,11 +240,28 @@ interface BatchEntry {
   ops: BatchOpState[];
 }
 
-type RuleEval = { kind: "value"; value: CellValue } | { kind: "unmatched" } | { kind: "ambiguous" };
+/** tag は phase の内訳（past・inProgress・future・noDate・existing） */
+type RuleEval = { kind: "value"; value: CellValue; tag?: PhaseTag } | { kind: "unmatched"; tag?: PhaseTag } | { kind: "ambiguous" };
+type PhaseTag = "past" | "inProgress" | "future" | "noDate" | "existing";
+
+/** 日付のセルの日（YYYY-MM-DD）。日付で始まらなければ null */
+function dayOf(v: CellValue): string | null {
+  if (typeof v !== "string") return null;
+  const m = /^(\d{4}-\d{2}-\d{2})/.exec(v.trim());
+  return m ? m[1]! : null;
+}
+
+/** その時刻の、この PC の日付（YYYY-MM-DD） */
+function localDay(ms: number): string {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
 interface CompiledRule {
   col: string;
-  kind: "const" | "copyFrom" | "lookup";
+  kind: "const" | "copyFrom" | "lookup" | "phase";
+  /** phase の比べる日 */
+  asOf?: string;
   evaluate: (row: RowState) => RuleEval;
 }
 
@@ -512,11 +530,15 @@ export class Workspace {
     const conflicts: ConflictInfo[] = [];
     const edits: CellEdit[] = [];
     const lookup: Record<string, LookupStats> = {};
+    const phase: Record<string, PhaseStats> = {};
     for (const rule of rules) {
       const stats: LookupStats | null = rule.kind === "lookup" ? (lookup[rule.col] = { matched: 0, unmatched: 0, ambiguous: 0 }) : null;
+      const phaseStats: PhaseStats | null =
+        rule.kind === "phase" ? (phase[rule.col] = { past: 0, inProgress: 0, future: 0, noDate: 0, existing: 0, asOf: rule.asOf ?? "" }) : null;
       const values: Array<{ row: RowState; value: CellValue }> = [];
       for (const row of rows) {
         const r = rule.evaluate(row);
+        if (phaseStats && r.kind !== "ambiguous" && r.tag !== undefined) phaseStats[r.tag]++;
         if (r.kind === "unmatched") {
           // 参照先に無い行は変更しない（conflict にもしない）
           if (stats) stats.unmatched++;
@@ -533,8 +555,9 @@ export class Workspace {
       }
     }
     const ops = this.planSets(sheet, edits, opts, conflicts);
-    const extra: Pick<RuleResult, "matched" | "lookup"> = { matched: rows.length };
+    const extra: Pick<RuleResult, "matched" | "lookup" | "phase"> = { matched: rows.length };
     if (rules.some((r) => r.kind === "lookup")) extra.lookup = lookup;
+    if (rules.some((r) => r.kind === "phase")) extra.phase = phase;
     if (opts.dryRun) return { batchId: null, applied: ops.length, conflicts, revision: this._revision, ...extra };
     return { ...this.finish(sheet, opts, ops, conflicts, "cells_changed"), ...extra };
   }
@@ -804,8 +827,9 @@ export class Workspace {
       if (!sheet.hasColumn(src)) throw columnNotFound(src, sheet.name);
       return { col, kind: "copyFrom", evaluate: (row) => ({ kind: "value", value: sheet.finalValue(row, src) }) };
     }
+    if ("phase" in rv) return this.compilePhase(sheet, col, rv.phase);
     if (!("lookup" in rv) || rv.lookup === null || typeof rv.lookup !== "object") {
-      throw new StoreError("invalid_args", `The rule for column ${col} must be one of const, copyFrom or lookup`, { column: col });
+      throw new StoreError("invalid_args", `The rule for column ${col} must be one of const, copyFrom, lookup or phase`, { column: col });
     }
     const lk = rv.lookup;
     const [matchCols, targetCols] = pairColumns(lk.matchCol, lk.targetMatchCol, "matchCol", "targetMatchCol");
@@ -840,6 +864,37 @@ export class Workspace {
         if (!hit) return { kind: "unmatched" };
         if (hit.ids.size > 1) return { kind: "ambiguous" };
         return { kind: "value", value: hit.value };
+      },
+    };
+  }
+
+  /**
+   * 行の時期で値を選ぶ。終わりの日が asOf 以前なら past、始まりの日が asOf 以前なら inProgress、どちらかの日付があれば future。
+   * 日付が無い行と、newRowsOnly（既定）のときの今ある行は変えない
+   */
+  private compilePhase(sheet: Sheet, col: string, ph: Extract<RuleValue, { phase: unknown }>["phase"]): CompiledRule {
+    if (ph === null || typeof ph !== "object") throw new StoreError("invalid_args", `The phase rule for column ${col} must be an object`, { column: col });
+    if (ph.finish === undefined && ph.start === undefined) {
+      throw new StoreError("invalid_args", `The phase rule for column ${col} needs finish or start (a date column)`, { column: col });
+    }
+    for (const c of [ph.finish, ph.start]) if (c !== undefined && !sheet.hasColumn(c)) throw columnNotFound(c, sheet.name);
+    if (ph.past === undefined) throw new StoreError("invalid_args", `The phase rule for column ${col} needs past`, { column: col });
+    const asOf = ph.asOf ?? localDay(this.now());
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf)) throw new StoreError("invalid_args", `asOf must be a date (YYYY-MM-DD): ${asOf}`, { column: col });
+    const newOnly = ph.newRowsOnly !== false;
+    const { finish, start, past, inProgress, future } = ph;
+    return {
+      col,
+      kind: "phase",
+      asOf,
+      evaluate: (row) => {
+        if (newOnly && row.added === null) return { kind: "unmatched", tag: "existing" };
+        const f = finish === undefined ? null : dayOf(sheet.finalValue(row, finish));
+        const s = start === undefined ? null : dayOf(sheet.finalValue(row, start));
+        if (f !== null && f <= asOf) return { kind: "value", value: past, tag: "past" };
+        if (s !== null && s <= asOf) return { kind: "value", value: inProgress, tag: "inProgress" };
+        if (f !== null || s !== null) return { kind: "value", value: future, tag: "future" };
+        return { kind: "unmatched", tag: "noDate" };
       },
     };
   }

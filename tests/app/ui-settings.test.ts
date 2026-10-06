@@ -369,3 +369,21 @@ describe("設定画面のタブ", () => {
     expect([...SETTINGS_TABS]).toEqual(["connection", "demo", "license", "assistants", "skills", "updates", "language"]);
   });
 });
+
+describe("過去の作業のステータス", () => {
+  it("接続中は接続先ごとに選べ、既定は完了（COMP）。選ぶとすぐこの PC に覚える", async () => {
+    const vault = new FakeVault();
+    vault.view = { kind: "connected", info: INFO };
+    const storage = memoryStorage();
+    await render({ vault, storage });
+    const comp = q<HTMLInputElement>("#mx-past-comp")!;
+    const close = q<HTMLInputElement>("#mx-past-close")!;
+    expect(comp.checked).toBe(true);
+    expect(close.checked).toBe(false);
+    await act(async () => {
+      close.click();
+    });
+    expect(close.checked).toBe(true);
+    expect(JSON.parse(storage.map.get("mxstage.maximo.pastStatus")!)).toEqual({ "https://maximo.test": "CLOSE" });
+  });
+});

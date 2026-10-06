@@ -7,6 +7,7 @@ import { ObjectStructureCatalog } from "../../src/app/catalog/catalog";
 import { diffReportSheets } from "../../src/app/commit/diffReport";
 import { createCommitController, noChangesBlocker, notConnectedBlocker, notMaximoSheetBlocker, PANEL_REFRESH_MS } from "../../src/app/commit/controller";
 import { MaximoClient } from "../../src/app/maximo/client";
+import type { StatusPrefs } from "../../src/app/maximo/statusPrefs";
 import { RelayToolError, type ToolContext } from "../../src/app/relay";
 import type { MaximoConnection } from "../../src/app/runtime/contracts";
 import { JobRegistry, Workspace } from "../../src/app/store";
@@ -60,7 +61,7 @@ function permitSeed(extra: FakeRecordSeed[] = []): FakeSeed {
   });
 }
 
-function harness(seed: FakeSeed = permitSeed()) {
+function harness(seed: FakeSeed = permitSeed(), opts: { statusPrefs?: StatusPrefs } = {}) {
   const fake = createFakeMaximo(seed);
   const client = new MaximoClient({ baseUrl: fake.baseUrl, apiKey: () => fake.apiKey, via: "direct", fetchImpl: fake.fetch, sleep: async () => {} });
   const maximo: MaximoConnection = {
@@ -83,7 +84,7 @@ function harness(seed: FakeSeed = permitSeed()) {
   const workspace = new Workspace("作業");
   const jobs = new JobRegistry();
   const controller = createCommitController({ workspace, connection });
-  const registry = createToolRegistry({ workspace, jobs, connection, commits: controller, catalog: new ObjectStructureCatalog(), appVersion: "0.1.0-test", appUrl: APP_URL });
+  const registry = createToolRegistry({ workspace, jobs, connection, commits: controller, catalog: new ObjectStructureCatalog(), appVersion: "0.1.0-test", appUrl: APP_URL, ...opts });
   let seq = 0;
 
   async function invoke(tool: string, args: unknown) {
@@ -653,6 +654,41 @@ describe("CommitController: ステータスの変更", () => {
     expect(posts(h.fake).map((p) => p.path.includes("changeStatus"))).toEqual([false, true]);
     expect(h.workspace.getDiff(WO_SHEET)).toMatchObject({ changedCells: 0, addedRows: 0 });
     expect(h.workspace.getSheet(WO_SHEET).rowValues(pk("WO2100"), "base")).toMatchObject({ STATUS: "COMP", DESCRIPTION: "過去の点検" });
+  });
+
+  it("apply_rule の phase: past を省くと接続先の設定（既定 COMP、選べば CLOSE）を使い、そう伝える", async () => {
+    const cases: Array<[StatusPrefs | undefined, string]> = [
+      [undefined, "COMP"],
+      [{ pastStatusOf: () => "CLOSE" }, "CLOSE"],
+    ];
+    for (const [statusPrefs, want] of cases) {
+      const h = harness(permitSeed(), statusPrefs ? { statusPrefs } : {});
+      await h.call("load_sheet", {
+        name: WO_SHEET,
+        os: "MXAPIWO",
+        select: ["WONUM", "SITEID", "STATUS", "DESCRIPTION", "TARGSTARTDATE"],
+        where: [{ attr: "SITEID", op: "eq", value: "BEDFORD" }],
+      });
+      await h.call("add_rows", { sheet: WO_SHEET, rows: [{ SITEID: "BEDFORD", WONUM: "WO2100", DESCRIPTION: "過去の点検", TARGSTARTDATE: "2020-04-15" }], baseRevision: h.workspace.revision, reason: "履歴を登録" });
+      const r = await h.call("apply_rule", {
+        sheet: WO_SHEET,
+        set: { STATUS: { phase: { finish: "TARGSTARTDATE", inProgress: "INPRG", future: "WAPPR" } } },
+        baseRevision: h.workspace.revision,
+        reason: "時期でステータスを決める",
+      });
+      expect(r.phase.STATUS).toMatchObject({ past: 1, existing: 3 });
+      expect(r.phaseNote).toContain(want);
+      expect(h.workspace.getSheet(WO_SHEET).rowValues(pk("WO2100"), "final")!.STATUS).toBe(want);
+      // past を書けば、設定ではなくその値
+      const again = await h.call("apply_rule", {
+        sheet: WO_SHEET,
+        set: { STATUS: { phase: { finish: "TARGSTARTDATE", past: "COMP", inProgress: "INPRG", future: "WAPPR" } } },
+        baseRevision: h.workspace.revision,
+        reason: "完了にする",
+      });
+      expect(again).not.toHaveProperty("phaseNote");
+      expect(h.workspace.getSheet(WO_SHEET).rowValues(pk("WO2100"), "final")!.STATUS).toBe("COMP");
+    }
   });
 
   it("作った後にステータスだけ失敗しても、作ったレコードで行を付け替え、ステータスの変更だけを作業画面に残す", async () => {

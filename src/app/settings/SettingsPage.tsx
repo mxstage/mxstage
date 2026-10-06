@@ -16,6 +16,7 @@ import type { ConnectInput, VaultView } from "../keyvault/client";
 import type { Environment, LicenseClient } from "../license/client";
 import { licenseMessages } from "../license/messages";
 import type { MaximoVia } from "../maximo/client";
+import { pastStatusOf, setPastStatus, type PastStatus } from "../maximo/statusPrefs";
 import { hostOf } from "../pages/status";
 import type { MaximoConnectionInfo } from "../runtime/contracts";
 import { Link, spaClick } from "../ui/Link";
@@ -545,6 +546,7 @@ function MaximoSection({ vault, view, storage, passwordCredential, replaceUrl, l
       <section className="card">
         <h2>{t.title}</h2>
         <ConnectedInfo info={view.info} license={license} onReconnect={() => setShowForm(true)} onDisconnect={disconnect} />
+        <PastStatusField baseUrl={view.info.baseUrl} storage={storage} />
         {savedList}
       </section>
     );
@@ -779,6 +781,32 @@ function EnvironmentField(p: { environment: Environment | null; onChange: (e: En
       >
         <RadioButton id="mx-env-test" labelText={t.testOption} value="test" />
         <RadioButton id="mx-env-production" labelText={t.productionOption} value="production" />
+      </RadioButtonGroup>
+      <p className="muted small">{t.help}</p>
+    </div>
+  );
+}
+
+/** 接続先ごとの、過去の作業のステータス（apply_rule の phase で past を省いたとき）。選ぶとすぐ覚える */
+function PastStatusField(p: { baseUrl: string; storage: StorageLike | null }) {
+  const t = m().maximo.pastStatus;
+  const [value, setValue] = useState<PastStatus>(() => pastStatusOf(p.storage, p.baseUrl));
+  useEffect(() => setValue(pastStatusOf(p.storage, p.baseUrl)), [p.storage, p.baseUrl]);
+  return (
+    <div className="field past-status-field">
+      <RadioButtonGroup
+        legendText={t.label}
+        name="mx-past-status"
+        orientation="vertical"
+        valueSelected={value}
+        onChange={(v) => {
+          if (v !== "COMP" && v !== "CLOSE") return;
+          setValue(v);
+          setPastStatus(p.storage, p.baseUrl, v);
+        }}
+      >
+        <RadioButton id="mx-past-comp" labelText={t.comp} value="COMP" />
+        <RadioButton id="mx-past-close" labelText={t.close} value="CLOSE" />
       </RadioButtonGroup>
       <p className="muted small">{t.help}</p>
     </div>

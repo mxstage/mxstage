@@ -6,7 +6,7 @@
 //   conflict / error / unknown / skipped の親の変更は作業画面に残す。
 // - 書き込みログはキーと結果だけ（属性値を含めない）。
 
-import type { CommitRowResult } from "../../shared/model";
+import type { BatchAuthor, CommitRowResult } from "../../shared/model";
 import { parseRowKey, type MaximoRecord, type SheetMeta } from "../../shared/sheet";
 import { normalizeScope } from "../catalog/catalog";
 import { structureDriftProblems } from "../catalog/drift";
@@ -15,6 +15,7 @@ import {
   CommitInvariantError,
   executeCommit,
   planCommit,
+  STATUS_ATTR,
   writeLogEntry,
   type CommitChanges,
   type CommitPlan,
@@ -26,6 +27,7 @@ import {
 import type { CommitController, CommitCounts, CommitPanelState, CreateCommitController, LastRun, MaximoConnection } from "../runtime/contracts";
 import { authorizeFailure, licenseBlocker } from "../license/gate";
 import { getLocale } from "../../shared/i18n";
+import { isIrreversibleStatus, statusObjectKind } from "../../shared/status";
 import { writeLogCsv } from "./csv";
 import { takeReportSnapshot } from "./diffReport";
 import { commitMessages as m } from "./messages";
@@ -67,6 +69,7 @@ export const alreadyRunningMessage = (): string => m().run.alreadyRunning;
 export const blockedMessagePrefix = (): string => m().run.blockedPrefix;
 export const needsNullConfirmMessage = (): string => m().run.needsNullConfirm;
 export const needsDeleteConfirmMessage = (): string => m().run.needsDeleteConfirm;
+export const needsIrreversibleConfirmMessage = (): string => m().run.needsIrreversibleConfirm;
 export const planFailedMessagePrefix = (): string => m().run.planFailedPrefix;
 export const cancelledMessage = (): string => m().run.cancelled;
 /** 中止で送らなかった行の結果に入れる文言 */
@@ -88,6 +91,7 @@ interface Evaluation {
   blockers: string[];
   needsDeleteConfirm: boolean;
   needsNullConfirm: boolean;
+  needsIrreversibleConfirm: boolean;
 }
 
 export interface PlanAttempt {
@@ -96,6 +100,8 @@ export interface PlanAttempt {
   needsDeleteConfirm: boolean;
   /** 確認が無いと I10（null への変更）に引っかかる */
   needsNullConfirm: boolean;
+  /** 確認が無いと I11（戻せないステータス）に引っかかる */
+  needsIrreversibleConfirm: boolean;
   /** I3 / I10 以外で計画を作れなかった理由（利用者向けの文言。末尾の括弧に内部コードを残す） */
   error: string | null;
 }
@@ -121,6 +127,10 @@ function adviceFor(code: InvariantCode, hint: InvariantHint | undefined): string
       return a.I8(COMMIT_LIMITS.maxParentsPerPlan);
     case "I10":
       return a.I10;
+    case "I11":
+      return a.I11;
+    case "I12":
+      return a.I12;
     default:
       return a.other;
   }
@@ -142,15 +152,18 @@ export function attemptPlan(
   meta: SheetMeta,
   records: readonly MaximoRecord[],
   changes: CommitChanges,
-  confirmed: { allowNull?: boolean; deletesConfirmed?: boolean } = {},
+  confirmed: { allowNull?: boolean; deletesConfirmed?: boolean; irreversibleConfirmed?: boolean } = {},
 ): PlanAttempt {
   let allowNull = confirmed.allowNull === true;
   let deletesConfirmed = confirmed.deletesConfirmed === true;
+  let irreversibleConfirmed = confirmed.irreversibleConfirmed === true;
   let needsNullConfirm = false;
   let needsDeleteConfirm = false;
-  for (let i = 0; i < 3; i++) {
+  let needsIrreversibleConfirm = false;
+  for (let i = 0; i < 4; i++) {
     try {
-      return { plans: planCommit(meta, [...records], changes, { allowNull, deletesConfirmed }), needsDeleteConfirm, needsNullConfirm, error: null };
+      const plans = planCommit(meta, [...records], changes, { allowNull, deletesConfirmed, irreversibleConfirmed });
+      return { plans, needsDeleteConfirm, needsNullConfirm, needsIrreversibleConfirm, error: null };
     } catch (e) {
       if (e instanceof CommitInvariantError && e.code === "I10" && !allowNull) {
         needsNullConfirm = true;
@@ -162,10 +175,31 @@ export function attemptPlan(
         deletesConfirmed = true;
         continue;
       }
-      return { plans: [], needsDeleteConfirm, needsNullConfirm, error: describePlanError(e) };
+      if (e instanceof CommitInvariantError && e.code === "I11" && !irreversibleConfirmed) {
+        needsIrreversibleConfirm = true;
+        irreversibleConfirmed = true;
+        continue;
+      }
+      return { plans: [], needsDeleteConfirm, needsNullConfirm, needsIrreversibleConfirm, error: describePlanError(e) };
     }
   }
-  return { plans: [], needsDeleteConfirm, needsNullConfirm, error: m().advice.other };
+  return { plans: [], needsDeleteConfirm, needsNullConfirm, needsIrreversibleConfirm, error: m().advice.other };
+}
+
+/** ステータスの決まりを当てるための、構造の属性（親の列）。作業画面に保存した定義が無ければシートの列 */
+function statusGuardOf(meta: SheetMeta, structureColumns: readonly { name: string }[] | null): { kind: ReturnType<typeof statusObjectKind>; hasStatus: boolean; hasHistoryFlag: boolean } {
+  const names = new Set((structureColumns ?? meta.columns).map((c) => c.name.toUpperCase()).filter((n) => !n.includes(".")));
+  return { kind: statusObjectKind(names), hasStatus: names.has("STATUS"), hasHistoryFlag: names.has("HISTORYFLAG") };
+}
+
+/** ステータスの変更の件数と、行き先ごとの件数 */
+function statusCounts(plans: readonly CommitPlan[]): Pick<CommitCounts, "statusChanges" | "statusTargets" | "irreversible"> {
+  const withStatus = plans.filter((p) => p.status !== undefined);
+  if (withStatus.length === 0) return {};
+  const targets: Record<string, number> = {};
+  for (const p of withStatus) targets[p.status!.to] = (targets[p.status!.to] ?? 0) + 1;
+  const irreversible = withStatus.filter((p) => isIrreversibleStatus(p.status!.to)).length;
+  return { statusChanges: withStatus.length, statusTargets: targets, ...(irreversible > 0 ? { irreversible } : {}) };
 }
 
 function distinctParents(changes: CommitChanges): number {
@@ -218,7 +252,7 @@ export const createCommitController: CreateCommitController = (deps) => {
   const evalCache = new Map<string, { key: string; ev: Evaluation }>();
 
   function idlePanel(sheet: string): CommitPanelState {
-    return { sheet, state: "idle", counts: { ...ZERO_COUNTS }, blockers: [], needsDeleteConfirm: false, needsNullConfirm: false, awaitingCanary: null, results: [] };
+    return { sheet, state: "idle", counts: { ...ZERO_COUNTS }, blockers: [], needsDeleteConfirm: false, needsNullConfirm: false, needsIrreversibleConfirm: false, awaitingCanary: null, results: [] };
   }
 
   function ensure(sheet: string): Entry {
@@ -235,7 +269,7 @@ export const createCommitController: CreateCommitController = (deps) => {
     const conn = connection.current();
     const connected = conn !== null;
     if (!workspace.hasSheet(sheet)) {
-      return { counts: { ...ZERO_COUNTS }, blockers: [m().blocker.sheetMissing(sheet)], needsDeleteConfirm: false, needsNullConfirm: false };
+      return { counts: { ...ZERO_COUNTS }, blockers: [m().blocker.sheetMissing(sheet)], needsDeleteConfirm: false, needsNullConfirm: false, needsIrreversibleConfirm: false };
     }
     const s = workspace.getSheet(sheet);
     const source = s.meta.source;
@@ -250,6 +284,7 @@ export const createCommitController: CreateCommitController = (deps) => {
     const blockers: string[] = [];
     let needsDeleteConfirm = false;
     let needsNullConfirm = false;
+    let needsIrreversibleConfirm = false;
     if (source.kind !== "maximo") {
       blockers.push(notMaximoSheetBlocker());
     } else {
@@ -258,6 +293,8 @@ export const createCommitController: CreateCommitController = (deps) => {
       const attempt = attemptPlan(s.meta, s.records, changes);
       needsDeleteConfirm = attempt.needsDeleteConfirm;
       needsNullConfirm = attempt.needsNullConfirm;
+      needsIrreversibleConfirm = attempt.needsIrreversibleConfirm;
+      Object.assign(counts, statusCounts(attempt.plans));
       if (attempt.error !== null) blockers.push(attempt.error);
       else if (attempt.plans.length === 0 && changes.unwritableParentEdits.length === 0) blockers.push(noChangesBlocker());
       else counts.parents = attempt.plans.length;
@@ -287,7 +324,7 @@ export const createCommitController: CreateCommitController = (deps) => {
       const why = licenseBlocker(deps.license, conn.info.baseUrl);
       if (why !== null) blockers.push(why);
     }
-    const ev: Evaluation = { counts, blockers, needsDeleteConfirm, needsNullConfirm };
+    const ev: Evaluation = { counts, blockers, needsDeleteConfirm, needsNullConfirm, needsIrreversibleConfirm };
     evalCache.set(sheet, { key, ev });
     return ev;
   }
@@ -301,6 +338,7 @@ export const createCommitController: CreateCommitController = (deps) => {
       p.blockers = [...ev.blockers];
       p.needsDeleteConfirm = ev.needsDeleteConfirm;
       p.needsNullConfirm = ev.needsNullConfirm;
+      p.needsIrreversibleConfirm = ev.needsIrreversibleConfirm;
     }
     // 反映先（シートを読み込んだオブジェクト構造と接続先）
     const source = workspace.hasSheet(sheet) ? workspace.getSheet(sheet).meta.source : null;
@@ -400,6 +438,29 @@ export const createCommitController: CreateCommitController = (deps) => {
     return notes;
   }
 
+  /**
+   * 作れたがステータスの変更だけ失敗した行は、読み直しで初めのステータス（WAPPR など）になる。
+   * 書いたステータスを作業画面の変更として戻し、次の反映でステータスの変更だけを送れるようにする
+   */
+  function restoreCreateStatus(sheet: string, sheetId: number, rowKeys: readonly string[], createStatus: ReadonlyMap<string, { to: string; author: BatchAuthor }>): void {
+    if (rowKeys.length === 0 || !workspace.hasSheet(sheet)) return;
+    const s = workspace.getSheet(sheet);
+    if (s.id !== sheetId) return;
+    for (const author of ["user", "llm"] as const) {
+      const edits = rowKeys.flatMap((rowKey) => {
+        const want = createStatus.get(rowKey);
+        const cell = s.cell(rowKey, STATUS_ATTR);
+        return want !== undefined && want.author === author && cell !== null && cell.value !== want.to ? [{ rowKey, col: STATUS_ATTR, value: want.to }] : [];
+      });
+      if (edits.length === 0) continue;
+      try {
+        workspace.applyEdits(sheet, edits, { author, reason: m().note.statusKept });
+      } catch {
+        // 戻せなくても反映の結果は変わらない（行の結果の文で、ステータスを入れ直すよう伝えている）
+      }
+    }
+  }
+
   /** run を実行しなかったときに、理由を message に入れてパネルを返す */
   function notRun(sheet: string, message: string): CommitPanelState {
     const e = ensure(sheet);
@@ -437,16 +498,18 @@ export const createCommitController: CreateCommitController = (deps) => {
       }
       const allowNull = opts.allowNull === true;
       const deletesConfirmed = opts.deletesConfirmed === true;
+      const irreversibleConfirmed = opts.irreversibleConfirmed === true;
       // 人の確認が要る変更は、確認済みで呼ばれたときだけ実行する
-      if ((ev.needsNullConfirm && !allowNull) || (ev.needsDeleteConfirm && !deletesConfirmed)) {
+      if ((ev.needsNullConfirm && !allowNull) || (ev.needsDeleteConfirm && !deletesConfirmed) || (ev.needsIrreversibleConfirm && !irreversibleConfirmed)) {
         const why: string[] = [];
         if (ev.needsNullConfirm && !allowNull) why.push(needsNullConfirmMessage());
         if (ev.needsDeleteConfirm && !deletesConfirmed) why.push(needsDeleteConfirmMessage());
+        if (ev.needsIrreversibleConfirm && !irreversibleConfirmed) why.push(needsIrreversibleConfirmMessage());
         return notRun(sheet, why.join(" "));
       }
       const s = workspace.getSheet(sheet);
       const meta = s.meta;
-      const attempt = attemptPlan(meta, s.records, workspace.changes(sheet), { allowNull, deletesConfirmed });
+      const attempt = attemptPlan(meta, s.records, workspace.changes(sheet), { allowNull, deletesConfirmed, irreversibleConfirmed });
       if (attempt.error !== null) return notRun(sheet, `${planFailedMessagePrefix()}${attempt.error}`);
       if (attempt.plans.length === 0) return notRun(sheet, `${blockedMessagePrefix()}${noChangesBlocker()}`);
       // 本番の接続先なら、送る直前に橋渡しでライセンスをもう一度確かめる（手元の一覧が古いこともある）。
@@ -470,6 +533,11 @@ export const createCommitController: CreateCommitController = (deps) => {
       }
       const plans = attempt.plans;
       const sheetId = s.id;
+      // 新しいレコードのステータス（作った後に変える）。ステータスだけ失敗したとき、作業画面に戻すために書いた人と値を覚えておく
+      const createStatus = new Map<string, { to: string; author: BatchAuthor }>();
+      for (const plan of plans) {
+        if (plan.create !== undefined && plan.status !== undefined) createStatus.set(plan.parentKey, { to: plan.status.to, author: s.cell(plan.parentKey, STATUS_ATTR)?.author ?? "user" });
+      }
       const startRevision = workspace.revision;
       // 差分レポート用に、送る前の差分と依頼の写しを残す（反映した行は読み直されて差分から消えるため）
       const lastRun: LastRun = { snapshot: takeReportSnapshot(workspace, sheet, panel(sheet), now()), log: [], endRevision: null };
@@ -481,6 +549,7 @@ export const createCommitController: CreateCommitController = (deps) => {
       p.blockers = [];
       p.needsDeleteConfirm = ev.needsDeleteConfirm;
       p.needsNullConfirm = ev.needsNullConfirm;
+      p.needsIrreversibleConfirm = ev.needsIrreversibleConfirm;
       p.awaitingCanary = null;
       p.results = [];
       p.startedAt = now();
@@ -520,6 +589,9 @@ export const createCommitController: CreateCommitController = (deps) => {
           ...(meta.source.kind === "maximo" ? { os: meta.source.os } : {}),
           allowNull,
           maxDeletesConfirmed: deletesConfirmed,
+          irreversibleConfirmed,
+          // ステータスの決まり（履歴・改訂が要る注文書・移れないステータスは送らない）。作業画面に保存した構造の定義から
+          statusGuard: statusGuardOf(meta, meta.source.kind === "maximo" && meta.source.baseUrl !== undefined && deps.catalog ? (deps.catalog.get(meta.source.baseUrl, meta.source.os)?.info.columns ?? null) : null),
         });
       } catch (e) {
         // 送信前の検査で止めた（1 件も送っていない）。書き込めていないので done（成功）にはしない
@@ -532,13 +604,15 @@ export const createCommitController: CreateCommitController = (deps) => {
         p.awaitingCanary = null;
       }
 
-      const verified = p.results.filter((r) => r.status === "verified").map((r) => r.rowKey);
+      // 確かめた行と、作れたがステータスの変更だけが失敗した行（作ったレコードに付け替えないと、次に二重に作ろうとする）を読み直す
+      const verified = p.results.filter((r) => r.status === "verified" || created.has(r.rowKey)).map((r) => r.rowKey);
       if (verified.length > 0) {
         const notes = await applyVerified(sheet, sheetId, startRevision, conn, verified, created);
         for (const r of p.results) {
           const note = notes.get(r.rowKey);
           if (note !== undefined && r.status === "verified") r.message = r.message === undefined ? note : m().note.append(r.message, note);
         }
+        restoreCreateStatus(sheet, sheetId, p.results.filter((r) => r.status !== "verified" && created.has(r.rowKey)).map((r) => r.rowKey), createStatus);
       }
       if (entry.cancelled) {
         // 中止した後に skipped になった行は、書き込みエンジンの内部の理由（中止は onRow の例外で伝えている）ではなく中止と書く。

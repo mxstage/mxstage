@@ -339,6 +339,8 @@ function panelSummary(p: CommitPanelState): Record<string, unknown> {
     blockers: p.blockers,
     needsDeleteConfirm: p.needsDeleteConfirm,
     needsNullConfirm: p.needsNullConfirm,
+    // 戻せないステータス（クローズ・取消など）への変更を含む。反映の画面で人の確認が要る
+    ...(p.needsIrreversibleConfirm === true ? { needsIrreversibleConfirm: true } : {}),
     awaitingCanary: p.awaitingCanary !== null,
     resultCounts: resultCounts(p),
   };
@@ -1195,6 +1197,7 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
           blockers: p.blockers,
           needsDeleteConfirm: p.needsDeleteConfirm,
           needsNullConfirm: p.needsNullConfirm,
+          ...(p.needsIrreversibleConfirm === true ? { needsIrreversibleConfirm: true } : {}),
           message,
         },
         revision(),

@@ -168,8 +168,10 @@ describe("planCommit", () => {
         expectedRowstamp: records[1]!.rowstamp,
         expectedChildIds: {},
         expectedChildRowstamps: {},
-        attrs: { STATUS: "INPRG" },
+        // ステータスは属性として送らず、更新の後に changeStatus で変える
+        attrs: {},
         children: {},
+        status: { to: "INPRG", from: "APPR" },
       },
     ]);
   });
@@ -287,7 +289,7 @@ describe("planCommit", () => {
 
   it("I7: href は読み込み時のものだけ。クエリ付きや URL でない href は拒否する", async () => {
     const { meta, records } = await setup();
-    const change = { ...none(), cells: [{ rowKey: pk("WO1003"), col: "STATUS", value: "CLOSE" }] };
+    const change = { ...none(), cells: [{ rowKey: pk("WO1003"), col: "DESCRIPTION", value: "塗装（完了報告済み）" }] };
     for (const href of ["", "https://maximo.test/maximo/api/os/mxapiwo/_A?lean=1", "javascript:alert(1)"]) {
       const bad = records.map((r) => (r.attrs.WONUM === "WO1003" ? { ...r, href } : r));
       // href が空だと親キーは列から作るので、ここでは I7 で止まる
@@ -297,7 +299,7 @@ describe("planCommit", () => {
 
   it("I7: 構造を渡すと、送信先はその構造のレコードだけ（シートを読み込んだ構造とは別の構造へ送らない）", async () => {
     const s = await setup();
-    const change = { ...none(), cells: [{ rowKey: pk("WO1003"), col: "STATUS", value: "CLOSE" }] };
+    const change = { ...none(), cells: [{ rowKey: pk("WO1003"), col: "DESCRIPTION", value: "塗装（完了報告済み）" }] };
     const plans = planCommit(s.meta, s.records, change);
     const before = s.fake.writeCount();
     await expect(run(s, plans, { os: "MXAPIASSET" })).rejects.toMatchObject({ code: "I7" });
@@ -400,7 +402,8 @@ describe("validatePlans（送信前の再検査）", () => {
     expect(check(basePlan({ attrs: { DESCRIPTION: "x" } }), withCols)).toBeNull();
     expect(check(basePlan({ attrs: { CHANGEBY: "x" } }), withCols)).toBe("I5");
     expect(check(basePlan({ attrs: { WONUM: "x" } }), withCols)).toBe("I5");
-    expect(check(basePlan({ attrs: { STATUS: "x" } }), withCols)).toBe("I5");
+    // ステータスは属性として送らない（I12）
+    expect(check(basePlan({ attrs: { STATUS: "x" } }), withCols)).toBe("I12");
     expect(check(basePlan({ children: { MULTIASSETLOCCI: [{ action: "Change", idAttr: "MULTIID", id: 11, attrs: { ASSETNUM: "A" } }] } }), withCols)).toBe("I5");
     expect(check(basePlan({ children: { MULTIASSETLOCCI: [{ action: "Add", attrs: { LOCATION: "L", SEQUENCE: 1 } }] } }), withCols)).toBe("I5");
   });
@@ -501,10 +504,10 @@ describe("fake Maximo: MERGE の有無", () => {
     expect((await fake.fetch(href, { method: "GET" })).status).toBe(401);
     expect((await fake.fetch(`${href}&apikey=${fake.apiKey}`, { method: "GET", headers: { apikey: fake.apiKey } })).status).toBe(400);
     const h = { patchtype: "MERGE", transactionid: "t-1" };
-    expect((await send(fake, "WO1003", h, { status: "CLOSE" })).status).toBeLessThan(300);
-    const dup = await send(fake, "WO1003", h, { status: "CAN" });
+    expect((await send(fake, "WO1003", h, { description: "塗装（1 回目）" })).status).toBeLessThan(300);
+    const dup = await send(fake, "WO1003", h, { description: "塗装（2 回目）" });
     expect(dup.status).toBe(409);
-    expect(woOf(fake, "WO1003").attrs.status).toBe("CLOSE");
+    expect(woOf(fake, "WO1003").attrs.description).toBe("塗装（1 回目）");
   });
 });
 
@@ -541,14 +544,16 @@ describe("executeCommit", () => {
     expect(woOf(fake, "WO1002").children.multiassetlocci).toEqual(before.find((r) => r.attrs.wonum === "WO1002")!.children.multiassetlocci);
     for (const w of ["WO1003", "WO1004", "WO1005"]) expect(woOf(fake, w)).toEqual(before.find((r) => r.attrs.wonum === w));
 
-    // 送り方: 親ごとに GET（precheck）→ POST → GET（verify）。POST は href + ?lean=1 に MERGE で送る
+    // 送り方: 親ごとに GET（precheck）→ POST → GET（verify）。中身の POST は href + ?lean=1 に MERGE で送る。
+    // ステータスだけの変更（WO1002）は、href + ?action=wsmethod:changeStatus に MERGE なしで送る
     expect(fake.state.requests.map((r) => r.method)).toEqual(["GET", "POST", "GET", "GET", "POST", "GET"]);
     const p = posts(fake);
     expect(p[0]!.path).toBe(`${new URL(s.records[0]!.href).pathname}?lean=1`);
-    for (const r of p) {
-      expect(r.headers.patchtype).toBe("MERGE");
-      expect(r.headers["x-method-override"]).toBe("PATCH");
-    }
+    expect(p[0]!.headers.patchtype).toBe("MERGE");
+    expect(p[1]!.path).toBe(`${new URL(s.records[1]!.href).pathname}?action=wsmethod:changeStatus&lean=1`);
+    expect(p[1]!.headers.patchtype).toBeUndefined();
+    expect(p[1]!.body).toMatchObject({ status: "INPRG", memo: "MX Stage" });
+    for (const r of p) expect(r.headers["x-method-override"]).toBe("PATCH");
     const pre = new URL(fake.state.requests[0]!.url);
     expect(pre.searchParams.get("oslc.select")).toBe("_rowstamp,description,multiassetlocci{multiid,_rowstamp,location,assetnum,isprimary,sequence}");
     for (const r of fake.state.requests) expect(r.url).not.toContain(fake.apiKey);
@@ -591,7 +596,7 @@ describe("executeCommit", () => {
 
   it("1 件だけならカナリアを待たない。計画が空なら何も送らない", async () => {
     const s = await setup();
-    const one = planCommit(s.meta, s.records, { ...none(), cells: [{ rowKey: pk("WO1003"), col: "STATUS", value: "CLOSE" }] });
+    const one = planCommit(s.meta, s.records, { ...none(), cells: [{ rowKey: pk("WO1003"), col: "DESCRIPTION", value: "塗装（完了報告済み）" }] });
     const r1 = await run(s, one);
     expect(r1.results[0]!.status).toBe("verified");
     expect(r1.canaryCalls).toHaveLength(0);
@@ -603,7 +608,7 @@ describe("executeCommit", () => {
     it("読み込み後に親が更新されていれば conflict。次の親は送り、カナリアは実際に送った 1 件の後に待つ", async () => {
       const s = await setup();
       const changes = typicalChanges();
-      changes.cells.push({ rowKey: pk("WO1003"), col: "STATUS", value: "CLOSE" });
+      changes.cells.push({ rowKey: pk("WO1003"), col: "DESCRIPTION", value: "塗装（完了報告済み）" });
       const plans = planCommit(s.meta, s.records, changes);
       s.fake.update("mxapiwo", woOf(s.fake, "WO1001").uid, (r) => {
         r.attrs.description = "他の人の変更";
@@ -1103,7 +1108,6 @@ describe("性質: 計画を fake に適用すると期待状態と一致する",
             const parentRows = keptRows.length > 0 ? keptRows : [parentKey];
             const parentEdits: Array<[string, string, CellValue | undefined]> = [
               ["DESCRIPTION", "description", p.newDescription],
-              ["STATUS", "status", p.newStatus],
               ["ESTDUR", "estdur", p.newEstdur],
             ];
             for (const [col, attr, v] of parentEdits) {

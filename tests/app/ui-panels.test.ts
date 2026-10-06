@@ -131,7 +131,7 @@ describe("反映パネル", () => {
     expect(commits.runCalls).toEqual([]);
 
     await click("反映する");
-    expect(commits.runCalls).toEqual([{ sheet: "許可申請", opts: { allowNull: false, deletesConfirmed: false } }]);
+    expect(commits.runCalls).toEqual([{ sheet: "許可申請", opts: { allowNull: false, deletesConfirmed: false, irreversibleConfirmed: false } }]);
     expect(onMessage).toHaveBeenCalledWith("反映が終わりました（反映済み 1 件）。", "info");
   });
 
@@ -164,7 +164,25 @@ describe("反映パネル", () => {
     }
     expect(findButton("反映する")?.disabled).toBe(false);
     await click("反映する");
-    expect(commits.runCalls).toEqual([{ sheet: "許可申請", opts: { allowNull: true, deletesConfirmed: true } }]);
+    expect(commits.runCalls).toEqual([{ sheet: "許可申請", opts: { allowNull: true, deletesConfirmed: true, irreversibleConfirmed: false } }]);
+  });
+
+  it("戻せないステータス（クローズ）への変更は、チェックを入れるまで反映できない。ステータスの変更の件数を出す", async () => {
+    const commits = new FakeCommits();
+    commits.set("作業指示", {
+      needsIrreversibleConfirm: true,
+      counts: { parents: 3, changedCells: 3, addedRows: 0, deletedRows: 0, statusChanges: 3, statusTargets: { CLOSE: 2, COMP: 1 }, irreversible: 2 },
+    });
+    await render(props(commits, "作業指示"));
+    await click("Maximo に反映");
+    expect(container.textContent).toContain("CLOSE");
+    expect(findButton("反映する")?.disabled).toBe(true);
+    const checks = Array.from(container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'));
+    expect(checks).toHaveLength(1);
+    await check(checks[0]!);
+    expect(findButton("反映する")?.disabled).toBe(false);
+    await click("反映する");
+    expect(commits.runCalls).toEqual([{ sheet: "作業指示", opts: { allowNull: false, deletesConfirmed: false, irreversibleConfirmed: true } }]);
   });
 
   it("反映しなかったときに「終わりました」と言わない", async () => {

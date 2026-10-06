@@ -73,6 +73,10 @@ export const commitEngineMessages = defineMessages(
       hrefNotSheetOsRecord: (key: string, os: string) =>
         `The href of parent ${key} does not point to a record of ${os}, the object structure the sheet was loaded from`,
       duplicateTransactionId: "Duplicate transactionid in the same run",
+      statusHistoryChild: (kind: string) => `${kind} is the status history that Maximo writes; its rows cannot be added, changed or deleted`,
+      statusEmpty: "The status cannot be cleared",
+      irreversibleStatus: (count: number, values: string) => `${count} record${count === 1 ? "" : "s"} change to a status that cannot be undone (${values})`,
+      statusAsAttr: (parentKey: string) => `${parentKey}: the status must not be sent as an attribute (it is changed with changeStatus)`,
     },
     /** 行ごとの結果（CommitRowResult.message） */
     row: {
@@ -100,6 +104,14 @@ export const commitEngineMessages = defineMessages(
       childRowstampMissing: (kind: string) => `Not sent: the plan has no _rowstamp from loading for child ${kind}, so it cannot be checked`,
       childGone: (kind: string) => `Not sent: a ${kind} child can no longer be found after loading`,
       childUpdated: (kind: string) => `Not sent: a ${kind} child was updated after loading (_rowstamp differs)`,
+      historyRecord: (status: string) =>
+        `Not sent: the record is in history (status ${status}), so Maximo does not allow changes. An administrator can change some fields with Edit History Work Order in Maximo`,
+      poNeedsRevision: (status: string) => `Not sent: the purchase order is ${status}. Revise it in Maximo (Revise PO), then change it`,
+      statusTransition: (from: string, to: string) => `Not sent: Maximo does not allow the status to change from ${from} to ${to}`,
+      createdButStatus: (to: string, why: string) => `Created and verified, but the status could not be changed to ${to}: ${why}. The status change stays on the work screen; commit again to retry only the status change`,
+      changedButStatus: (to: string, why: string) => `Changes verified, but the status could not be changed to ${to}: ${why}`,
+      statusLooksApplied: (to: string) => `No clear response, but reading back shows status ${to}`,
+      statusNotApplied: (to: string, got: string) => `The status change was sent, but the status read back is ${got}, not ${to}`,
     },
     /** 読み直した結果が計画と合わない項目（名前だけ。値は入れない） */
     mismatch: {
@@ -173,6 +185,10 @@ export const commitEngineMessages = defineMessages(
       hrefNotOsRecord: (key) => `親 ${key} の href がオブジェクト構造のレコードを指していない`,
       hrefNotSheetOsRecord: (key, os) => `親 ${key} の href がシートを読み込んだオブジェクト構造 ${os} のレコードを指していない`,
       duplicateTransactionId: "transactionid が同じ実行の中で重複している",
+      statusHistoryChild: (kind) => `${kind} は Maximo が書くステータスの履歴なので、行を足す・変える・消すことはできない`,
+      statusEmpty: "ステータスは空にできない",
+      irreversibleStatus: (count, values) => `${count} 件を戻せないステータス（${values}）に変える`,
+      statusAsAttr: (parentKey) => `${parentKey}: ステータスを属性として送ってはいけない（changeStatus で変える）`,
     },
     row: {
       onRowFailed: "結果の通知（onRow）に失敗したため送らなかった",
@@ -198,6 +214,14 @@ export const commitEngineMessages = defineMessages(
       childRowstampMissing: (kind) => `子 ${kind} の読み込み時の _rowstamp が計画に無く、照合できないため送らなかった`,
       childGone: (kind) => `読み込み後に子 ${kind} が見つからなくなったため送らなかった`,
       childUpdated: (kind) => `読み込み後に子 ${kind} が更新された（_rowstamp が違う）ため送らなかった`,
+      historyRecord: (status) =>
+        `送らなかった: 履歴のレコード（ステータス ${status}）なので Maximo が変更を許さない。一部の項目は、管理者が Maximo の「履歴の作業指示の編集」で直せる`,
+      poNeedsRevision: (status) => `送らなかった: 注文書が ${status} のため、Maximo で改訂（Revise PO）してから直す`,
+      statusTransition: (from, to) => `送らなかった: Maximo ではステータスを ${from} から ${to} に変えられない`,
+      createdButStatus: (to, why) => `作成は確かめたが、ステータスを ${to} にできなかった: ${why}。ステータスの変更は作業画面に残したので、もう一度反映するとステータスの変更だけを試す`,
+      changedButStatus: (to, why) => `中身の変更は確かめたが、ステータスを ${to} にできなかった: ${why}`,
+      statusLooksApplied: (to) => `応答ははっきりしないが、読み直すとステータスは ${to} になっている`,
+      statusNotApplied: (to, got) => `ステータスの変更を送ったが、読み直したステータスが ${to} ではなく ${got}`,
     },
     mismatch: {
       changedChildMissing: (kind) => `${kind}（変更した子が見つからない）`,
@@ -245,6 +269,8 @@ export const commitMessages = defineMessages(
       unknownParent: "A parent row that was not there when the sheet was loaded has been changed. Reload the sheet.",
       conflictingParentValues: "Rows of the same parent have different values in a parent column. Make them the same.",
       addedParentMismatch: "A parent column in an added row differs from the parent's value. Change parent columns on the parent row.",
+      statusEmpty: "A status was cleared. Enter a status, or undo the change.",
+      statusHistoryChild: "The status history (such as WOSTATUS) cannot be changed. Change the STATUS column of the record instead, and undo the changes to the history rows.",
       input: "This combination of changes cannot be committed. Review the changes on the work screen.",
       I2: "The changes do not match the child records from loading (children with an unknown ID cannot be changed or deleted). Reload the sheet.",
       I3: (perParent: number, total: number) =>
@@ -255,6 +281,8 @@ export const commitMessages = defineMessages(
       I7: "The URL (href) loaded from Maximo cannot be used. Reload the sheet.",
       I8: (max: number) => `Up to ${max} parents can be committed at a time. Narrow the load criteria and commit in batches.`,
       I10: "Some changes clear values (null). Confirm that clearing them is OK, then run again.",
+      I11: "Some records change to a status that cannot be undone (such as closed or cancelled). Confirm the statuses, then run again.",
+      I12: "The status was about to be sent as an ordinary value. Reload the sheet and set the status again.",
       other: "The commit plan could not be built. Review the changes on the work screen.",
       /** 利用者向けの文に、内部コードと詳細を括弧で添える */
       withDetail: (advice: string, code: string, detail: string) => `${advice} (${code}: ${detail})`,
@@ -265,6 +293,7 @@ export const commitMessages = defineMessages(
       alreadyRunning: "This sheet is being committed. Try again when it finishes.",
       blockedPrefix: "Not run because some issues prevent committing: ",
       needsNullConfirm: "Some changes clear values (null). Confirm that clearing them is OK, then run again.",
+      needsIrreversibleConfirm: "Some records change to a status that cannot be undone (such as closed or cancelled). Confirm the statuses, then run again.",
       needsDeleteConfirm: "The number of deletions is over the limit. Confirm the deletions, then run again.",
       planFailedPrefix: "Not run because the commit plan could not be built: ",
       cancelled: "Cancelled. Rows already sent were not rolled back.",
@@ -279,6 +308,7 @@ export const commitMessages = defineMessages(
       reloadFailed: (why: string) => `Commit verified, but reading back failed, so the changes were kept on the work screen (${why})`,
       kept: (why: string) => `Commit verified, but the changes were kept on the work screen because ${why}`,
       updateFailed: (why: string) => `Commit verified, but updating the values on the work screen failed (${why})`,
+      statusKept: "The record was created, but its status could not be changed. Commit again to send only the status change",
       /** 行の結果の文に注記を足す */
       append: (message: string, note: string) => `${message}. ${note}`,
     },
@@ -317,6 +347,7 @@ export const commitMessages = defineMessages(
       changedCells: (n: number) => `Cells to change: ${n}`,
       addedRows: (n: number) => `Rows to add: ${n}`,
       newRecords: (n: number) => `New records to create in Maximo: ${n}`,
+      statusChanges: (n: number, detail: string) => `Status changes: ${n} (${detail}). Changed after the record is created or updated and verified`,
       deletedRows: (n: number) => `Rows to delete: ${n}`,
     },
     state: {
@@ -362,6 +393,7 @@ export const commitMessages = defineMessages(
         changedCells: "Changed cells",
         addedRows: "Added rows",
         newRecords: "New records",
+        statusChanges: "Status changes",
         deletedRows: "Deleted rows",
       },
       commitButton: "Commit to Maximo",
@@ -376,6 +408,7 @@ export const commitMessages = defineMessages(
       canaryNote: "After the first row is sent, you check its result before the rest are sent. Nothing is retried automatically.",
       confirmDeletes: (n: number) => `I confirm this includes ${n} deletion${n === 1 ? "" : "s"}`,
       confirmNulls: "I confirm this includes changes to empty (null)",
+      confirmIrreversible: (n: number, values: string) => `I confirm ${n} record${n === 1 ? "" : "s"} change to a status that cannot be undone (${values})`,
       canaryTitle: "Result of the first row",
       canaryStop: "Stop",
       canaryContinue: "Continue",
@@ -412,6 +445,8 @@ export const commitMessages = defineMessages(
       unknownParent: "読み込んだときに無かった親の行が変更されています。シートを読み込み直してください",
       conflictingParentValues: "同じ親の行で親の列に別々の値が入っています。どちらかに揃えてください",
       addedParentMismatch: "追加した行の親の列が親の値と違います。親の列は親の行で変更してください",
+      statusEmpty: "ステータスが空になっています。ステータスを入れるか、変更を取り消してください",
+      statusHistoryChild: "ステータスの履歴（WOSTATUS など）は変えられません。レコードの STATUS の列を変え、履歴の行の変更は取り消してください",
       input: "変更の組み合わせが反映できない形です。作業画面で変更を見直してください",
       I2: "読み込んだときの子レコードと合いません（ID の分からない子は変更・削除できません）。シートを読み込み直してください",
       I3: (perParent, total) =>
@@ -422,6 +457,8 @@ export const commitMessages = defineMessages(
       I7: "Maximo から読み込んだ URL（href）が使えません。シートを読み込み直してください",
       I8: (max) => `1 回に反映できる親は ${max} 件までです。読み込む条件を絞って分けて反映してください`,
       I10: "空（null）にする変更があります。空にしてよいことを確認してから実行してください",
+      I11: "戻せないステータス（クローズ・取消など）に変えるレコードがあります。ステータスを確かめてから実行してください",
+      I12: "ステータスを普通の値として送ろうとしていました。シートを読み込み直して、ステータスを入れ直してください",
       other: "反映の計画を作れませんでした。作業画面で変更を見直してください",
       withDetail: (advice, code, detail) => `${advice}（${code}: ${detail}）`,
       planFailed: (why) => `計画を作れませんでした（${why}）`,
@@ -430,6 +467,7 @@ export const commitMessages = defineMessages(
       alreadyRunning: "このシートは反映中です。終わってからもう一度実行してください",
       blockedPrefix: "反映できない問題があるため実行しませんでした: ",
       needsNullConfirm: "空（null）にする変更があります。空にしてよいことを確認してから実行してください",
+      needsIrreversibleConfirm: "戻せないステータス（クローズ・取消など）に変えるレコードがあります。ステータスを確かめてから実行してください",
       needsDeleteConfirm: "削除の件数が上限を超えています。削除してよいことを確認してから実行してください",
       planFailedPrefix: "反映の計画を作れなかったため実行しませんでした: ",
       cancelled: "利用者が中止しました。送信済みの分は取り消していません",
@@ -443,6 +481,7 @@ export const commitMessages = defineMessages(
       reloadFailed: (why) => `反映は確認したが、読み直しに失敗したため作業画面の変更を残した（${why}）`,
       kept: (why) => `反映は確認したが、${why}ため作業画面の変更を残した`,
       updateFailed: (why) => `反映は確認したが、作業画面の値の更新に失敗した（${why}）`,
+      statusKept: "レコードは作ったが、ステータスを変えられなかった。もう一度反映すると、ステータスの変更だけを送る",
       append: (message, note) => `${message}。${note}`,
     },
     reload: {
@@ -476,6 +515,7 @@ export const commitMessages = defineMessages(
       changedCells: (n) => `変更するセル: ${n} 件`,
       addedRows: (n) => `追加する行: ${n} 件`,
       newRecords: (n) => `Maximo に新しく作るレコード: ${n} 件`,
+      statusChanges: (n, detail) => `ステータスの変更: ${n} 件（${detail}）。レコードの作成・更新を確かめてから変える`,
       deletedRows: (n) => `削除する行: ${n} 件`,
     },
     state: {
@@ -519,6 +559,7 @@ export const commitMessages = defineMessages(
         changedCells: "変更セル",
         addedRows: "追加行",
         newRecords: "新規レコード",
+        statusChanges: "ステータスの変更",
         deletedRows: "削除行",
       },
       commitButton: "Maximo に反映",
@@ -533,6 +574,7 @@ export const commitMessages = defineMessages(
       canaryNote: "最初の 1 件を送ったところで結果を確認してから、残りを送ります。自動では再試行しません。",
       confirmDeletes: (n) => `削除 ${n} 件を含むことを確認しました`,
       confirmNulls: "空（null）への変更を含むことを確認しました",
+      confirmIrreversible: (n, values) => `${n} 件を戻せないステータス（${values}）に変えることを確認しました`,
       canaryTitle: "最初の 1 件の結果",
       canaryStop: "中止",
       canaryContinue: "続行",

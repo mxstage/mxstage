@@ -44,6 +44,11 @@ export interface CommitCounts {
   deletedRows: number;
   /** Maximo に新しく作るレコード（追加した親の行）の数。0 なら省くことがある */
   newRecords?: number;
+  /** ステータスを変えるレコードの数と、行き先のステータスごとの数（無ければ省く） */
+  statusChanges?: number;
+  statusTargets?: Record<string, number>;
+  /** そのうち戻せないステータス（クローズ・取消など）に変える数 */
+  irreversible?: number;
 }
 
 /** 反映パネルの状態（シートごと） */
@@ -61,6 +66,8 @@ export interface CommitPanelState {
   needsDeleteConfirm: boolean;
   /** null（空）への変更を含むため、人の確認が要る（I10） */
   needsNullConfirm: boolean;
+  /** 戻せないステータス（クローズ・取消など）への変更を含むため、人の確認が要る（I11） */
+  needsIrreversibleConfirm?: boolean;
   /** カナリア（最初の 1 件）の結果。人が続行を判断するまで残りを送らない */
   awaitingCanary: CommitRowResult | null;
   results: CommitRowResult[];
@@ -86,7 +93,7 @@ export interface CommitRequester {
 /** UI だけが使う反映の口 */
 export interface CommitController extends CommitRequester {
   /** 利用者が作業画面で [Maximo に反映] をクリックしたときだけ呼ぶ */
-  run(sheet: string, opts: { allowNull?: boolean; deletesConfirmed?: boolean }): Promise<CommitPanelState>;
+  run(sheet: string, opts: { allowNull?: boolean; deletesConfirmed?: boolean; irreversibleConfirmed?: boolean }): Promise<CommitPanelState>;
   /** カナリアの結果を見た利用者の判断 */
   continueCanary(sheet: string, proceed: boolean): void;
   /** 反映を打ち切る（利用者の操作）。送信済みの分は取り消さず、残りを skipped にして isRunning を解く */

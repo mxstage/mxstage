@@ -10,9 +10,9 @@ export const DEMO_LANGS: readonly DemoLang[] = ["ja", "en"];
 /** データの置き場所（静的なファイルだけ。何も送らない） */
 export const DEMO_DATA_URL = "https://mxstage-demo.pages.dev";
 /** この製品が使うデータの版（置き場所の v<版>/） */
-export const DEMO_DATA_VERSION = 2;
+export const DEMO_DATA_VERSION = 3;
 /** v<版>/manifest.json の SHA-256（npm run demo:build が最後に出す値） */
-export const DEMO_MANIFEST_SHA256 = "35beaae3ad2d60f647c8c082c6eaf0dd38a3c24940307f32c0faef2db5fd8e88";
+export const DEMO_MANIFEST_SHA256 = "916bd1a3239e61449c1713588911776b523a6ecdea109e0eaf0a9e6c53a88a74";
 
 /** 予約の接続先 ID（保存した接続先の ID は c_<16 桁>なので重ならない） */
 export const DEMO_CONNECTION_IDS: Readonly<Record<DemoLang, string>> = { ja: "demo-ja", en: "demo-en" };

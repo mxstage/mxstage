@@ -82,7 +82,7 @@ npm run dev:bridge
 | ASSETSPEC / ASSETMETER / SPAREPART（MXAPIASSET の子） | | | | 14,806 / 777 / 911 |
 | PM（MXAPIPM） | 684 | 520 | 514 | |
 | WORKORDER（MXAPIWODETAIL・MXAPIWO） | 23,643 | 17,179 | 10,930 | 51,752 |
-| WOSTATUS / FAILUREREPORT（MXAPIWODETAIL の子） | | | | 250,740 / 19,857 |
+| WOSTATUS / FAILUREREPORT（MXAPIWODETAIL の子） | | | | 247,921 / 19,857 |
 | SR（MXAPISR） | 3,477 | 2,223 | 1,447 | 7,147 |
 | METERREADING（MXAPIMETERREADING） | 15,096 | 11,730 | 7,345 | 34,171 |
 | INVENTORY（MXAPIINVENTORY） | 176 | 163 | 164 | |
@@ -93,7 +93,8 @@ npm run dev:bridge
 | MEASUREUNIT / METER / COMPANIES / MAXDOMAIN | | | | 37 / 5 / 32 / 17 |
 
 作業指示の作業タイプ: PM 15,500、INSP 19,686、CAL 7,255、CM 8,231、EM 1,080（ほかに値の一覧だけの CP 更新工事）。
-ステータス: CLOSE 47,589、CAN 2,012、COMP 1,369、INPRG 466、APPR 267、WAPPR 43、WMATL 6。
+ステータス: CLOSE 44,770、COMP 4,188、CAN 2,012、INPRG 466、APPR 267、WAPPR 43、WMATL 6。
+クローズは年度末にまとめて行います（終わった年度の次の 4 月）。今年度（2026 年度、基準日 2026-09-30）に終わった作業指示は COMP のままで、中身を直せます（第 3 版から。第 2 版は終わりの 1〜30 日後にクローズしていた）。
 
 ## オブジェクト構造
 
@@ -173,7 +174,7 @@ MX Stage で見つけて直す練習用に、わざと入れてある問題で�
 
 ## Excel のサンプル（5 種、日英）
 
-`dev/demo/excel/builders.ts` がデータと同じ種から作るので、Maximo のデータと本当に突き合わせられます。正解は `dist/demo-data-truth/v2/<言語>/truth.json`（公開しない）。
+`dev/demo/excel/builders.ts` がデータと同じ種から作るので、Maximo のデータと本当に突き合わせられます。正解は `dist/demo-data-truth/v<版>/<言語>/truth.json`（公開しない）。
 
 | ID | ファイル | 中身と仕掛け | 突き合わせる先 |
 |---|---|---|---|
@@ -187,8 +188,8 @@ MX Stage で見つけて直す練習用に、わざと入れてある問題で�
 
 `npm run demo:build` が `dist/demo-data/` に書き出します（形は `src/demo/format.ts`）。
 
-- `v2/manifest.json`: 版、ファイルごとの大きさ・SHA-256・件数。製品はこの SHA-256 を埋め込んで確かめる予定です。
-- `v2/<言語>/osdefs.json.gz`（構造の定義と値の一覧）、`v2/<言語>/os/<構造>.ndjson.gz`（記録）、`v2/<言語>/excel/<ID>.xlsx`。1 言語で約 9 MB。
+- `v<版>/manifest.json`: 版、ファイルごとの大きさ・SHA-256・件数。製品はこの SHA-256 を埋め込んで確かめます（`src/shared/demo.ts`）。
+- `v<版>/<言語>/osdefs.json.gz`（構造の定義と値の一覧）、`v<版>/<言語>/os/<構造>.ndjson.gz`（記録）、`v<版>/<言語>/excel/<ID>.xlsx`。1 言語で約 9 MB。
 - `index.html`（Excel のダウンロード）、`_headers`（キャッシュと CORS）、`robots.txt`。
 
 ## 試験

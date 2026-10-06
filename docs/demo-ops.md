@@ -28,7 +28,7 @@ npx vitest run --project dev
 
 ```powershell
 $xl = New-Object -ComObject Excel.Application; $xl.DisplayAlerts = $false
-Get-ChildItem dist\demo-data\v2 -Recurse -Filter *.xlsx | ForEach-Object { $wb = $xl.Workbooks.Open($_.FullName, 0, $true); "$($_.Name) $($wb.Worksheets.Count)"; $wb.Close($false) }
+Get-ChildItem dist\demo-data\v3 -Recurse -Filter *.xlsx | ForEach-Object { $wb = $xl.Workbooks.Open($_.FullName, 0, $true); "$($_.Name) $($wb.Worksheets.Count)"; $wb.Close($false) }
 $xl.Quit()
 ```
 
@@ -54,7 +54,7 @@ $xl.Quit()
    npx wrangler pages deploy dist/demo-data --project-name mxstage-demo --branch main --commit-dirty=true
    ```
 
-4. 確かめる: `https://mxstage-demo.pages.dev/v2/manifest.json` を落とし、`demo:build` が出した SHA-256 と同じか。Excel を 1 つ落として開けるか。
+4. 確かめる: `https://mxstage-demo.pages.dev/v<版>/manifest.json` を落とし、`demo:build` が出した SHA-256 と同じか。古い版の manifest も前と同じ SHA-256 のままか。Excel を 1 つ落として開けるか。
 
 ## 版を上げるとき
 
@@ -63,3 +63,7 @@ $xl.Quit()
 - 製品に埋め込んだ版と SHA-256（`src/shared/demo.ts` の `DEMO_DATA_VERSION`・`DEMO_MANIFEST_SHA256`）を、新しい manifest のものに直してから製品を出す。
   直し忘れると `npm run demo:build` が注意を出し、`npx vitest run --project dev` が落ちる。
 - まだどの版の製品も使っていない版は、同じ `v<版>/` に上書きしてよい（v2 は 2026-10-05 に作業日報へ差し替えて上書きした）。
+- 版の記録:
+  - v2（manifest `35beaae3…8e88`）: 0.2.7 の開発版が使う。作業指示は終わりの 1〜30 日後にクローズ。
+  - v3（manifest `916bd1a3…8a74`、2026-10-06）: クローズを年度末にまとめた（今年度に終わった作業指示は COMP のまま）。ステータスの変更（クローズした記録は直せない）に合わせた。
+  - `dist/demo-data/` に前の版が無いときは、公開中のファイルを manifest に沿って落とし、SHA-256 を確かめてから一緒に置く。

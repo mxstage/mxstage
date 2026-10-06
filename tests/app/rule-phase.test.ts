@@ -17,6 +17,7 @@ const COLUMNS: ColumnSchema[] = [
   { name: "STATUS", type: "string" },
   { name: "ACTSTART", type: "datetime" },
   { name: "ACTFINISH", type: "datetime" },
+  { name: "TARGSTART", type: "date" },
 ];
 const meta = (): SheetMeta => ({
   name: WO,
@@ -33,6 +34,7 @@ const wo = (wonum: string, actstart: string | null, actfinish: string | null, st
   STATUS: status,
   ACTSTART: actstart,
   ACTFINISH: actfinish,
+  TARGSTART: null,
 });
 
 /** 今ある WO1（完了済み）と、足した行: 過去 2・仕掛かり 1・先 1・日付なし 1 */
@@ -47,6 +49,7 @@ function setup(): Workspace {
       wo("WO12", "2026-11-01T09:00:00+09:00", null),
       wo("WO13", null, null),
       wo("WO14", null, "2026-10-06T23:00:00+09:00"),
+      { ...wo("WO15", null, null), TARGSTART: "2026-12-01" },
     ],
     { author: "llm", reason: "履歴を足す" },
   );
@@ -60,10 +63,20 @@ describe("apply_rule の phase", () => {
   it("終わりの日が asOf 以前なら past、始まりの日が asOf 以前なら inProgress、日付があれば future、日付が無ければ変えない。今ある行は変えない", () => {
     const ws = setup();
     const r = ws.applyRule(WO, [], { STATUS: PHASE }, { author: "llm", reason: "時期でステータスを決める" });
-    expect(r.phase).toEqual({ STATUS: { past: 2, inProgress: 1, future: 1, noDate: 1, existing: 1, asOf: "2026-10-06" } });
+    // 予定の日だけの WO15 は、planned を渡さなければ日付なし
+    expect(r.phase).toEqual({ STATUS: { past: 2, inProgress: 1, future: 1, noDate: 2, existing: 1, asOf: "2026-10-06" } });
     expect(r.applied).toBe(4);
-    expect(["WO1", "WO10", "WO11", "WO12", "WO13", "WO14"].map((w) => statusOf(ws, w))).toEqual(["COMP", "COMP", "INPRG", "WAPPR", null, "COMP"]);
+    expect(["WO1", "WO10", "WO11", "WO12", "WO13", "WO14", "WO15"].map((w) => statusOf(ws, w))).toEqual(["COMP", "COMP", "INPRG", "WAPPR", null, "COMP", null]);
     expect(ws.cell(WO, pk("WO10"), "STATUS")?.reason).toBe("時期でステータスを決める");
+  });
+
+  it("planned: 実績の日付が無く予定の日だけある行は future（予定の日が過ぎていても、始めていなければ先）", () => {
+    const ws = setup();
+    ws.applyEdits(WO, [{ rowKey: pk("WO13"), col: "TARGSTART", value: "2026-09-01" }], { author: "user" });
+    const r = ws.applyRule(WO, [], { STATUS: { phase: { ...(PHASE as { phase: object }).phase, planned: "TARGSTART" } as never } }, { author: "llm" });
+    expect(r.phase!.STATUS).toMatchObject({ past: 2, inProgress: 1, future: 3, noDate: 0 });
+    expect(statusOf(ws, "WO13")).toBe("WAPPR");
+    expect(statusOf(ws, "WO15")).toBe("WAPPR");
   });
 
   it("newRowsOnly: false なら今ある行も時期で選ぶ（同じ値なら変えない）", () => {
@@ -81,7 +94,7 @@ describe("apply_rule の phase", () => {
     const { asOf: _drop, ...rest } = (PHASE as { phase: Record<string, unknown> }).phase;
     const r = ws.applyRule(WO, [], { STATUS: { phase: rest } as RuleValue }, { author: "llm", dryRun: true });
     // 2023-11 から見ると、足した行の日付はすべて先
-    expect(r.phase!.STATUS).toEqual({ past: 0, inProgress: 0, future: 4, noDate: 1, existing: 1, asOf: today });
+    expect(r.phase!.STATUS).toEqual({ past: 0, inProgress: 0, future: 4, noDate: 2, existing: 1, asOf: today });
     expect(r.batchId).toBeNull();
     expect(statusOf(ws, "WO10")).toBeNull();
   });

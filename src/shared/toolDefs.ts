@@ -36,7 +36,8 @@ const ruleValue = z.union([
     phase: z
       .strictObject({
         finish: z.string().optional().describe("End date column (e.g. ACTFINISH, TARGCOMPDATE). On or before asOf: past"),
-        start: z.string().optional().describe("Start date column (e.g. ACTSTART, SCHEDSTART). On or before asOf (and not past): inProgress"),
+        start: z.string().optional().describe("Actual start date column (e.g. ACTSTART). On or before asOf (and not past): inProgress"),
+        planned: z.string().optional().describe("Planned date column (e.g. TARGSTARTDATE, SCHEDSTART). A row with only a planned date is future"),
         past: cellValue.optional().describe("Value for past rows. Omit to use the connection's setting for past work (COMP unless the user chose CLOSE)"),
         inProgress: cellValue.describe("Value for rows in progress (e.g. INPRG)"),
         future: cellValue.describe("Value for rows not started yet (e.g. WAPPR)"),

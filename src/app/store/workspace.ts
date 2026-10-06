@@ -869,20 +869,20 @@ export class Workspace {
   }
 
   /**
-   * 行の時期で値を選ぶ。終わりの日が asOf 以前なら past、始まりの日が asOf 以前なら inProgress、どちらかの日付があれば future。
+   * 行の時期で値を選ぶ。終わりの日が asOf 以前なら past、始まりの日が asOf 以前なら inProgress、どれかの日付（予定の日を含む）があれば future。
    * 日付が無い行と、newRowsOnly（既定）のときの今ある行は変えない
    */
   private compilePhase(sheet: Sheet, col: string, ph: Extract<RuleValue, { phase: unknown }>["phase"]): CompiledRule {
     if (ph === null || typeof ph !== "object") throw new StoreError("invalid_args", `The phase rule for column ${col} must be an object`, { column: col });
-    if (ph.finish === undefined && ph.start === undefined) {
-      throw new StoreError("invalid_args", `The phase rule for column ${col} needs finish or start (a date column)`, { column: col });
+    if (ph.finish === undefined && ph.start === undefined && ph.planned === undefined) {
+      throw new StoreError("invalid_args", `The phase rule for column ${col} needs finish, start or planned (a date column)`, { column: col });
     }
-    for (const c of [ph.finish, ph.start]) if (c !== undefined && !sheet.hasColumn(c)) throw columnNotFound(c, sheet.name);
+    for (const c of [ph.finish, ph.start, ph.planned]) if (c !== undefined && !sheet.hasColumn(c)) throw columnNotFound(c, sheet.name);
     if (ph.past === undefined) throw new StoreError("invalid_args", `The phase rule for column ${col} needs past`, { column: col });
     const asOf = ph.asOf ?? localDay(this.now());
     if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf)) throw new StoreError("invalid_args", `asOf must be a date (YYYY-MM-DD): ${asOf}`, { column: col });
     const newOnly = ph.newRowsOnly !== false;
-    const { finish, start, past, inProgress, future } = ph;
+    const { finish, start, planned, past, inProgress, future } = ph;
     return {
       col,
       kind: "phase",
@@ -893,7 +893,8 @@ export class Workspace {
         const s = start === undefined ? null : dayOf(sheet.finalValue(row, start));
         if (f !== null && f <= asOf) return { kind: "value", value: past, tag: "past" };
         if (s !== null && s <= asOf) return { kind: "value", value: inProgress, tag: "inProgress" };
-        if (f !== null || s !== null) return { kind: "value", value: future, tag: "future" };
+        const p = planned === undefined ? null : dayOf(sheet.finalValue(row, planned));
+        if (f !== null || s !== null || p !== null) return { kind: "value", value: future, tag: "future" };
         return { kind: "unmatched", tag: "noDate" };
       },
     };

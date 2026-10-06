@@ -28,7 +28,7 @@ set values:
 - A constant: `{"PRIORITY":{"const":2}}`
 - Another column of the same row: `{"ALNVALUE":{"copyFrom":"NUMVALUE"}}`
 - A value looked up in another sheet: `{"LOCATION":{"lookup":{"sheet":"Tag list","matchCol":"ASSETNUM","targetMatchCol":"ASSETNUM","sourceCol":"LOCATION"}}}`
-- A value chosen by the row's dates (for statuses, see Statuses below): `{"STATUS":{"phase":{"finish":"ACTFINISH","start":"ACTSTART","inProgress":"INPRG","future":"WAPPR"}}}`
+- A value chosen by the row's dates (for statuses, see Statuses below): `{"STATUS":{"phase":{"finish":"ACTFINISH","start":"ACTSTART","planned":"TARGSTARTDATE","inProgress":"INPRG","future":"WAPPR"}}}`
 
 For lookups, check lookup in the result. Rows that are unmatched (not in the lookup sheet) or ambiguous (several candidates) are **not changed**. Report the counts; never fill them by guessing. When one column cannot identify a match, use a composite key: arrays in the same order and count, for example `["SITEID","ASSETNUM"]` for both matchCol and targetMatchCol.
 
@@ -39,7 +39,7 @@ The right status depends on each record's phase, never on the kind of file or ta
 - **Past work** (the end date has passed): the status for past work set for the connection, COMP unless the user chose CLOSE. Existing completed records keep their status; their contents can still be corrected.
 - **In progress** (started, not finished): existing records keep their status and only their contents change. New records get the in-progress status the user agrees (usually INPRG).
 - **Future** (not started): the planning status the user agrees (usually WAPPR, or the customer's own).
-- Use apply_rule with phase on new rows: give finish and start (date columns), inProgress and future; omit past to use the connection's setting, and tell the user which status past rows got (phaseNote). Rows without dates are not changed (noDate); report them. Existing rows are left alone unless the user asks (newRowsOnly: false).
+- Use apply_rule with phase on new rows: give finish and start (actual date columns), planned (a planned date column, so rows not started yet count as future), inProgress and future; omit past to use the connection's setting, and tell the user which status past rows got (phaseNote). Rows without dates are not changed (noDate); report them. Existing rows are left alone unless the user asks (newRowsOnly: false).
 - Agree on the values first: check the STATUS values in use with aggregate, and never guess status names (customers may have their own).
 - Dates of past work go into ACTSTART and ACTFINISH; the status date is the time of the commit.
 - Closed or cancelled records, and moves Maximo does not allow (for example COMP back to INPRG), are not sent: they come back as skipped with the reason.

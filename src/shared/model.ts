@@ -93,13 +93,15 @@ export type RuleValue =
   | {
       /**
        * 行の時期で値を選ぶ（作業指示・注文書などのステータス）。日付は YYYY-MM-DD で比べる。
-       * 終わりの日が asOf 以前なら past、始まりの日が asOf 以前なら inProgress、どちらかの日付があれば future、日付が無ければ変えない
+       * 終わりの日が asOf 以前なら past、始まりの日が asOf 以前なら inProgress、どれかの日付（予定の日を含む）があれば future、日付が無ければ変えない
        */
       phase: {
         /** 終わりの日の列（ACTFINISH・TARGCOMPDATE など） */
         finish?: string;
-        /** 始まりの日の列（ACTSTART・SCHEDSTART など） */
+        /** 始まりの日の列（ACTSTART など） */
         start?: string;
+        /** 予定の日の列（TARGSTARTDATE・SCHEDSTART など）。実績の日付が無い行を future にするためだけに使う */
+        planned?: string;
         /** 過去の行の値（ツールでは省くと接続先の設定。既定 COMP） */
         past?: CellValue;
         inProgress: CellValue;

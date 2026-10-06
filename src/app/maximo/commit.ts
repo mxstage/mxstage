@@ -11,6 +11,11 @@
 //   I8  1 計画は 200 親まで
 //   I10 null（空文字を含む）への変更は allowNull が無ければ拒否する
 //       【Maximo で null をどう送るか（JSON null か "" か）は P0 で確認する】
+//   I11 戻せないステータス（クローズ・取消・撤去など）への変更は、人の確認が要る
+//   I12 ステータス（STATUS）は属性として送らない。作成・更新を確かめた後に wsmethod:changeStatus で変える
+// ステータス: 行ごとに決めたステータス（STATUS の列）へ、作成・更新の後に変える。既にあるレコードは、STATUS を変えていなければ
+//   ステータスはそのまま中身だけを直す。履歴（クローズ・取消。HISTORYFLAG）と、承認済みの注文書（改訂が要る）は送らずに skipped で返す。
+//   作業指示の移り方に合わない変更も送らずに skipped で返す（src/shared/status.ts）。
 // コミット手順: 親ごとに precheck（I9: 読み直して親の _rowstamp・子 ID 集合・触る子の _rowstamp を照合）→ 送信 → verify。
 // 最初に送った 1 件の後にカナリアの確認を待つ。自動再試行はしない。
 // 新規作成（追加した親の行）: シートを読み込んだ構造の一覧へ x-method-override の無い POST。href は持たない。
@@ -25,11 +30,34 @@ import { MaximoError, MaximoNetworkError, type MaximoClient } from "./client";
 import { columnChild, parentKeyOf, parseMember } from "./load";
 import { buildWhere, upperKeys } from "./query";
 import { commitEngineMessages as msg } from "../commit/messages";
+import { canChangeStatus, isIrreversibleStatus, STATUS_RULES, type StatusObjectKind } from "../../shared/status";
 
-export type InvariantCode = "I1" | "I2" | "I3" | "I4" | "I5" | "I6" | "I7" | "I8" | "I10" | "INPUT";
+export type InvariantCode = "I1" | "I2" | "I3" | "I4" | "I5" | "I6" | "I7" | "I8" | "I10" | "I11" | "I12" | "INPUT";
 
 /** INPUT の違反のうち、利用者に次にできることを個別に案内するもの（文言の言語に依らず見分けるため） */
-export type InvariantHint = "parentAdd" | "parentDelete" | "unknownParent" | "conflictingParentValues" | "addedParentMismatch" | "newParentKeys";
+export type InvariantHint =
+  | "parentAdd"
+  | "parentDelete"
+  | "unknownParent"
+  | "conflictingParentValues"
+  | "addedParentMismatch"
+  | "newParentKeys"
+  | "statusEmpty"
+  | "statusHistoryChild";
+
+/** ステータスの属性（親の列） */
+export const STATUS_ATTR = "STATUS";
+/** 送らずに返した理由（CommitRowResult.reasonCode） */
+export const SKIP_HISTORY = "MXSTAGE_HISTORY";
+export const SKIP_PO_REVISION = "MXSTAGE_PO_REVISION";
+export const SKIP_STATUS_TRANSITION = "MXSTAGE_STATUS_TRANSITION";
+
+/** ステータスの変更（属性としては送らず、作成・更新を確かめた後に wsmethod:changeStatus で変える） */
+export interface StatusChange {
+  to: string;
+  /** 読み込み時のステータス（新規作成は null） */
+  from: string | null;
+}
 
 export class CommitInvariantError extends Error {
   readonly code: InvariantCode;
@@ -63,6 +91,8 @@ export interface CommitPlan extends ParentCommitPlan {
    * keys はシートのキー列（大文字）とその値。送る前と送った後に、このキーで Maximo を検索して確かめる
    */
   create?: { keys: Record<string, CellValue> };
+  /** ステータスの変更（STATUS の列を変えた・新しいレコードに STATUS を入れた） */
+  status?: StatusChange;
 }
 
 /**
@@ -83,6 +113,8 @@ export interface PlanCommitOptions {
   allowNull?: boolean;
   /** 削除件数の上限を超えることを人が確認した（I3） */
   deletesConfirmed?: boolean;
+  /** 戻せないステータスへの変更を人が確認した（I11） */
+  irreversibleConfirmed?: boolean;
 }
 
 interface ChildChangeAcc {
@@ -143,6 +175,8 @@ export function planCommit(meta: SheetMeta, records: MaximoRecord[], changes: Co
     return acc;
   };
   const touchKind = (acc: ParentAcc, kind: string) => {
+    // ステータスの履歴（WOSTATUS・POSTATUS など）は Maximo が書く。行を足す・変える・消すことはしない
+    if (kind.toUpperCase().endsWith("STATUS")) throw new CommitInvariantError("INPUT", msg().invariant.statusHistoryChild(kind), "statusHistoryChild");
     if (!acc.kinds.includes(kind)) acc.kinds.push(kind);
   };
   const resolve = (col: string) => {
@@ -305,9 +339,15 @@ export function planCommit(meta: SheetMeta, records: MaximoRecord[], changes: Co
       continue;
     }
     const attrs: Record<string, CellValue> = {};
+    let status: StatusChange | undefined;
     for (const [a, v] of acc.parentSets) {
       const base = rec.attrs[a] ?? null;
       if (sameCell(v, base)) continue;
+      if (a === STATUS_ATTR) {
+        if (isNullish(v)) throw new CommitInvariantError("INPUT", msg().invariant.statusEmpty, "statusEmpty");
+        status = { to: String(v).trim(), from: base === null ? null : String(base) };
+        continue;
+      }
       if (isNullish(v) && !opts.allowNull) throw new CommitInvariantError("I10", msg().invariant.parentNullNeedsAllow(a));
       attrs[a] = v;
     }
@@ -338,7 +378,7 @@ export function planCommit(meta: SheetMeta, records: MaximoRecord[], changes: Co
       throw new CommitInvariantError("I3", msg().invariant.parentDeletesOverLimit(key, parentDeletes, COMMIT_LIMITS.maxDeletesPerParent));
     }
     totalDeletes += parentDeletes;
-    if (Object.keys(attrs).length === 0 && Object.keys(children).length === 0) continue;
+    if (Object.keys(attrs).length === 0 && Object.keys(children).length === 0 && status === undefined) continue;
     const expectedChildIds: Record<string, CellValue[]> = {};
     const expectedChildRowstamps: Record<string, Record<string, string | null>> = {};
     for (const [kind, ops] of Object.entries(children)) {
@@ -351,10 +391,15 @@ export function planCommit(meta: SheetMeta, records: MaximoRecord[], changes: Co
       }
       if (Object.keys(touched).length > 0) expectedChildRowstamps[kind] = touched;
     }
-    plans.push({ parentKey: key, href: rec.href, expectedRowstamp: rec.rowstamp, expectedChildIds, expectedChildRowstamps, attrs, children });
+    plans.push({ parentKey: key, href: rec.href, expectedRowstamp: rec.rowstamp, expectedChildIds, expectedChildRowstamps, attrs, children, ...(status ? { status } : {}) });
   }
   if (totalDeletes > COMMIT_LIMITS.maxDeletesTotal && !opts.deletesConfirmed) {
     throw new CommitInvariantError("I3", msg().invariant.totalDeletesOverLimit(totalDeletes, COMMIT_LIMITS.maxDeletesTotal));
+  }
+  // 戻せないステータス（クローズ・取消など）は、人が確かめてから送る
+  const irreversible = plans.filter((p) => p.status !== undefined && isIrreversibleStatus(p.status.to));
+  if (irreversible.length > 0 && !opts.irreversibleConfirmed) {
+    throw new CommitInvariantError("I11", msg().invariant.irreversibleStatus(irreversible.length, [...new Set(irreversible.map((p) => p.status!.to))].join(", ")));
   }
   validatePlans(plans, { allowNull: opts.allowNull ?? false, deletesConfirmed: opts.deletesConfirmed ?? false, childIdAttrs });
   return plans;
@@ -370,6 +415,8 @@ function createPlan(parentKey: string, acc: ParentAcc, cols: Map<string, ColumnS
   for (const [a, v] of acc.parentSets) values.set(a, v);
   for (const [a, v] of values) {
     if (isNullish(v)) continue;
+    // ステータスは作った後に変える（作ったときは Maximo の初めのステータス）
+    if (a === STATUS_ATTR) continue;
     const schema = cols.get(a);
     if (!schema || columnChild(schema) !== null) continue;
     if (!ATTR_RE.test(a)) throw new CommitInvariantError("I5", msg().invariant.invalidColumnAttr(a));
@@ -388,7 +435,9 @@ function createPlan(parentKey: string, acc: ParentAcc, cols: Map<string, ColumnS
     const adds = acc.adds.get(kind) ?? [];
     if (adds.length > 0) children[kind] = adds.map((a) => ({ action: "Add" as const, attrs: a }));
   }
-  return { parentKey, href: "", expectedRowstamp: null, expectedChildIds: {}, attrs, children, create: { keys } };
+  const st = values.get(STATUS_ATTR);
+  const status: StatusChange | undefined = isNullish(st) ? undefined : { to: String(st).trim(), from: null };
+  return { parentKey, href: "", expectedRowstamp: null, expectedChildIds: {}, attrs, children, create: { keys }, ...(status ? { status } : {}) };
 }
 
 function findLoadedChild(record: MaximoRecord, kind: string, childId: string | null): MaximoChild {
@@ -433,6 +482,8 @@ export function sameCell(a: CellValue | undefined, b: CellValue | undefined): bo
 export interface ValidatePlanOptions {
   allowNull: boolean;
   deletesConfirmed: boolean;
+  /** 戻せないステータスへの変更を人が確認した（I11。省くと確かめない） */
+  irreversibleConfirmed?: boolean;
   childIdAttrs?: Record<string, string | null>;
   /** シートの列定義。渡すと I5（列に有る・readOnly でない・キー列でない）も検査する */
   columns?: ColumnSchema[];
@@ -471,6 +522,13 @@ export function validatePlans(plans: readonly CommitPlan[], opts: ValidatePlanOp
       }
       for (const [kind, ops] of Object.entries(plan.children)) {
         if (ops.some((o) => o.action !== "Add")) throw new CommitInvariantError("I2", msg().invariant.opIdNotLoaded(kind, "Change"));
+      }
+    }
+    if (Object.keys(plan.attrs).some((a) => a.toUpperCase() === STATUS_ATTR)) throw new CommitInvariantError("I12", msg().invariant.statusAsAttr(plan.parentKey));
+    if (plan.status !== undefined) {
+      if (typeof plan.status.to !== "string" || plan.status.to.trim() === "") throw new CommitInvariantError("INPUT", msg().invariant.statusEmpty, "statusEmpty");
+      if (opts.irreversibleConfirmed === false && isIrreversibleStatus(plan.status.to)) {
+        throw new CommitInvariantError("I11", msg().invariant.irreversibleStatus(1, plan.status.to));
       }
     }
     for (const [a, v] of Object.entries(plan.attrs)) {
@@ -588,7 +646,33 @@ export function assertSafePatchRequest(req: PatchRequest, plan: ParentCommitPlan
   if (req.url !== `${plan.href}?lean=1`) throw new CommitInvariantError("I7", msg().invariant.targetMismatch);
   for (const [k, v] of Object.entries(req.body)) {
     if (Array.isArray(v) && v.length === 0) throw new CommitInvariantError("I6", msg().invariant.emptyChildArray(k));
+    if (k.toUpperCase() === STATUS_ATTR) throw new CommitInvariantError("I12", msg().invariant.statusAsAttr(plan.parentKey));
   }
+}
+
+export interface StatusRequest {
+  url: string;
+  method: "POST";
+  headers: { "x-method-override": "PATCH"; transactionid: string; "content-type": "application/json" };
+  body: { status: string; memo: string };
+}
+
+/**
+ * ステータスの変更（レコードへの POST ?action=wsmethod:changeStatus、x-method-override: PATCH）。
+ * 日付は送らない（Maximo の今になる）。ステータスの日付は前の変更より後でなければならず、作ったばかりの記録に
+ * 過去の日付は付けられないため。過去の作業の日付は ACTSTART・ACTFINISH に属性として書く
+ */
+export function buildStatusRequest(recordPath: string, change: StatusChange, transactionId: string): StatusRequest {
+  if (!/^[A-Za-z0-9_.:~-]{1,128}$/.test(transactionId)) throw new CommitInvariantError("INPUT", msg().invariant.invalidTransactionId);
+  if (!/^\/[A-Za-z0-9_./~-]*\/os\/[a-z0-9_]+\/[^/?#]+$/.test(recordPath)) throw new CommitInvariantError("I7", msg().invariant.targetMismatch);
+  const to = change.to.trim();
+  if (to === "" || !/^[A-Za-z0-9_ -]{1,30}$/.test(to)) throw new CommitInvariantError("INPUT", msg().invariant.statusEmpty, "statusEmpty");
+  return {
+    url: `${recordPath}?action=wsmethod:changeStatus&lean=1`,
+    method: "POST",
+    headers: { "x-method-override": "PATCH", transactionid: transactionId, "content-type": "application/json" },
+    body: { status: to, memo: "MX Stage" },
+  };
 }
 
 export interface CreateRequest {
@@ -638,6 +722,7 @@ export function assertSafeCreateRequest(req: CreateRequest, plan: CommitPlan, co
     if (!sameCell(v, req.body[k.toLowerCase()] as CellValue | undefined)) throw new CommitInvariantError("INPUT", msg().invariant.newParentKeyMissing(k), "newParentKeys");
   }
   for (const [k, v] of Object.entries(req.body)) {
+    if (k.toUpperCase() === STATUS_ATTR) throw new CommitInvariantError("I12", msg().invariant.statusAsAttr(plan.parentKey));
     if (!Array.isArray(v)) continue;
     if (v.length === 0) throw new CommitInvariantError("I6", msg().invariant.emptyChildArray(k));
     if (v.some((item) => typeof item !== "object" || item === null || "_action" in item)) throw new CommitInvariantError("I2", msg().invariant.opIdNotLoaded(k, "Change"));
@@ -670,6 +755,13 @@ export interface ExecuteCommitOptions {
   maxDeletesConfirmed?: boolean;
   /** null への変更を許す（I10） */
   allowNull?: boolean;
+  /** 戻せないステータスへの変更を人が確認した（I11） */
+  irreversibleConfirmed?: boolean;
+  /**
+   * ステータスの決まりを当てるオブジェクト（作業指示・注文書など。src/shared/status.ts の statusObjectKind）と、
+   * 構造に HISTORYFLAG・STATUS があるか。送る前に読み直して、履歴・改訂が要る注文書・移れないステータスを送らずに返す
+   */
+  statusGuard?: { kind: StatusObjectKind | null; hasStatus: boolean; hasHistoryFlag: boolean };
   /** 子オブジェクト名 → ID 属性（SheetMeta.childIdAttrs）。追加だけの子の照合に使う */
   childIdAttrs?: Record<string, string | null>;
   /** シートの定義。渡すと送信前に I5（readOnly・キー列）も検査し直す。childIdAttrs が無ければここから取る */
@@ -700,10 +792,12 @@ export async function executeCommit(client: MaximoClient, plans: CommitPlan[], o
   validatePlans(plans, {
     allowNull: opts.allowNull ?? false,
     deletesConfirmed: opts.maxDeletesConfirmed ?? false,
+    irreversibleConfirmed: opts.irreversibleConfirmed ?? false,
     childIdAttrs: idAttrsOpt,
     columns: opts.meta?.columns,
     keyColumns: opts.meta?.keyColumns,
   });
+  const guard = opts.statusGuard ?? { kind: null, hasStatus: false, hasHistoryFlag: false };
   const stopOnFailure = opts.stopOnFailure ?? true;
   // 送信先・transactionid・本文は、1 件も送らないうちに全計画分を組み立てて検査する（途中で例外にならないように）
   const prepared = preparePlans(client, plans, opts.makeTransactionId ?? defaultTransactionId(), opts.os);
@@ -716,7 +810,7 @@ export async function executeCommit(client: MaximoClient, plans: CommitPlan[], o
     if (stopReason !== null) {
       result = { rowKey: plan.parentKey, status: "skipped", message: stopReason, transactionId: null, sent: false };
     } else {
-      result = await commitOne(client, plan, prepared[i]!, idAttrsOpt);
+      result = await commitOne(client, plan, prepared[i]!, idAttrsOpt, guard);
     }
     results.push(result);
     try {
@@ -830,16 +924,90 @@ function preparePlans(client: MaximoClient, plans: CommitPlan[], makeTx: (plan: 
   });
 }
 
-async function commitOne(client: MaximoClient, plan: CommitPlan, prep: PreparedPlan, idAttrsOpt: Record<string, string | null>): Promise<CommitRowOutcome> {
+type StatusGuard = NonNullable<ExecuteCommitOptions["statusGuard"]>;
+
+/** 読み直しに足す属性（ステータス・履歴の印） */
+function guardSelect(plan: CommitPlan, guard: StatusGuard): string[] {
+  const out: string[] = [];
+  if (guard.hasStatus || plan.status !== undefined) out.push("status");
+  if (guard.hasHistoryFlag) out.push("historyflag");
+  return out;
+}
+
+/** 送る前に読み直した状態で、送らずに返す行（履歴・改訂が要る注文書・移れないステータス） */
+function editGuard(plan: CommitPlan, snap: Snapshot, guard: StatusGuard): CommitRowOutcome | null {
+  const rule = guard.kind !== null ? STATUS_RULES[guard.kind] : null;
+  const current = typeof snap.attrs.STATUS === "string" ? snap.attrs.STATUS.trim().toUpperCase() : null;
+  const hasContent = Object.keys(plan.attrs).length > 0 || Object.keys(plan.children).length > 0;
+  const skip = (reasonCode: string, message: string): CommitRowOutcome => ({ rowKey: plan.parentKey, status: "skipped", reasonCode, message, transactionId: null, sent: false });
+  const history = snap.attrs.HISTORYFLAG === true || (rule !== null && current !== null && rule.history.includes(current));
+  if (history) return skip(SKIP_HISTORY, msg().row.historyRecord(current ?? "-"));
+  if (hasContent && rule?.editable && current !== null && !rule.editable.includes(current)) return skip(SKIP_PO_REVISION, msg().row.poNeedsRevision(current));
+  if (plan.status !== undefined && current !== null && current !== plan.status.to.toUpperCase() && canChangeStatus(guard.kind, current, plan.status.to) === false) {
+    return skip(SKIP_STATUS_TRANSITION, msg().row.statusTransition(current, plan.status.to));
+  }
+  return null;
+}
+
+/**
+ * ステータスを変える（作成・更新を確かめた後）。今のステータスが行き先と同じなら何もしない。
+ * 送った後に読み直して、行き先になっていれば verified。作成したレコードなら createdHref を必ず返す（行を付け替えるため）
+ */
+async function changeStatusStep(
+  client: MaximoClient,
+  recordPath: string,
+  plan: CommitPlan,
+  current: CellValue | undefined,
+  transactionId: string,
+  done: { httpStatus?: number; createdHref?: string },
+): Promise<CommitRowOutcome> {
+  const change = plan.status!;
+  const extra = { ...(done.httpStatus !== undefined ? { httpStatus: done.httpStatus } : {}), ...(done.createdHref !== undefined ? { createdHref: done.createdHref } : {}) };
+  const base = { rowKey: plan.parentKey, transactionId, sent: true, ...extra };
+  const same = (v: CellValue | undefined) => typeof v === "string" && v.trim().toUpperCase() === change.to.toUpperCase();
+  if (same(current)) return { ...base, status: "verified" };
+  const prefix = done.createdHref !== undefined ? msg().row.createdButStatus : msg().row.changedButStatus;
+  let req: StatusRequest;
+  try {
+    req = buildStatusRequest(recordPath, change, `${transactionId}-st`);
+  } catch (e) {
+    return { ...base, status: "error", message: prefix(change.to, errMessage(e)) };
+  }
+  const readStatus = async (): Promise<CellValue | undefined> => (await readSnapshot(client, recordPath, "status", {})).attrs.STATUS;
+  try {
+    await client.post(client.hrefToPath(req.url), { ...req.headers }, req.body);
+  } catch (e) {
+    if (e instanceof MaximoError && e.status !== 409 && e.status >= 400 && e.status < 500) {
+      return { ...base, status: "error", ...(e.reasonCode ? { reasonCode: e.reasonCode } : {}), message: prefix(change.to, errMessage(e)) };
+    }
+    // 409（処理済み）・通信エラー・結果の分からない応答は、読み直して判断する
+    try {
+      const got = await readStatus();
+      if (same(got)) return { ...base, status: e instanceof MaximoError && e.status === 409 ? "verified" : "unknown", message: msg().row.statusLooksApplied(change.to) };
+      return { ...base, status: "unknown", message: prefix(change.to, errMessage(e)) };
+    } catch (e2) {
+      return { ...base, status: "unknown", message: prefix(change.to, `${errMessage(e)} / ${errMessage(e2)}`) };
+    }
+  }
+  try {
+    const got = await readStatus();
+    if (same(got)) return { ...base, status: "verified" };
+    return { ...base, status: "unknown", message: msg().row.statusNotApplied(change.to, typeof got === "string" ? got : "-") };
+  } catch (e) {
+    return { ...base, status: "unknown", message: msg().row.verifyFailed(errMessage(e)) };
+  }
+}
+
+async function commitOne(client: MaximoClient, plan: CommitPlan, prep: PreparedPlan, idAttrsOpt: Record<string, string | null>, guard: StatusGuard): Promise<CommitRowOutcome> {
   const base = { rowKey: plan.parentKey };
   const idAttrs: Record<string, string | null> = {};
   for (const [kind, ops] of Object.entries(plan.children)) {
     const fromOps = ops.find((o) => o.action !== "Add");
     idAttrs[kind] = (idAttrsOpt[kind.toUpperCase()] ?? (fromOps && "idAttr" in fromOps ? fromOps.idAttr : null))?.toUpperCase() ?? null;
   }
-  if (prep.kind === "create") return commitCreate(client, plan, prep, idAttrs);
+  if (prep.kind === "create") return commitCreate(client, plan, prep, idAttrs, guard);
   const { path, transactionId, req } = prep;
-  const select = snapshotSelect(plan, idAttrs);
+  const select = [snapshotSelect(plan, idAttrs), ...guardSelect(plan, guard)].join(",");
 
   // 1) precheck
   let before: Snapshot;
@@ -851,6 +1019,13 @@ async function commitOne(client: MaximoClient, plan: CommitPlan, prep: PreparedP
   }
   const conflict = compareExpected(plan, before, idAttrs);
   if (conflict) return { ...base, status: "conflict", message: conflict, transactionId: null, sent: false };
+  // 履歴・改訂が要る注文書・移れないステータスは送らない
+  const blocked = editGuard(plan, before, guard);
+  if (blocked) return blocked;
+  // ステータスだけの変更
+  if (Object.keys(plan.attrs).length === 0 && Object.keys(plan.children).length === 0) {
+    return plan.status !== undefined ? changeStatusStep(client, path, plan, before.attrs.STATUS, transactionId, {}) : { ...base, status: "verified", transactionId: null, sent: false };
+  }
 
   // 2) 送信（組み立て済みの要求を送る直前にもう一度検査する）
   assertSafePatchRequest(req, plan);
@@ -887,8 +1062,9 @@ async function commitOne(client: MaximoClient, plan: CommitPlan, prep: PreparedP
     return { ...base, status: "unknown", httpStatus, message: msg().row.verifyFailed(errMessage(e)), transactionId, sent: true };
   }
   const mismatches = verifyAgainstPlan(plan, before, after, idAttrs);
-  if (mismatches.length === 0) return { ...base, status: "verified", httpStatus, transactionId, sent: true };
-  return { ...base, status: "unknown", httpStatus, message: msg().row.verifyMismatch(mismatches.join(", ")), transactionId, sent: true };
+  if (mismatches.length > 0) return { ...base, status: "unknown", httpStatus, message: msg().row.verifyMismatch(mismatches.join(", ")), transactionId, sent: true };
+  if (plan.status !== undefined) return changeStatusStep(client, path, plan, after.attrs.STATUS, transactionId, httpStatus !== undefined ? { httpStatus } : {});
+  return { ...base, status: "verified", httpStatus, transactionId, sent: true };
 }
 
 /**
@@ -903,10 +1079,11 @@ async function commitCreate(
   plan: CommitPlan,
   prep: Extract<PreparedPlan, { kind: "create" }>,
   idAttrs: Record<string, string | null>,
+  guard: StatusGuard,
 ): Promise<CommitRowOutcome> {
   const base = { rowKey: plan.parentKey };
   const { transactionId, req } = prep;
-  const select = snapshotSelect(plan, idAttrs);
+  const select = [snapshotSelect(plan, idAttrs), ...guardSelect(plan, guard)].join(",");
   let existing: MaximoRecord[];
   try {
     existing = await findByKeys(client, prep.path, plan, select, idAttrs);
@@ -946,6 +1123,19 @@ async function commitCreate(
   const created = found[0]!;
   const mismatches = verifyCreated(plan, created);
   if (mismatches.length > 0) return { ...base, status: "unknown", httpStatus, message: msg().row.verifyMismatch(mismatches.join(", ")), transactionId, sent: true };
+  if (plan.status !== undefined) {
+    // 作ったレコードのステータスを変える。送り先は作ったレコード（構造の一覧の下）だけ
+    let recordPath: string;
+    try {
+      recordPath = client.hrefToPath(created.href);
+    } catch (e) {
+      return { ...base, status: "unknown", httpStatus, message: msg().row.createdButStatus(plan.status.to, errMessage(e)), transactionId, sent: true, createdHref: created.href };
+    }
+    if (!recordPath.toLowerCase().startsWith(`${prep.path.toLowerCase()}/`)) {
+      return { ...base, status: "unknown", httpStatus, message: msg().row.createdButStatus(plan.status.to, msg().invariant.targetMismatch), transactionId, sent: true, createdHref: created.href };
+    }
+    return changeStatusStep(client, recordPath, plan, created.attrs.STATUS, transactionId, { ...(httpStatus !== undefined ? { httpStatus } : {}), createdHref: created.href });
+  }
   return { ...base, status: "verified", httpStatus, transactionId, sent: true, createdHref: created.href };
 }
 
@@ -1222,7 +1412,7 @@ export interface WriteLogEntry {
   at: string;
   parentKey: string;
   transactionId: string | null;
-  ops: { change: number; delete: number; add: number; attrs: string[] };
+  ops: { change: number; delete: number; add: number; attrs: string[]; status?: string };
   httpStatus: number | null;
   reasonCode: string | null;
   result: CommitRowResult["status"];
@@ -1248,7 +1438,7 @@ export function writeLogEntry(plan: ParentCommitPlan, result: CommitRowOutcome, 
     at: new Date(at).toISOString(),
     parentKey: plan.parentKey,
     transactionId: result.transactionId,
-    ops: { change, delete: del, add, attrs: [...attrs].sort() },
+    ops: { change, delete: del, add, attrs: [...attrs].sort(), ...((plan as CommitPlan).status !== undefined ? { status: (plan as CommitPlan).status!.to } : {}) },
     httpStatus: result.httpStatus ?? null,
     reasonCode: result.reasonCode ?? null,
     result: result.status,

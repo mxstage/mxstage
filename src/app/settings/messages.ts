@@ -110,6 +110,12 @@ export const settingsMessages = defineMessages(
     },
     maximo: {
       title: "Maximo connection",
+      pastStatus: {
+        label: "Status for past work",
+        comp: "Completed (COMP). The records can still be corrected later",
+        close: "Closed (CLOSE). Cannot be undone; closed records cannot be changed",
+        help: "When the AI registers or updates work whose end date has passed (for example history from Excel), it gives them this status unless you say otherwise. Work in progress and future work get the statuses you agree with the AI. Kept on this PC for this connection.",
+      },
       lockedIdle: "The API key was cleared from memory after 30 minutes of inactivity (locked). Connect again.",
       lockedManual: "Disconnected.",
       keyNote:
@@ -303,6 +309,12 @@ export const settingsMessages = defineMessages(
     },
     maximo: {
       title: "Maximo への接続",
+      pastStatus: {
+        label: "過去の作業のステータス",
+        comp: "完了（COMP）。後から中身を直せる",
+        close: "クローズ（CLOSE）。戻せず、クローズした記録は中身も直せない",
+        help: "終わりの日が過ぎた作業（Excel の履歴など）を AI が登録・更新するとき、指示が無ければこのステータスにします。仕掛かり中と先の作業は、AI と決めたステータスにします。この PC に、接続先ごとに覚えます。",
+      },
       lockedIdle: "無操作が 30 分続いたため、API キーをメモリから消しました（ロック中）。もう一度接続してください。",
       lockedManual: "接続を切りました。",
       keyNote:

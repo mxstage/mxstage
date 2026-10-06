@@ -2,7 +2,7 @@
 name: mxstage-obj-workorder
 description: "MX Stage object Skill for Maximo work orders and service requests (MXAPIWODETAIL, MXAPISR): correcting open work orders, planned labor and materials, status rules, and closed history."
 metadata:
-  version: "1.1.0"
+  version: "1.2.0"
   category: "object"
 ---
 
@@ -20,13 +20,20 @@ Work orders: MXAPIWODETAIL (with tasks, planned labor WPLABOR, planned materials
 
 ## Status
 
-- **Closed (CLOSE) and cancelled (CAN) work orders cannot be changed.** Completed (COMP) ones allow very little. Exclude them in the range, unless the task is about reading them.
-- **Status changes** (approve, close old completed work orders, cancel) are Maximo actions with rules: allowed transitions (for example COMP only goes to CLOSE; CAN and CLOSE are final), checks on actuals and reservations, history rows, and changes to child tasks. IBM recommends changing the STATUS of the top-level work order through the API, and Maximo then runs the action. In MX Stage this means editing STATUS on the top-level rows:
-  - only when the user asks for it, with the target status and the list agreed;
-  - only top-level work orders, **never task rows** (they follow their parent);
-  - only on records whose current status allows the transition (check with aggregate on STATUS);
-  - first on one or two records in a test environment, because the result depends on the Maximo version and the customer's workflow; if Maximo rejects it, report the message and stop.
-- A status memo or date cannot be given this way.
+Decide the status per record by its phase (Statuses in mxstage-core-change), never one status for a whole file:
+
+- **Past work**: existing completed (COMP) work orders can still be corrected. New ones for past work (for example history from Excel) get the connection's status for past work (COMP unless the user chose CLOSE), with ACTSTART and ACTFINISH set to the real dates.
+- **In progress**: keep the status (INPRG and so on) and correct the contents.
+- **Future**: a planning status the user agrees (usually WAPPR).
+
+How MX Stage applies a STATUS edit: it updates or creates the record, verifies it, then runs Maximo's status change and reads the status back. Maximo applies its rules (allowed moves, checks on actuals and reservations, status history rows).
+
+- **Closed (CLOSE) and cancelled (CAN) work orders are history**: MX Stage does not send changes to them (skipped). An administrator can fix some fields with Edit History Work Order in Maximo. Exclude them in the range unless the task is reading them.
+- Allowed moves: WAPPR, APPR, WSCH, WMATL and WPCOND go to most statuses; INPRG goes to WMATL, COMP, WAPPR or CLOSE; COMP only to CLOSE; CLOSE and CAN are final. Other moves are skipped.
+- CLOSE and CAN cannot be undone; the user confirms them in the commit panel.
+- Only top-level work orders, **never task rows** (they follow their parent).
+- Customers may use their own statuses: check the values with aggregate on STATUS, never guess.
+- Try a new kind of status change on one or two records in a test environment first; if Maximo rejects it, report the message and stop.
 
 ## What it cannot do now
 
@@ -35,7 +42,7 @@ Work orders: MXAPIWODETAIL (with tasks, planned labor WPLABOR, planned materials
 
 ## New work orders
 
-Work orders and service requests can be created (New records in mxstage-core-change). Keys: SITEID and WONUM (TICKETID for service requests); MX Stage does not take Maximo's automatic numbers. Usually needed: DESCRIPTION, and the asset or location, work type and priority. Maximo sets the initial status (usually waiting for approval). Planned labor and materials can be added as child rows of the new work order. Do not create work orders that a PM should generate.
+Work orders and service requests can be created (New records in mxstage-core-change). Keys: SITEID and WONUM (TICKETID for service requests); MX Stage does not take Maximo's automatic numbers. Usually needed: DESCRIPTION, and the asset or location, work type and priority. Maximo sets the initial status (usually waiting for approval); a STATUS you fill is applied after the work order is created. Planned labor and materials can be added as child rows of the new work order. Do not create work orders that a PM should generate.
 
 ## Traps
 
@@ -48,5 +55,5 @@ Work orders and service requests can be created (New records in mxstage-core-cha
 ## Checks before the commit
 
 - The range excludes closed and cancelled records.
-- STATUS changes only if agreed, only on top-level rows, and listed in the commit note.
+- STATUS values come from the agreed phase rule or list, only on top-level rows, and are listed in the commit note with their counts.
 - Planned material and labor changes are on the agreed work orders only.

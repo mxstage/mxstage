@@ -8,6 +8,7 @@ import { AutoConnector } from "../connections/auto";
 import { SavedConnectionsClient } from "../connections/client";
 import { KeyVault, createWorkerTransport } from "../keyvault/client";
 import { LicenseClient } from "../license/client";
+import { createStatusPrefs } from "../maximo/statusPrefs";
 import { relayUrl, type ImportErrorReason } from "../relay";
 import { importErrorMessages } from "../settings/messages";
 import { createUpdatesApi } from "../settings/updates";
@@ -80,6 +81,7 @@ export function createServices(): AppServices {
         connection: vault,
         catalog,
         license,
+        statusPrefs: createStatusPrefs(browserStorage()),
         factories,
         // LLM のツール実行も「作業中」として数える（タブを触らないまま API キーが自動ロックされるのを防ぐ）
         noteActivity: () => vault.noteActivity(),

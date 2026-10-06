@@ -1479,3 +1479,8 @@ body.resizing-row * {
 .env-field {
   margin-top: var(--cds-spacing-03);
 }
+/* 過去の作業のステータス（接続中の情報とボタンの下。保存した接続先の一覧との間をあける） */
+.past-status-field {
+  margin-top: var(--cds-spacing-07);
+  margin-bottom: var(--cds-spacing-06);
+}

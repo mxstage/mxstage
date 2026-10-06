@@ -20,10 +20,12 @@ import {
   resultStatusLabel,
   resultSummary,
   runOutcomeMessage,
+  statusTargetsText,
   withBom,
   writeLogFileName,
   type ConfirmChecks,
 } from "./commitLogic";
+import { isIrreversibleStatus } from "../../shared/status";
 
 export interface CommitPanelProps {
   commits: CommitController;
@@ -66,14 +68,14 @@ function downloadBlob(blob: Blob, fileName: string): void {
 
 export function CommitPanel({ commits, sheet, version, connected, locked, onMessage, workspace, license }: CommitPanelProps) {
   const [confirming, setConfirming] = useState(false);
-  const [checks, setChecks] = useState<ConfirmChecks>({ deletes: false, nulls: false });
+  const [checks, setChecks] = useState<ConfirmChecks>({ deletes: false, nulls: false, irreversible: false });
   const checkId = useId();
   const panel = safePanel(commits, sheet);
 
   // シートを切り替えたら確認をやり直す（別のシートの件数で確認したまま、このシートを反映しないため）
   useEffect(() => {
     setConfirming(false);
-    setChecks({ deletes: false, nulls: false });
+    setChecks({ deletes: false, nulls: false, irreversible: false });
   }, [sheet]);
 
   // 書き込みログの有無。version は別のシートの反映でも増えるので、そちらで増えたときも見直す。
@@ -100,6 +102,7 @@ export function CommitPanel({ commits, sheet, version, connected, locked, onMess
       const result = await commits.run(sheet, {
         allowNull: panel.needsNullConfirm ? checks.nulls : false,
         deletesConfirmed: panel.needsDeleteConfirm ? checks.deletes : false,
+        irreversibleConfirmed: panel.needsIrreversibleConfirm === true ? checks.irreversible === true : false,
       });
       // 反映しなかった理由は controller が message で返す（無ければボタンの条件から推測する）
       const outcome = runOutcomeMessage(result, { connected, locked });
@@ -185,6 +188,12 @@ export function CommitPanel({ commits, sheet, version, connected, locked, onMess
             <dd>{c.newRecords}</dd>
           </div>
         )}
+        {(c.statusChanges ?? 0) > 0 && (
+          <div>
+            <dt>{t.counts.statusChanges}</dt>
+            <dd title={statusTargetsText(c)}>{c.statusChanges}</dd>
+          </div>
+        )}
         <div>
           <dt>{t.counts.addedRows}</dt>
           <dd>{c.addedRows}</dd>
@@ -208,7 +217,7 @@ export function CommitPanel({ commits, sheet, version, connected, locked, onMess
         className="commit-button"
         disabled={!button.enabled}
         onClick={() => {
-          setChecks({ deletes: false, nulls: false });
+          setChecks({ deletes: false, nulls: false, irreversible: false });
           setConfirming(true);
         }}
       >
@@ -301,6 +310,14 @@ export function CommitPanel({ commits, sheet, version, connected, locked, onMess
               labelText={t.confirmNulls}
               checked={checks.nulls}
               onChange={(_, { checked }) => setChecks((s) => ({ ...s, nulls: checked }))}
+            />
+          )}
+          {panel.needsIrreversibleConfirm === true && (
+            <Checkbox
+              id={`${checkId}-irreversible`}
+              labelText={t.confirmIrreversible(c.irreversible ?? 0, Object.keys(c.statusTargets ?? {}).filter(isIrreversibleStatus).join(", "))}
+              checked={checks.irreversible === true}
+              onChange={(_, { checked }) => setChecks((s) => ({ ...s, irreversible: checked }))}
             />
           )}
         </Dialog>

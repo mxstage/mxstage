@@ -32,6 +32,24 @@ const ruleValue = z.union([
       normalize: z.array(normalizeOption).optional(),
     }),
   }),
+  z.strictObject({
+    phase: z
+      .strictObject({
+        finish: z.string().optional().describe("End date column (e.g. ACTFINISH, TARGCOMPDATE). On or before asOf: past"),
+        start: z.string().optional().describe("Actual start date column (e.g. ACTSTART). On or before asOf (and not past): inProgress"),
+        planned: z.string().optional().describe("Planned date column (e.g. TARGSTARTDATE, SCHEDSTART). A row with only a planned date is future"),
+        past: cellValue.optional().describe("Value for past rows. Omit to use the connection's setting for past work (COMP unless the user chose CLOSE)"),
+        inProgress: cellValue.describe("Value for rows in progress (e.g. INPRG)"),
+        future: cellValue.describe("Value for rows not started yet (e.g. WAPPR)"),
+        asOf: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/)
+          .optional()
+          .describe("Date to compare with (YYYY-MM-DD). Default today"),
+        newRowsOnly: z.boolean().optional().describe("Default true: only rows added in the work screen. Existing records keep their status"),
+      })
+      .describe("Choose the value by the row's dates (for statuses). Rows without dates are not changed"),
+  }),
 ]);
 
 const sheetName = z.string().min(1).max(64);
@@ -246,7 +264,7 @@ export const TOOL_DEFS = {
     name: "apply_rule",
     title: "Apply a rule",
     description:
-      "Sets columns of every row matching the filter to a constant, another column of the same row, or a value looked up in another sheet (runs inside the work screen, so row data never passes through the AI). Returns the counts and conflicts.",
+      "Sets columns of every row matching the filter to a constant, another column of the same row, a value looked up in another sheet, or a value chosen by the row's dates (phase: past, in progress or future, for statuses). Runs inside the work screen, so row data never passes through the AI. Returns the counts and conflicts.",
     inputSchema: z.strictObject({
       sheet: sheetName,
       filter: z.array(typedFilter).max(20).default([]),

@@ -150,7 +150,8 @@ describe("plants の偽の Maximo", () => {
   it("書き込むと、覚えておいた絞り込みの結果を捨てる（MXAPIWO からも見える）", async () => {
     const q = (os: string) => get(`os/${os}?lean=1&oslc.select=wonum&oslc.where=${encodeURIComponent('description="%書き込み確認%"')}&collectioncount=1`);
     expect(((await q("mxapiwo")).body.responseInfo as { totalCount: number }).totalCount).toBe(0);
-    const target = fake.records("MXAPIWODETAIL")[0]!;
+    // 履歴（CLOSE・CAN）の作業指示は中身を変えられないので、仕掛かりのものに書く
+    const target = fake.records("MXAPIWODETAIL").find((r) => r.attrs.historyflag !== true && !["CLOSE", "CAN"].includes(String(r.attrs.status)))!;
     const res = await fake.fetch(`${fake.hrefOf("mxapiwodetail", target.uid)}?lean=1`, {
       method: "POST",
       headers: { apikey: fake.apiKey, "x-method-override": "PATCH", patchtype: "MERGE", "content-type": "application/json" },

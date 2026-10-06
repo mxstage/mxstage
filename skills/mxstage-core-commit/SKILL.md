@@ -2,7 +2,7 @@
 name: mxstage-core-commit
 description: "MX Stage basic operation: check the diff, request the commit to Maximo, explain blockers (including production licenses), and report the commit result row by row."
 metadata:
-  version: "1.1.1"
+  version: "1.2.0"
   category: "core"
 ---
 
@@ -32,11 +32,14 @@ How MX Stage writes: each record is sent with a merge (child rows that were not 
 
 When the commit creates records, the panel shows how many. Say this count in your note; created records cannot be removed by MX Stage.
 
+Status changes are counted in the panel by target status. Statuses that cannot be undone (CLOSE, CAN and similar) need the user's extra confirmation in the panel; the request result says needsIrreversibleConfirm. Name those records and statuses in your note.
+
 ## 4. Report
 
 get_commit_result: the state and the result for each row.
 
 - Give the counts per status: verified (committed and read back), conflict (changed in Maximo since loading), error, unknown (check those records in Maximo), skipped (not sent).
+- Skipped with a reason code: MXSTAGE_HISTORY (closed or cancelled record, Maximo does not allow changes), MXSTAGE_PO_REVISION (approved purchase order, revise it in Maximo first), MXSTAGE_STATUS_TRANSITION (Maximo does not allow that status move). List them for the user; do not try to work around them.
 - For failed rows, give the Maximo message in short and the likely cause (status does not allow the change, value not in the domain, record changed in Maximo since loading, missing permission on the structure).
 - **Never re-run failed rows automatically.** Propose what to fix, and let the user decide whether to change and commit again.
 - Conflict rows need a fresh load before another try. Unknown rows may or may not have been written: ask the user to check them in Maximo before anything else.

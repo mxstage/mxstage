@@ -148,6 +148,29 @@ type WhereClause =
   | { attr: string; op: "=" | "!=" | ">" | ">=" | "<" | "<="; value: CellValue }
   | { attr: string; op: "in"; values: CellValue[] };
 
+/**
+ * ステータスを持つオブジェクト（MBO）の決まり。製品の src/shared/status.ts の STATUS_RULES・WO_TRANSITIONS の写し
+ * （この部品は Node の型の除去でそのまま動かすので、値の import を持たない。同じであることは tests/app/maximo-status.test.ts が確かめる）
+ */
+export const FAKE_STATUSFUL: Readonly<Record<string, { initial: string; history: readonly string[]; editable?: readonly string[] }>> = {
+  WORKORDER: { initial: "WAPPR", history: ["CLOSE", "CAN"] },
+  PO: { initial: "WAPPR", history: ["CLOSE", "CAN", "REVISE"], editable: ["WAPPR", "PNDREV"] },
+  SR: { initial: "NEW", history: ["CLOSED", "CANCELLED"] },
+};
+
+/** 作業指示のステータスの移り方（IBM の「Allowable Status Changes for Work Orders」） */
+export const FAKE_WO_TRANSITIONS: Readonly<Record<string, readonly string[]>> = {
+  WAPPR: ["INPRG", "CAN", "WMATL", "COMP", "WPCOND", "APPR", "CLOSE", "WSCH"],
+  APPR: ["INPRG", "WMATL", "COMP", "WPCOND", "WAPPR", "CLOSE", "WSCH"],
+  WSCH: ["INPRG", "WMATL", "COMP", "WPCOND", "WAPPR", "CLOSE", "APPR"],
+  WMATL: ["INPRG", "COMP", "WPCOND", "WAPPR", "CLOSE", "APPR", "WSCH"],
+  WPCOND: ["INPRG", "WMATL", "COMP", "WAPPR", "CLOSE", "APPR", "WSCH"],
+  INPRG: ["WMATL", "COMP", "WAPPR", "CLOSE"],
+  COMP: ["CLOSE"],
+  CLOSE: [],
+  CAN: [],
+};
+
 export function createFakeMaximo(seed: FakeSeed): FakeMaximo {
   const baseUrl = (seed.baseUrl ?? "https://maximo.test").replace(/\/+$/, "");
   const apiKey = seed.apiKey ?? "test-api-key";
@@ -352,6 +375,14 @@ export function createFakeMaximo(seed: FakeSeed): FakeMaximo {
           throw new FakeHttpError(400, "BMXAA_FAKE_METHOD", "only PATCH via x-method-override is supported");
         }
         requireLean(params);
+        const action = params.get("action");
+        if (action !== null) {
+          if (action.toLowerCase() !== "wsmethod:changestatus") throw new FakeHttpError(400, "BMXAA_FAKE_ACTION", `action ${action} is not supported`);
+          if (bodyText === null || typeof body !== "object" || body === null || Array.isArray(body)) {
+            throw new FakeHttpError(400, "BMXAA_FAKE_BODY", "body must be a JSON object");
+          }
+          return changeStatus(os, rec, headers, body as Record<string, unknown>);
+        }
         if (bodyText === null || typeof body !== "object" || body === null || Array.isArray(body)) {
           throw new FakeHttpError(400, "BMXAA_FAKE_BODY", "body must be a JSON object");
         }
@@ -470,9 +501,78 @@ export function createFakeMaximo(seed: FakeSeed): FakeMaximo {
     return out;
   }
 
+  function statusRule(os: FakeOsState): (typeof FAKE_STATUSFUL)[string] | null {
+    return "status" in os.def.attrs ? (FAKE_STATUSFUL[(os.def.mbo ?? "").toUpperCase()] ?? null) : null;
+  }
+
+  /** 中身を変えられないレコード（履歴・承認済みの注文書）なら、その理由で断る */
+  function assertEditable(os: FakeOsState, rec: FakeRecord): void {
+    const rule = statusRule(os);
+    const status = String(rec.attrs.status ?? "");
+    if (rec.attrs.historyflag === true || (rule !== null && rule.history.includes(status))) {
+      throw new FakeHttpError(400, "BMXAA4105E", `The record is in history (status ${status}) and cannot be modified`);
+    }
+    if (rule?.editable && !rule.editable.includes(status)) {
+      throw new FakeHttpError(400, "BMXAA3889E", `The purchase order is ${status}. Revise it before changing it`);
+    }
+  }
+
+  /**
+   * ステータスの変更（?action=wsmethod:changeStatus、x-method-override: PATCH、本文 {status, date?, memo?}）。
+   * 移り方（作業指示）・履歴・日付（未来と、今のステータスの日付より前は断る）を確かめ、ステータスの履歴の子（wostatus など）に 1 行足す
+   */
+  function changeStatus(os: FakeOsState, rec: FakeRecord, headers: Headers, body: Record<string, unknown>): Response {
+    const txid = headers.get("transactionid");
+    if (txid && state.transactionIds.has(txid)) throw new FakeHttpError(409, "BMXAA9549E", "transaction already processed");
+    const rule = statusRule(os);
+    if (rule === null) throw new FakeHttpError(400, "BMXAA_FAKE_NO_STATUS", `${os.name} has no status`);
+    const to = typeof body.status === "string" ? body.status.trim().toUpperCase() : "";
+    if (to === "") throw new FakeHttpError(400, "BMXAA_FAKE_BODY", "status is required");
+    const list = os.def.lists?.status;
+    if (list && !list.some((x) => String(x.value).toUpperCase() === to)) throw new FakeHttpError(400, "BMXAA4590E", `${to} is not a valid status`);
+    const from = String(rec.attrs.status ?? "");
+    if (rec.attrs.historyflag === true || rule.history.includes(from)) throw new FakeHttpError(400, "BMXAA4105E", `The record is in history (status ${from}) and its status cannot be changed`);
+    if ((os.def.mbo ?? "").toUpperCase() === "WORKORDER" && !(FAKE_WO_TRANSITIONS[from] ?? []).includes(to)) {
+      throw new FakeHttpError(400, "BMXAA4590E", `The status cannot change from ${from} to ${to}`);
+    }
+    let date = new Date().toISOString();
+    if (body.date !== undefined && body.date !== null) {
+      const ms = Date.parse(String(body.date));
+      if (!Number.isFinite(ms)) throw new FakeHttpError(400, "BMXAA_FAKE_DATE", "date is not a date");
+      if (ms > Date.now() + 60_000) throw new FakeHttpError(400, "BMXAA4599E", "The status date cannot be in the future");
+      const prev = typeof rec.attrs.statusdate === "string" ? Date.parse(rec.attrs.statusdate) : NaN;
+      if (Number.isFinite(prev) && ms < prev) throw new FakeHttpError(400, "BMXAA4598E", "The status date cannot be earlier than the current status date");
+      date = String(body.date);
+    }
+    rec.attrs.status = to;
+    if ("statusdate" in os.def.attrs) rec.attrs.statusdate = date;
+    if (rule.history.includes(to) && "historyflag" in os.def.attrs) rec.attrs.historyflag = true;
+    // ステータスの履歴の子（wostatus・postatus など）
+    const histKind = Object.keys(os.def.children ?? {}).find((k) => k.endsWith("status"));
+    if (histKind) {
+      const cdef = os.def.children![histKind]!;
+      const row: Record<string, CellValue> = {};
+      for (const a of Object.keys(cdef.attrs)) row[a] = null;
+      if ("status" in cdef.attrs) row.status = to;
+      if ("changedate" in cdef.attrs) row.changedate = date;
+      if ("memo" in cdef.attrs && typeof body.memo === "string") row.memo = body.memo;
+      if (cdef.idAttr in cdef.attrs) row[cdef.idAttr] = ++idCounter;
+      (rec.children[histKind] ??= []).push({ attrs: row, rowstamp: nextRowstamp() });
+    }
+    rec.rowstamp = nextRowstamp();
+    if (txid) state.transactionIds.add(txid);
+    dataVersion++;
+    return new Response(null, { status: 204 });
+  }
+
   function patch(os: FakeOsState, rec: FakeRecord, headers: Headers, body: Record<string, unknown>): Response {
     const txid = headers.get("transactionid");
     if (txid && state.transactionIds.has(txid)) throw new FakeHttpError(409, "BMXAA9549E", "transaction already processed");
+    assertEditable(os, rec);
+    // ステータスは属性として書き換えない（wsmethod:changeStatus で変える。実機は属性の変更でも動くが、MX Stage は使わない）
+    if (statusRule(os) !== null && Object.keys(body).some((k) => k.toLowerCase() === "status")) {
+      throw new FakeHttpError(400, "BMXAA_FAKE_STATUS_ATTR", "Change the status with action=wsmethod:changeStatus");
+    }
     const merge = (headers.get("patchtype") ?? "").toUpperCase() === "MERGE";
     const draft: FakeRecord = JSON.parse(JSON.stringify(rec));
     const changedChildren: string[] = [];
@@ -532,6 +632,13 @@ export function createFakeMaximo(seed: FakeSeed): FakeMaximo {
       if (adef.readOnly && !os.def.keyAttrs.includes(key)) throw new FakeHttpError(400, "BMXAA0031E", `attribute ${key} is read-only`);
       checkValue(key, adef, v);
       attrs[key] = (v ?? null) as CellValue;
+    }
+    const rule = statusRule(os);
+    if (rule !== null) {
+      if (Object.keys(body).some((k) => k.toLowerCase() === "status")) throw new FakeHttpError(400, "BMXAA_FAKE_STATUS_ATTR", "A new record starts in its initial status; change it with action=wsmethod:changeStatus");
+      attrs.status = rule.initial;
+      if ("statusdate" in os.def.attrs) attrs.statusdate = new Date().toISOString();
+      if ("historyflag" in os.def.attrs) attrs.historyflag = false;
     }
     for (const k of os.def.keyAttrs) {
       if (attrs[k] === null || attrs[k] === "") throw new FakeHttpError(400, "BMXAA4195E", `${k} is required`);

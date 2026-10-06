@@ -7,6 +7,7 @@ import { ObjectStructureCatalog } from "../../src/app/catalog/catalog";
 import { diffReportSheets } from "../../src/app/commit/diffReport";
 import { createCommitController, noChangesBlocker, notConnectedBlocker, notMaximoSheetBlocker, PANEL_REFRESH_MS } from "../../src/app/commit/controller";
 import { MaximoClient } from "../../src/app/maximo/client";
+import type { StatusPrefs } from "../../src/app/maximo/statusPrefs";
 import { RelayToolError, type ToolContext } from "../../src/app/relay";
 import type { MaximoConnection } from "../../src/app/runtime/contracts";
 import { JobRegistry, Workspace } from "../../src/app/store";
@@ -60,7 +61,7 @@ function permitSeed(extra: FakeRecordSeed[] = []): FakeSeed {
   });
 }
 
-function harness(seed: FakeSeed = permitSeed()) {
+function harness(seed: FakeSeed = permitSeed(), opts: { statusPrefs?: StatusPrefs } = {}) {
   const fake = createFakeMaximo(seed);
   const client = new MaximoClient({ baseUrl: fake.baseUrl, apiKey: () => fake.apiKey, via: "direct", fetchImpl: fake.fetch, sleep: async () => {} });
   const maximo: MaximoConnection = {
@@ -83,7 +84,7 @@ function harness(seed: FakeSeed = permitSeed()) {
   const workspace = new Workspace("作業");
   const jobs = new JobRegistry();
   const controller = createCommitController({ workspace, connection });
-  const registry = createToolRegistry({ workspace, jobs, connection, commits: controller, catalog: new ObjectStructureCatalog(), appVersion: "0.1.0-test", appUrl: APP_URL });
+  const registry = createToolRegistry({ workspace, jobs, connection, commits: controller, catalog: new ObjectStructureCatalog(), appVersion: "0.1.0-test", appUrl: APP_URL, ...opts });
   let seq = 0;
 
   async function invoke(tool: string, args: unknown) {
@@ -566,5 +567,149 @@ describe("CommitController: 新規作成", () => {
     expect(done.results).toMatchObject([{ status: "conflict" }]);
     expect(posts(h.fake)).toHaveLength(0);
     expect(h.workspace.getDiff(PERMIT_SHEET).addedRows).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+describe("CommitController: ステータスの変更", () => {
+  const WO_SHEET = "作業指示";
+  const loadWos = (h: Harness) =>
+    h.call("load_sheet", { name: WO_SHEET, os: "MXAPIWO", select: ["WONUM", "SITEID", "STATUS", "DESCRIPTION"], where: [{ attr: "SITEID", op: "eq", value: "BEDFORD" }] });
+  const statusOf = (fake: FakeMaximo, wonum: string) => fake.find("mxapiwo", (r) => r.attrs.wonum === wonum)!.attrs.status;
+  const runConfirmed = async (h: Harness, opts: { irreversibleConfirmed?: boolean } = {}) => {
+    const running = h.controller.run(WO_SHEET, opts);
+    // 2 件以上ならカナリア（最初の 1 件）の後で続ける
+    await Promise.race([running, vi.waitFor(() => expect(h.controller.panel(WO_SHEET).awaitingCanary).not.toBeNull(), { timeout: 5_000, interval: 5 }).catch(() => {})]);
+    if (h.controller.panel(WO_SHEET).awaitingCanary) h.controller.continueCanary(WO_SHEET, true);
+    return running;
+  };
+
+  it("戻せないステータス（CLOSE）があると needsIrreversibleConfirm になり、確認付きのときだけ反映する（I11）", async () => {
+    const h = harness();
+    await loadWos(h);
+    await h.call("patch_cells", {
+      sheet: WO_SHEET,
+      edits: [
+        { rowKey: pk("WO2001"), col: "STATUS", value: "CLOSE" },
+        { rowKey: pk("WO2003"), col: "STATUS", value: "INPRG" },
+      ],
+      baseRevision: h.workspace.revision,
+      reason: "ステータスを進める",
+    });
+    const req = await h.call("request_commit", { sheet: WO_SHEET, note: "ステータス 2 件" });
+    expect(req.needsIrreversibleConfirm).toBe(true);
+    const panel = h.controller.panel(WO_SHEET);
+    expect(panel.needsIrreversibleConfirm).toBe(true);
+    expect(panel.blockers).toEqual([]);
+    expect(panel.counts).toMatchObject({ parents: 2, statusChanges: 2, statusTargets: { CLOSE: 1, INPRG: 1 }, irreversible: 1 });
+
+    expect((await h.controller.run(WO_SHEET, {})).state).toBe("requested");
+    expect(h.fake.writeCount()).toBe(0);
+
+    const done = await runConfirmed(h, { irreversibleConfirmed: true });
+    expect(done.state).toBe("done");
+    expect(done.results.map((r) => r.status)).toEqual(["verified", "verified"]);
+    expect(statusOf(h.fake, "WO2001")).toBe("CLOSE");
+    expect(statusOf(h.fake, "WO2003")).toBe("INPRG");
+    // 属性としては送らない
+    for (const p of posts(h.fake)) expect(p.path).toContain("action=wsmethod:changeStatus");
+    expect(h.workspace.getDiff(WO_SHEET).changedCells).toBe(0);
+    expect(h.workspace.getSheet(WO_SHEET).rowValues(pk("WO2001"), "base")!.STATUS).toBe("CLOSE");
+    expect(h.controller.writeLog().map((e) => e.ops.status)).toEqual(["CLOSE", "INPRG"]);
+  });
+
+  it("COMP への変更は確認が要らない。移れないステータス（COMP → INPRG）は送らずに skipped で、変更は作業画面に残る", async () => {
+    const h = harness();
+    await loadWos(h);
+    await h.call("patch_cells", {
+      sheet: WO_SHEET,
+      edits: [
+        { rowKey: pk("WO2002"), col: "STATUS", value: "INPRG" },
+        { rowKey: pk("WO2003"), col: "STATUS", value: "COMP" },
+      ],
+      baseRevision: h.workspace.revision,
+      reason: "ステータスを直す",
+    });
+    expect(h.controller.panel(WO_SHEET).needsIrreversibleConfirm).toBe(false);
+    const done = await runConfirmed(h);
+    expect(done.results.map((r) => [r.rowKey, r.status, r.reasonCode ?? null])).toEqual([
+      [pk("WO2002"), "skipped", "MXSTAGE_STATUS_TRANSITION"],
+      [pk("WO2003"), "verified", null],
+    ]);
+    expect(statusOf(h.fake, "WO2002")).toBe("COMP");
+    expect(statusOf(h.fake, "WO2003")).toBe("COMP");
+    expect(h.workspace.getDiff(WO_SHEET).changedCells).toBe(1);
+  });
+
+  it("新しい作業指示を COMP で作る: 作ってから COMP に変え、読み直して base にする", async () => {
+    const h = harness();
+    await loadWos(h);
+    await h.call("add_rows", { sheet: WO_SHEET, rows: [{ SITEID: "BEDFORD", WONUM: "WO2100", DESCRIPTION: "過去の点検", STATUS: "COMP" }], baseRevision: h.workspace.revision, reason: "履歴を登録" });
+    h.fake.state.requests.length = 0;
+    expect(h.controller.panel(WO_SHEET).counts).toMatchObject({ newRecords: 1, statusChanges: 1, statusTargets: { COMP: 1 } });
+    const done = await runConfirmed(h);
+    expect(done.results).toMatchObject([{ rowKey: pk("WO2100"), status: "verified" }]);
+    expect(statusOf(h.fake, "WO2100")).toBe("COMP");
+    expect(posts(h.fake).map((p) => p.path.includes("changeStatus"))).toEqual([false, true]);
+    expect(h.workspace.getDiff(WO_SHEET)).toMatchObject({ changedCells: 0, addedRows: 0 });
+    expect(h.workspace.getSheet(WO_SHEET).rowValues(pk("WO2100"), "base")).toMatchObject({ STATUS: "COMP", DESCRIPTION: "過去の点検" });
+  });
+
+  it("apply_rule の phase: past を省くと接続先の設定（既定 COMP、選べば CLOSE）を使い、そう伝える", async () => {
+    const cases: Array<[StatusPrefs | undefined, string]> = [
+      [undefined, "COMP"],
+      [{ pastStatusOf: () => "CLOSE" }, "CLOSE"],
+    ];
+    for (const [statusPrefs, want] of cases) {
+      const h = harness(permitSeed(), statusPrefs ? { statusPrefs } : {});
+      await h.call("load_sheet", {
+        name: WO_SHEET,
+        os: "MXAPIWO",
+        select: ["WONUM", "SITEID", "STATUS", "DESCRIPTION", "TARGSTARTDATE"],
+        where: [{ attr: "SITEID", op: "eq", value: "BEDFORD" }],
+      });
+      await h.call("add_rows", { sheet: WO_SHEET, rows: [{ SITEID: "BEDFORD", WONUM: "WO2100", DESCRIPTION: "過去の点検", TARGSTARTDATE: "2020-04-15" }], baseRevision: h.workspace.revision, reason: "履歴を登録" });
+      const r = await h.call("apply_rule", {
+        sheet: WO_SHEET,
+        set: { STATUS: { phase: { finish: "TARGSTARTDATE", inProgress: "INPRG", future: "WAPPR" } } },
+        baseRevision: h.workspace.revision,
+        reason: "時期でステータスを決める",
+      });
+      expect(r.phase.STATUS).toMatchObject({ past: 1, existing: 3 });
+      expect(r.phaseNote).toContain(want);
+      expect(h.workspace.getSheet(WO_SHEET).rowValues(pk("WO2100"), "final")!.STATUS).toBe(want);
+      // past を書けば、設定ではなくその値
+      const again = await h.call("apply_rule", {
+        sheet: WO_SHEET,
+        set: { STATUS: { phase: { finish: "TARGSTARTDATE", past: "COMP", inProgress: "INPRG", future: "WAPPR" } } },
+        baseRevision: h.workspace.revision,
+        reason: "完了にする",
+      });
+      expect(again).not.toHaveProperty("phaseNote");
+      expect(h.workspace.getSheet(WO_SHEET).rowValues(pk("WO2100"), "final")!.STATUS).toBe("COMP");
+    }
+  });
+
+  it("作った後にステータスだけ失敗しても、作ったレコードで行を付け替え、ステータスの変更だけを作業画面に残す", async () => {
+    const h = harness();
+    await loadWos(h);
+    await h.call("add_rows", { sheet: WO_SHEET, rows: [{ SITEID: "BEDFORD", WONUM: "WO2101", DESCRIPTION: "過去の点検", STATUS: "COMP" }], baseRevision: h.workspace.revision, reason: "履歴を登録" });
+    // ステータスの変更だけを Maximo に断らせる
+    h.fake.state.failures.push({ method: "POST", phase: "before", kind: "status", status: 400, body: { Error: { reasonCode: "BMXAA4590E", message: "status cannot change" } }, pathIncludes: "/mxapiwo/" });
+    const done = await runConfirmed(h);
+    expect(done.results).toMatchObject([{ rowKey: pk("WO2101"), status: "error" }]);
+    expect(statusOf(h.fake, "WO2101")).toBe("WAPPR");
+    const diff = h.workspace.getDiff(WO_SHEET);
+    expect(diff).toMatchObject({ addedRows: 0, changedCells: 1 });
+    expect(h.workspace.getSheet(WO_SHEET).rowValues(pk("WO2101"), "base")).toMatchObject({ STATUS: "WAPPR" });
+    expect(h.workspace.getSheet(WO_SHEET).rowValues(pk("WO2101"), "final")).toMatchObject({ STATUS: "COMP" });
+
+    // もう一度反映すると、ステータスの変更だけを送る
+    h.fake.state.requests.length = 0;
+    const again = await runConfirmed(h);
+    expect(again.results).toMatchObject([{ rowKey: pk("WO2101"), status: "verified" }]);
+    expect(posts(h.fake).map((p) => p.path.includes("changeStatus"))).toEqual([true]);
+    expect(statusOf(h.fake, "WO2101")).toBe("COMP");
   });
 });

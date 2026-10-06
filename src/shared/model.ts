@@ -89,6 +89,28 @@ export type RuleValue =
         sourceCol: string;
         normalize?: NormalizeOption[];
       };
+    }
+  | {
+      /**
+       * 行の時期で値を選ぶ（作業指示・注文書などのステータス）。日付は YYYY-MM-DD で比べる。
+       * 終わりの日が asOf 以前なら past、始まりの日が asOf 以前なら inProgress、どれかの日付（予定の日を含む）があれば future、日付が無ければ変えない
+       */
+      phase: {
+        /** 終わりの日の列（ACTFINISH・TARGCOMPDATE など） */
+        finish?: string;
+        /** 始まりの日の列（ACTSTART など） */
+        start?: string;
+        /** 予定の日の列（TARGSTARTDATE・SCHEDSTART など）。実績の日付が無い行を future にするためだけに使う */
+        planned?: string;
+        /** 過去の行の値（ツールでは省くと接続先の設定。既定 COMP） */
+        past?: CellValue;
+        inProgress: CellValue;
+        future: CellValue;
+        /** 比べる日（YYYY-MM-DD）。省くと今日 */
+        asOf?: string;
+        /** 新しく足した行だけを変える（既定 true。今ある記録のステータスは、そのまま中身を直す） */
+        newRowsOnly?: boolean;
+      };
     };
 
 export type NormalizeOption = "trim" | "upper" | "lower" | "nfkc" | "removeSpaces" | "removeHyphens";
@@ -111,6 +133,16 @@ export interface ConflictInfo {
   reason: "changed_since_read" | "user_editing" | "read_only_column" | "row_not_found" | "column_not_found" | "invalid_value" | "lookup_ambiguous";
 }
 
+/** apply_rule の phase 1 列分の内訳。noDate（日付が無い）と existing（newRowsOnly で今ある行）は変えない */
+export interface PhaseStats {
+  past: number;
+  inProgress: number;
+  future: number;
+  noDate: number;
+  existing: number;
+  asOf: string;
+}
+
 /** apply_rule の lookup 1 列分の突合結果。unmatched は変更せずスキップ、ambiguous（参照先に複数候補）は変更せず conflicts に lookup_ambiguous で載せる */
 export interface LookupStats {
   matched: number;
@@ -125,6 +157,8 @@ export interface ApplyResult {
   revision: number;
   /** apply_rule で lookup を使った列ごとの突合件数 */
   lookup?: Record<string, LookupStats>;
+  /** apply_rule で phase を使った列ごとの内訳 */
+  phase?: Record<string, PhaseStats>;
 }
 
 export interface DiffEntry {

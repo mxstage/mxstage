@@ -40,6 +40,7 @@ import {
 } from "../imports";
 import { MaximoError } from "../maximo/client";
 import { loadRecords, recordsToRows } from "../maximo/load";
+import { DEFAULT_PAST_STATUS } from "../maximo/statusPrefs";
 import type { ToolContext, ToolHandler, ToolOutcome } from "../relay";
 import type { CommitPanelState, CreateToolRegistry, MaximoConnection } from "../runtime/contracts";
 import { axesFor, pickScopeAxes } from "../scope/axes";
@@ -115,6 +116,10 @@ export const SCOPE_SHEET_PREFIX = "Scope ";
 export const DESCRIBE_IMPORT_MAX_COLUMNS = 100;
 /** 見出しの候補に載せるセルの数 */
 const HEADER_CELLS_SHOWN = 15;
+
+/** phase の past を接続先の設定で埋めたときに LLM に伝えること */
+export const PHASE_PAST_NOTE = (status: string): string =>
+  `past was not given, so ${status} was used: the setting for past work of this connection (Settings > Maximo connection). Tell the user which status past rows got.`;
 
 export const IMPORT_SHEET_NOTE =
   "This sheet cannot be committed to Maximo (it is reference data for matching). Match it against a Maximo sheet with match_sheets and move differences to the Maximo sheet with a lookup in apply_rule.";
@@ -339,6 +344,8 @@ function panelSummary(p: CommitPanelState): Record<string, unknown> {
     blockers: p.blockers,
     needsDeleteConfirm: p.needsDeleteConfirm,
     needsNullConfirm: p.needsNullConfirm,
+    // 戻せないステータス（クローズ・取消など）への変更を含む。反映の画面で人の確認が要る
+    ...(p.needsIrreversibleConfirm === true ? { needsIrreversibleConfirm: true } : {}),
     awaitingCanary: p.awaitingCanary !== null,
     resultCounts: resultCounts(p),
   };
@@ -460,6 +467,13 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
   }
 
   /** 変更系ツールの結果（conflicts は上限まで、存在しない列には候補を添える） */
+  /** シートの接続先（無ければ今の接続先）の、過去の作業のステータス */
+  function pastStatusForSheet(sheet: string): string {
+    const src = workspace.hasSheet(sheet) ? workspace.getSheet(sheet).meta.source : null;
+    const baseUrl = (src?.kind === "maximo" ? src.baseUrl : undefined) ?? connection.current()?.info.baseUrl;
+    return baseUrl !== undefined && deps.statusPrefs ? deps.statusPrefs.pastStatusOf(baseUrl) : DEFAULT_PAST_STATUS;
+  }
+
   function editResult(sheet: string, res: ApplyResult, extra: Record<string, unknown> = {}): ToolOutcome {
     const columns = workspace.hasSheet(sheet) ? workspace.getSheet(sheet).meta.columns.map((c) => c.name) : [];
     const missing = Array.from(new Set(res.conflicts.filter((c) => c.reason === "column_not_found").map((c) => c.col)));
@@ -1114,8 +1128,20 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
 
     apply_rule: (args) => {
       assertNotBusy(args.sheet);
-      const res = workspace.applyRule(args.sheet, args.filter, args.set, { author: "llm", reason: args.reason, baseRevision: args.baseRevision, dryRun: args.dryRun });
-      return editResult(args.sheet, res, { dryRun: args.dryRun, matched: res.matched });
+      // phase で past を省いたら、接続先の設定（過去の作業のステータス。既定 COMP）を使う
+      let pastDefault: string | null = null;
+      const set = Object.fromEntries(
+        Object.entries(args.set).map(([col, rv]) => {
+          if (!("phase" in rv) || rv.phase.past !== undefined) return [col, rv];
+          pastDefault ??= pastStatusForSheet(args.sheet);
+          return [col, { phase: { ...rv.phase, past: pastDefault } }];
+        }),
+      ) as typeof args.set;
+      const res = workspace.applyRule(args.sheet, args.filter, set, { author: "llm", reason: args.reason, baseRevision: args.baseRevision, dryRun: args.dryRun });
+      const extra: Record<string, unknown> = { dryRun: args.dryRun, matched: res.matched };
+      if (res.phase !== undefined) extra.phase = res.phase;
+      if (pastDefault !== null) extra.phaseNote = PHASE_PAST_NOTE(pastDefault);
+      return editResult(args.sheet, res, extra);
     },
 
     add_rows: (args) => {
@@ -1195,6 +1221,7 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
           blockers: p.blockers,
           needsDeleteConfirm: p.needsDeleteConfirm,
           needsNullConfirm: p.needsNullConfirm,
+          ...(p.needsIrreversibleConfirm === true ? { needsIrreversibleConfirm: true } : {}),
           message,
         },
         revision(),

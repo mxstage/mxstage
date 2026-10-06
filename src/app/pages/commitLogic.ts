@@ -56,11 +56,20 @@ export function canCancelCommit(panel: CommitPanelState | null): boolean {
 export interface ConfirmChecks {
   deletes: boolean;
   nulls: boolean;
+  irreversible?: boolean;
 }
 
 /** 確認ダイアログの [反映する] を押せるか（必要な確認のチェックがすべて入っている） */
 export function canConfirmCommit(panel: CommitPanelState, checks: ConfirmChecks): boolean {
-  return (!panel.needsDeleteConfirm || checks.deletes) && (!panel.needsNullConfirm || checks.nulls);
+  return (!panel.needsDeleteConfirm || checks.deletes) && (!panel.needsNullConfirm || checks.nulls) && (panel.needsIrreversibleConfirm !== true || checks.irreversible === true);
+}
+
+/** 行き先のステータスごとの件数（「COMP 12・INPRG 3」） */
+export function statusTargetsText(counts: CommitPanelState["counts"]): string {
+  return Object.entries(counts.statusTargets ?? {})
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([s, n]) => `${s} ${n}`)
+    .join(", ");
 }
 
 export function confirmLines(panel: CommitPanelState): string[] {
@@ -69,6 +78,7 @@ export function confirmLines(panel: CommitPanelState): string[] {
   const lines = [t.sheet(panel.sheet), t.parents(c.parents), t.changedCells(c.changedCells), t.addedRows(c.addedRows), t.deletedRows(c.deletedRows)];
   // 新しく作るレコードは取り消せない（Maximo の削除が要る）ので、あるときは別の行で示す
   if ((c.newRecords ?? 0) > 0) lines.splice(2, 0, t.newRecords(c.newRecords ?? 0));
+  if ((c.statusChanges ?? 0) > 0) lines.push(t.statusChanges(c.statusChanges ?? 0, statusTargetsText(c)));
   return lines;
 }
 

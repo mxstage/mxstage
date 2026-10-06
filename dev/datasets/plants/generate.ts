@@ -58,7 +58,7 @@ export interface PlantsData {
 export const NOW = jst(2026, 9, 30, 17, 0);
 
 /** 公開するデータの版（中身を変えたら上げる） */
-export const DATASET_VERSION = 2;
+export const DATASET_VERSION = 3;
 
 export const CLASS_BY_ID = new Map<string, ClassDef>(CLASSES.map((c) => [c.id, c]));
 export const ATTR_BY_ID = new Map<string, AttrDef>(ATTRS.map((a) => [a.id, a]));
@@ -1324,8 +1324,13 @@ export class SiteContext {
     const actFinish = actStart + calendarMs(actHours);
     if (actFinish > NOW) return { status: "INPRG", hist, actStart, actFinish: null, actHours: null };
     hist.push(["COMP", actFinish, lead]);
-    const close = actFinish + rng.int(1, 30) * DAY;
-    if (close > NOW || rng.chance(0.02)) return { status: "COMP", hist, actStart, actFinish, actHours };
+    // クローズは年度末にまとめて行う（終わった年度の次の 4 月）。今年度（2026 年度）に終わった作業指示は完了のまま、中身を直せる。
+    // 乱数は第 2 版（終わりの 1〜30 日後にクローズ）と同じ順に引き、ほかの値を変えない
+    const offset = rng.int(1, 30) * DAY;
+    const leftOpen = actFinish + offset <= NOW && rng.chance(0.02);
+    const { y, m } = ymd(actFinish);
+    const close = atTime(jst(m >= 4 ? y + 1 : y, 4, 1) + offset - DAY, [9, 10, 13, 15][(offset / DAY) % 4]!);
+    if (close > NOW || leftOpen) return { status: "COMP", hist, actStart, actFinish, actHours };
     hist.push(["CLOSE", close, sup]);
     return { status: "CLOSE", hist, actStart, actFinish, actHours };
   }

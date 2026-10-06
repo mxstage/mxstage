@@ -13,6 +13,7 @@ import { DEMO_FORMAT, seedToFiles, sha256 } from "../../src/demo/format.ts";
 import {
   DEMO_CLOSE_PATH,
   DEMO_DATA_URL,
+  DEMO_DATA_VERSION,
   DEMO_DOWNLOAD_PATH,
   DEMO_EXCEL_PREFIX,
   DEMO_ORIGINS,
@@ -26,6 +27,9 @@ import {
   type DemoStatus,
 } from "../../src/shared/demo.ts";
 import { rawRequest, startTestBridge, stopAll, waitFor } from "./support.ts";
+
+/** この製品が使うデータの版のフォルダ（v<版>） */
+const V = `v${DEMO_DATA_VERSION}`;
 
 const dirs: string[] = [];
 function tempDir(): string {
@@ -42,7 +46,7 @@ afterEach(async () => {
 const DATA_URL = "https://demo-data.example.test";
 const XLSX_NAME = "発注一覧_令和8年度上半期.xlsx";
 
-/** 置き場所の中身（v2/manifest.json と、言語ごとのファイル）を、小さな種から作る */
+/** 置き場所の中身（v<版>/manifest.json と、言語ごとのファイル）を、小さな種から作る */
 function publishedFiles(): { files: Map<string, Buffer>; manifestSha: string } {
   const { osdefs, records } = seedToFiles(sampleSeed());
   const files = new Map<string, Buffer>();
@@ -50,7 +54,7 @@ function publishedFiles(): { files: Map<string, Buffer>; manifestSha: string } {
   for (const lang of ["ja", "en"] as const) {
     const list: unknown[] = [];
     const add = (path: string, kind: string, bytes: Uint8Array, extra: Record<string, unknown> = {}): void => {
-      files.set(`v2/${path}`, Buffer.from(bytes));
+      files.set(`${V}/${path}`, Buffer.from(bytes));
       list.push({ path, kind, bytes: bytes.byteLength, sha256: sha256(bytes), ...extra });
     };
     add(`${lang}/osdefs.json.gz`, "osdefs", osdefs);
@@ -58,8 +62,8 @@ function publishedFiles(): { files: Map<string, Buffer>; manifestSha: string } {
     add(`${lang}/excel/purchase-orders.xlsx`, "excel", Buffer.from(`PK sample ${lang}`), { title: "発注一覧", fileName: XLSX_NAME });
     languages[lang] = { files: list };
   }
-  const manifest = Buffer.from(JSON.stringify({ format: DEMO_FORMAT, version: 2, asOf: "2026-09-30T17:00:00+09:00", languages }));
-  files.set("v2/manifest.json", manifest);
+  const manifest = Buffer.from(JSON.stringify({ format: DEMO_FORMAT, version: DEMO_DATA_VERSION, asOf: "2026-09-30T17:00:00+09:00", languages }));
+  files.set(`${V}/manifest.json`, manifest);
   return { files, manifestSha: sha256(manifest) };
 }
 
@@ -133,10 +137,10 @@ describe("落とす（DemoManager）", () => {
     const h = host();
     const dir = tempDir();
     await downloaded(h, "ja", dir);
-    expect(h.requests[0]).toBe(`${DATA_URL}/v2/manifest.json`);
+    expect(h.requests[0]).toBe(`${DATA_URL}/${V}/manifest.json`);
     // 英語のファイルは落とさない
     expect(h.requests.some((u) => u.includes("/en/"))).toBe(false);
-    expect(existsSync(join(dir, "v2", "ja", "osdefs.json.gz"))).toBe(true);
+    expect(existsSync(join(dir, V, "ja", "osdefs.json.gz"))).toBe(true);
 
     const offline = new DemoManager({ dir, dataUrl: DATA_URL, manifestSha256: h.manifestSha, fetch: (() => Promise.reject(new TypeError("offline"))) as typeof fetch });
     expect(offline.readyLanguages()).toEqual(["ja"]);
@@ -158,7 +162,7 @@ describe("落とす（DemoManager）", () => {
   it("ファイルが目録と違えば止まる。直ったらやり直せ、確かめ済みのファイルは落とし直さない", async () => {
     const h = host();
     const dir = tempDir();
-    const target = [...h.files.keys()].find((k) => k.startsWith("v2/ja/os/"))!;
+    const target = [...h.files.keys()].find((k) => k.startsWith(`${V}/ja/os/`))!;
     const good = h.files.get(target)!;
     h.files.set(target, Buffer.concat([good.subarray(0, good.byteLength - 1), Buffer.from([good[good.byteLength - 1]! ^ 1])]));
     const demo = manager(h, dir);
@@ -178,10 +182,10 @@ describe("落とす（DemoManager）", () => {
   });
 
   it("目録の大きさの上限を超えるものは受けない", () => {
-    const big = { format: DEMO_FORMAT, version: 2, asOf: "x", languages: { ja: { files: [{ path: "ja/osdefs.json.gz", kind: "osdefs", bytes: DEMO_FILE_LIMIT + 1, sha256: "a".repeat(64) }] }, en: { files: [{ path: "en/osdefs.json.gz", kind: "osdefs", bytes: 1, sha256: "a".repeat(64) }] } } };
-    expect(() => parseManifest(Buffer.from(JSON.stringify(big)), 2)).toThrow(expect.objectContaining({ problem: "too_large" }));
+    const big = { format: DEMO_FORMAT, version: DEMO_DATA_VERSION, asOf: "x", languages: { ja: { files: [{ path: "ja/osdefs.json.gz", kind: "osdefs", bytes: DEMO_FILE_LIMIT + 1, sha256: "a".repeat(64) }] }, en: { files: [{ path: "en/osdefs.json.gz", kind: "osdefs", bytes: 1, sha256: "a".repeat(64) }] } } };
+    expect(() => parseManifest(Buffer.from(JSON.stringify(big)), DEMO_DATA_VERSION)).toThrow(expect.objectContaining({ problem: "too_large" }));
     const escape = { ...big, languages: { ...big.languages, ja: { files: [{ path: "ja/../../x.gz", kind: "osdefs", bytes: 1, sha256: "a".repeat(64) }] } } };
-    expect(() => parseManifest(Buffer.from(JSON.stringify(escape)), 2)).toThrow(expect.objectContaining({ problem: "manifest_invalid" }));
+    expect(() => parseManifest(Buffer.from(JSON.stringify(escape)), DEMO_DATA_VERSION)).toThrow(expect.objectContaining({ problem: "manifest_invalid" }));
   });
 
   it("同時に読んでも 1 回だけ作り、別の言語を読むと前の言語を放す", async () => {
@@ -215,16 +219,16 @@ describe("落とす（DemoManager）", () => {
     await demo.whenDownloaded("en");
     await demo.remove("ja");
     expect(demo.readyLanguages()).toEqual(["en"]);
-    expect(existsSync(join(dir, "v2", "ja"))).toBe(false);
+    expect(existsSync(join(dir, V, "ja"))).toBe(false);
     await demo.remove("en");
-    expect(existsSync(join(dir, "v2"))).toBe(false);
+    expect(existsSync(join(dir, V))).toBe(false);
   });
 
   it("手元のファイルが壊れていれば読まない", async () => {
     const h = host();
     const dir = tempDir();
     const demo = await downloaded(h, "ja", dir);
-    writeFileSync(join(dir, "v2", "ja", "osdefs.json.gz"), "broken");
+    writeFileSync(join(dir, V, "ja", "osdefs.json.gz"), "broken");
     await expect(demo.load("ja")).rejects.toMatchObject({ problem: "unreadable" });
   });
 });
@@ -248,7 +252,7 @@ describe("入口（/_mxstage/demo と /mx のデモの接続先）", () => {
     expect(start.status).toBe(200);
     await demo.whenDownloaded("ja");
     const status = JSON.parse((await rawRequest(bridge, DEMO_PATH, { headers: SAME_ORIGIN })).body) as DemoStatus & { ok: boolean };
-    expect(status).toMatchObject({ ok: true, version: 2, dataHost: "demo-data.example.test", languages: { ja: { state: "ready" }, en: { state: "none" } }, loaded: null });
+    expect(status).toMatchObject({ ok: true, version: DEMO_DATA_VERSION, dataHost: "demo-data.example.test", languages: { ja: { state: "ready" }, en: { state: "none" } }, loaded: null });
     expect(status.excel.ja).toEqual([expect.objectContaining({ id: "purchase-orders", fileName: XLSX_NAME })]);
 
     const list = await rawRequest(bridge, "/mx/maximo/api/os/mxapiwo?lean=1&oslc.select=wonum,description&oslc.pageSize=10", {
@@ -356,6 +360,6 @@ describe("入口（/_mxstage/demo と /mx のデモの接続先）", () => {
     const body = (await rawRequest(bridge, DEMO_PATH, { headers: SAME_ORIGIN })).body;
     expect(body).not.toContain(dir.replace(/\\/g, "\\\\"));
     expect(body).not.toContain((await demo.load("ja")).apiKey);
-    expect(readFileSync(join(dir, "v2", "ja.complete"), "utf8").trim()).toBe(h.manifestSha);
+    expect(readFileSync(join(dir, V, "ja.complete"), "utf8").trim()).toBe(h.manifestSha);
   });
 });

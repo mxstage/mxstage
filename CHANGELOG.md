@@ -14,6 +14,7 @@ All notable changes to MX Stage are listed here. Versions follow [Semantic Versi
 ### Changed
 
 - STATUS is no longer sent as an ordinary value in an update or a new record.
+- The demo data is version 3: work orders are closed together after each fiscal year ends, so work finished in this fiscal year (from April 2026) stays completed (COMP) and can still be corrected, as in many sites. The demo downloads the new data once (about 10 MB per language).
 - The Skills describe deciding statuses by each record's phase, never one status for a whole file (mxstage-core-change, mxstage-core-commit, mxstage-obj-workorder, mxstage-obj-purchasing).
 
 ## 0.2.7 — 2026-10-06

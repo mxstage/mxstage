@@ -2,7 +2,7 @@
 name: mxstage-core-change
 description: "MX Stage basic operation: change sheets in the work screen with apply_rule (dry run first), patch_cells, add_rows and delete_rows, with reasons, conflicts and undo. Maximo is not changed yet."
 metadata:
-  version: "1.2.0"
+  version: "1.3.0"
   category: "core"
 ---
 
@@ -52,6 +52,7 @@ The right status depends on each record's phase, never on the kind of file or ta
 ## Child rows: add_rows and delete_rows
 
 - add_rows adds rows to a sheet; for child rows (specifications, job plan tasks, PO lines, domain values) give parentRowKey of the parent row. Fill the attributes Maximo needs for the child (the object Skill lists them). Leave the child's own ID empty; Maximo assigns it.
+- For child rows under many parents (for example failure report lines for many work orders), use children instead of one call per parent: a list where each item has parentRowKey and rows (up to 200 rows per call, one undo batch).
 - delete_rows marks child rows for deletion. Top-level records cannot be deleted.
 - Deleting more than 10 child rows under one record, or more than 50 in a commit, needs the user's extra confirmation in the commit panel. Explain why the rows go before asking.
 

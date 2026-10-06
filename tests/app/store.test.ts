@@ -623,6 +623,29 @@ describe("addRows / deleteRows と差分", () => {
     expectStoreError(() => ws.addRows(WO, [{ [NOTE]: "x" }], { author: "llm", parentRowKey: C11, childName: "NOPE" }), "invalid_args");
   });
 
+  it("addChildRows: 複数の親の子行を 1 つのバッチで足し、1 回の取り消しで消える。誤りは通し番号の #N", () => {
+    const ws = setup();
+    const r = ws.addChildRows(
+      WO,
+      [
+        { parentRowKey: C11, rows: [{ [NOTE]: "a1" }, { [NOTE]: "a2" }] },
+        { parentRowKey: "nope", rows: [{ [NOTE]: "x" }] },
+        { parentRowKey: P3, rows: [{ [NOTE]: "b1", DESCRIPTION: "other" }, { [NOTE]: "b2" }] },
+      ],
+      { author: "llm", reason: "故障報告の行を足す", baseRevision: ws.revision },
+    );
+    expect(r.applied).toBe(3);
+    expect(r.conflicts).toEqual([
+      { rowKey: "nope", col: "", reason: "row_not_found" },
+      { rowKey: "#3", col: "DESCRIPTION", reason: "invalid_value" },
+    ]);
+    const sheet = ws.getSheet(WO);
+    expect(sheet.rowKeys("final").filter((k) => k.includes("new~")).map((k) => sheet.rowValues(k)![NOTE])).toEqual(["a1", "a2", "b2"]);
+    expect(ws.batches.filter((b) => !b.undone)).toHaveLength(1);
+    ws.undoBatch(r.batchId as string);
+    expect(ws.getSheet(WO).rowKeys("final").some((k) => k.includes("new~"))).toBe(false);
+  });
+
   it("行を削除すると最終ビューから消え、差分に削除行として出る", () => {
     const ws = setup();
     const r = ws.deleteRows(WO, [C21, C21, "nope"], { author: "llm", reason: "不要" });

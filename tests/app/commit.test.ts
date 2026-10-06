@@ -218,7 +218,11 @@ describe("CommitController: 例 (a) を最後まで", () => {
     expect(log[0]).toMatchObject({ parentKey: pk("WO2001"), result: "verified", ops: { change: 1, delete: 0, add: 0, attrs: ["EXT_WOPERMIT.EXT_PERMITDATE"] } });
     const csv = h.controller.writeLogCsv();
     expect(csv.split("\r\n")[0]).toBe("at,parentKey,transactionId,change,delete,add,attrs,httpStatus,reasonCode,result");
-    for (const value of [NEW_DATE, "2026-04-01", "消防", "m1", "届出"]) expect(csv).not.toContain(value);
+    // transactionId は乱数（例 mxs-muwcm1v9-…）なので、たまたま値と同じ文字を含みうる。その列を除いて確かめる
+    const lines = csv.split("\r\n");
+    const txCol = lines[0]!.split(",").indexOf("transactionId");
+    const withoutTx = lines.map((line) => line.split(",").filter((_, i) => i !== txCol).join(",")).join("\n");
+    for (const value of [NEW_DATE, "2026-04-01", "消防", "m1", "届出"]) expect(withoutTx).not.toContain(value);
   });
 
   it("差分レポート用に、反映した回の差分の写しとその回の書き込みログが残る（反映の後に差分が消えても）", async () => {

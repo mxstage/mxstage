@@ -349,7 +349,10 @@ function repairTable(data: PlantsData): ExcelFile {
     .filter((w) => w.wonum !== undefined && (w.attrs.status === "COMP" || w.attrs.status === "CLOSE" || w.attrs.status === "INPRG"))
     .sort((a, b) => a.report - b.report);
   const sheets: SheetSpec[] = [];
-  const truth: Array<{ sheet: string; row: number; wonum: string; codeMode: string; prob: string; cause: string; remedy: string; failurecodeMissing: boolean }> = [];
+  const truth: RepairRowTruth[] = [];
+  // Maximo に無い小さな修理（日本語の作業日報と同じ日・機器・不具合。書き方だけを英語の表に合わせる）
+  const freshRng = new Rng(seedOf("excel-daily"));
+  const kitaPositions = freshPositions(data);
   for (let month = 4; month <= 9; month++) {
     const sheetName = c.L(`${month}月`, `${tx.monthName(month)} 2026`);
     const rows: CellInput[][] = [
@@ -358,7 +361,7 @@ function repairTable(data: PlantsData): ExcelFile {
       (ja ? ["日付", "炉", "機器", "内容", "処置", "時間", "担当"] : ["Date", "Line", "Equipment", "Issue", "Action", "Time", "By"]).map(head),
     ];
     const merges = ["A1:G1"];
-    type Line = { day: number; cells: CellInput[]; wo?: WoDraft };
+    type Line = { day: number; cells: CellInput[]; wo?: WoDraft; fresh?: NewRepairTruth };
     const lines: Line[] = [];
     for (const w of entries) {
       const { m, d } = ymd(w.report);
@@ -378,6 +381,21 @@ function repairTable(data: PlantsData): ExcelFile {
       lines.push({
         day: d, wo: w,
         cells: [null, cell(pos.line === 0 ? c.L("共通", "Com") : c.L(`${pos.line}号`, `L${pos.line}`)), cell(equip), cell(issue), { v: action, s: "wrap" }, cell(time), cell(lead ? (ja ? lead.last : lead.last) : "")],
+      });
+    }
+    const leads = [...new Set(lines.map((l) => l.cells[6]).flatMap((x) => (x && typeof x === "object" && "v" in x && typeof x.v === "string" && x.v !== "" ? [x.v] : [])))];
+    for (const f of planFresh(month, freshRng.fork(`month-${month}`), kitaPositions)) {
+      const { day, pos, asset, tmpl, r } = f;
+      const en = NEW_REPAIRS_EN[pos.cls]![NEW_REPAIRS[pos.cls]!.indexOf(tmpl)]!;
+      let equip = c.bare(pos.desc);
+      for (const [re, alts] of NICK_EN) if (re.test(equip)) equip = equip.replace(re, r.pick(alts));
+      equip = equip.replace(/ No\.(\d+)$/, (_m, n: string) => r.pick([` No.${n}`, ` #${n}`, ` ${n}`]));
+      const h = Math.round(tmpl.hours * 2) / 2;
+      const time = r.chance(0.15) ? "half day" : r.chance(0.5) ? `${h}h` : `${h} hrs`;
+      lines.push({
+        day,
+        cells: [null, cell(pos.line === 0 ? "Com" : `L${pos.line}`), cell(equip), cell(r.pick(en.issue)), { v: r.pick(en.act), s: "wrap" }, cell(time), cell(leads.length > 0 ? r.pick(leads) : "")],
+        fresh: { date: `2026-${pad(month, 2)}-${pad(day, 2)}`, assetnum: asset.assetnum, location: asset.location, description: `${pos.desc} ${en.issue[0]}`, prob: tmpl.prob, cause: tmpl.cause, remedy: tmpl.remedy, hours: tmpl.hours },
       });
     }
     // 修理と関係の無い記録（雑多な行）
@@ -402,7 +420,10 @@ function repairTable(data: PlantsData): ExcelFile {
         rows.push(row);
         if (l.wo) {
           const t = l.wo.truth!;
-          truth.push({ sheet: sheetName, row: rows.length, wonum: l.wo.wonum!, codeMode: t.codeMode, prob: t.prob, cause: t.cause, remedy: t.remedy, failurecodeMissing: t.codeMode !== "full" });
+          truth.push({ sheet: sheetName, row: rows.length, kind: "WO", wonum: l.wo.wonum!, codeMode: t.codeMode, prob: t.prob, cause: t.cause, remedy: t.remedy, failurecodeMissing: t.codeMode !== "full" });
+        } else if (l.fresh) {
+          const f = l.fresh;
+          truth.push({ sheet: sheetName, row: rows.length, kind: "NEW", prob: f.prob, cause: f.cause, remedy: f.remedy, failurecodeMissing: true, fresh: f });
         }
       }
       // 同じ日の行は日付のセルを結合（取り込むと 2 行目からは空になる）
@@ -449,6 +470,44 @@ const NEW_REPAIRS: Record<string, Array<{ issue: string; act: string; prob: stri
   HVAC: [{ issue: "冷え悪い", act: "フィルタ清掃", prob: "LOWPERF", cause: "FOULED", remedy: "CLEAN", hours: 0.5 }],
   MOTOR: [{ issue: "端子箱カバー 緩み", act: "増締め", prob: "MALFUNC", cause: "LOOSE", remedy: "RETIGHT", hours: 0.5 }],
 };
+/** 英語の書き方（NEW_REPAIRS と同じ順） */
+const NEW_REPAIRS_EN: Record<string, Array<{ issue: string[]; act: string[] }>> = {
+  PUMP: [{ issue: ["gland leak", "leaking at gland", "gland weeping"], act: ["retightened gland", "gland nuts tightened"] }],
+  FAN: [{ issue: ["bearing noise", "brg noisy", "noise at bearing"], act: ["greased, monitoring", "greased - keep an eye on it"] }],
+  CONV: [{ issue: ["belt tracking off", "belt wandering", "belt off track"], act: ["adjusted tail pulley", "tail pulley adjusted"] }],
+  CVALVE: [{ issue: ["sticking", "stiff operation", "valve sticky"], act: ["lubed gland, stroke checked", "greased gland - stroke OK"] }],
+  MOV: [{ issue: ["slow to open/close", "slow stroke", "takes long to close"], act: ["adjusted limits", "limit switch adjusted"] }],
+  COMP: [{ issue: ["drain not discharging", "auto drain blocked", "drain clogged"], act: ["auto drain stripped & cleaned", "cleaned auto drain"] }],
+  HVAC: [{ issue: ["not cooling well", "poor cooling", "weak cooling"], act: ["filter cleaned", "cleaned filters"] }],
+  MOTOR: [{ issue: ["terminal box cover loose", "TB cover loose", "loose terminal cover"], act: ["retightened", "screws tightened"] }],
+};
+
+/** Maximo に無い修理の候補の機器（北部、NEW_REPAIRS の分類） */
+function freshPositions(data: PlantsData): Position[] {
+  return data.truth.positions.filter((p) => p.site.siteid === "KITA" && NEW_REPAIRS[p.cls] !== undefined);
+}
+
+/**
+ * Maximo に無い小さな修理（月に 4〜5 件、平日）の日・機器・不具合。
+ * mr は new Rng(seedOf("excel-daily")).fork(`month-${月}`)。日英で同じものを引き、返した r で書き方を引く
+ */
+function planFresh(month: number, mr: Rng, positions: Position[]): Array<{ day: number; pos: Position; asset: Position["gens"][number]; tmpl: (typeof NEW_REPAIRS)[string][number]; r: Rng }> {
+  const daysInMonth = new Date(Date.UTC(2026, month, 0)).getUTCDate();
+  const out: Array<{ day: number; pos: Position; asset: Position["gens"][number]; tmpl: (typeof NEW_REPAIRS)[string][number]; r: Rng }> = [];
+  for (let k = 0, n = mr.int(4, 5); k < n; k++) {
+    const r = mr.fork(`new-${k}`);
+    let day = r.int(1, daysInMonth);
+    while (new Date(Date.UTC(2026, month - 1, day)).getUTCDay() % 6 === 0 || HOLIDAYS_2026.has(`${month}-${day}`)) day = (day % daysInMonth) + 1;
+    const at = jst(2026, month, day, 10);
+    const pos = r.pick(positions);
+    const asset = pos.gens.find((a) => a.install <= at && (a.decom === null || a.decom > at) && !a.hidden);
+    if (!asset) continue;
+    const tmpl = r.pick(NEW_REPAIRS[pos.cls]!);
+    out.push({ day, pos, asset, tmpl, r });
+  }
+  return out;
+}
+
 const MATERIALS: Record<string, string[]> = {
   REPLACE: ["ベアリング 6310ZZ ×2", "パッキン 一式", "メカニカルシール ×1", "Vベルト B-52 ×3", "ヒューズ ×2", "リミットスイッチ ×1"],
   LUBRIC: ["グリース（リチウム系）0.5kg", "グリース 1缶", "潤滑油 VG68 2L"],
@@ -473,6 +532,21 @@ interface ReportLine {
   kind: "WO" | "NEW" | "PM" | "ROUTINE";
   wo?: WoDraft;
   pmWonum?: string;
+  fresh?: NewRepairTruth;
+}
+
+/** 英語の修理記録の 1 行の正解 */
+interface RepairRowTruth {
+  sheet: string;
+  row: number;
+  kind: "WO" | "NEW";
+  wonum?: string;
+  codeMode?: string;
+  prob: string;
+  cause: string;
+  remedy: string;
+  failurecodeMissing: boolean;
+  /** Maximo に無い修理（作業指示を作る先） */
   fresh?: NewRepairTruth;
 }
 
@@ -539,7 +613,7 @@ function dailyReports(data: PlantsData): ExcelFile {
   const pms = (data.tables.WORKORDER ?? [])
     .map((r) => r.attrs)
     .filter((a) => a.siteid === "KITA" && (a.worktype === "PM" || a.worktype === "INSP" || a.worktype === "CAL") && (a.status === "COMP" || a.status === "CLOSE") && !a.vendor && typeof a.actstart === "string" && a.actstart >= "2026-04" && a.actstart < "2026-10");
-  const kitaPositions = data.truth.positions.filter((p) => p.site.siteid === "KITA" && NEW_REPAIRS[p.cls] !== undefined);
+  const kitaPositions = freshPositions(data);
 
   /** 機器の書き方（炉の書き方・系統の名前・通称・号機の書き方が揺れる） */
   const equipText = (pos: Position, r: Rng): string => {
@@ -600,15 +674,7 @@ function dailyReports(data: PlantsData): ExcelFile {
     const daysInMonth = new Date(Date.UTC(2026, month, 0)).getUTCDate();
     // Maximo に無い修理（月に 4〜5 件、平日）
     const fresh = new Map<number, ReportLine[]>();
-    for (let k = 0, n = mr.int(4, 5); k < n; k++) {
-      const r = mr.fork(`new-${k}`);
-      let day = r.int(1, daysInMonth);
-      while (new Date(Date.UTC(2026, month - 1, day)).getUTCDay() % 6 === 0 || HOLIDAYS_2026.has(`${month}-${day}`)) day = (day % daysInMonth) + 1;
-      const at = jst(2026, month, day, 10);
-      const pos = r.pick(kitaPositions);
-      const asset = pos.gens.find((a) => a.install <= at && (a.decom === null || a.decom > at) && !a.hidden);
-      if (!asset) continue;
-      const tmpl = r.pick(NEW_REPAIRS[pos.cls]!);
+    for (const { day, pos, asset, tmpl, r } of planFresh(month, mr, kitaPositions)) {
       const equip = equipText(pos, r);
       const line: ReportLine = {
         cat: r.pick(["修理", "補修", "不具合対応"]), text: `${equip} ${tmpl.issue} ${tmpl.act}`, hours: hoursOf(tmpl.hours, r), crew: r.int(1, 2), kind: "NEW",

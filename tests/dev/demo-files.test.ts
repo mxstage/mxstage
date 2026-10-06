@@ -126,6 +126,22 @@ describe.each(["ja", "en"] as const)("Excel のサンプル（%s）", (lang) => 
     expect(zipEntry(bytes, "xl/workbook.xml")).toContain('<definedName name="_xlnm.Print_Area" localSheetId="0">');
   });
 
+  it.runIf(lang === "en")("修理記録（英語）にも、日本語の作業日報と同じ Maximo に無い修理（日付・資産・故障の正解が同じ）がある", () => {
+    type Fresh = { date: string; assetnum: string; prob: string; cause: string; remedy: string; description: string };
+    const newOf = (l: "ja" | "en") =>
+      ((files[l].find((x) => x.id === "repair-log")!.truth as { rows: Array<{ kind?: string; fresh?: Fresh }> }).rows)
+        .filter((r) => r.kind === "NEW" && r.fresh !== undefined)
+        .map((r) => r.fresh!);
+    const key = (f: Fresh) => `${f.date}|${f.assetnum}|${f.prob}|${f.cause}|${f.remedy}`;
+    const en = newOf("en");
+    expect(en.length).toBeGreaterThan(10);
+    expect(en.map(key).sort()).toEqual(newOf("ja").map(key).sort());
+    // サイトの英語の例と同じ行（4 月の 1 号炉 脱硝の調節弁の作動渋い）
+    expect(en.find((f) => f.date === "2026-04-06" && f.assetnum === "1000598")).toMatchObject({ description: "Line 1 SCR DeNOx Control Valve No.1 sticking", prob: "STUCK", cause: "LUBE", remedy: "LUBRIC" });
+    // 英語の文に日本語が混ざらない
+    for (const f of en) expect(f.description).not.toMatch(/[぀-ヿ一-鿿]/);
+  });
+
   it.runIf(lang === "en")("修理記録（英語）は表のまま（帳票の書式も印刷の設定も無い）", () => {
     const f = files.en.find((x) => x.id === "repair-log")!;
     const bytes = writeXlsx(f.sheets, { title: f.title, creator: "test", lang: "en" });

@@ -87,6 +87,11 @@ describe("filters", () => {
     expect(likeMatcher("a.b")("axb")).toBe(false);
     expect(likeMatcher("a.b")("A.B")).toBe(true);
     expect(likeMatcher("[x]+?")("[X]+?")).toBe(true);
+    // 全角半角・大文字小文字を無視する（半角カナの説明も全角で当たる）
+    expect(likeMatcher("%スートブロワ No.2%")("3号炉 ｽｰﾄﾌﾞﾛﾜ No.2 電動機")).toBe(true);
+    expect(likeMatcher("%ｽｰﾄﾌﾞﾛﾜ%")("3号炉 スートブロワ")).toBe(true);
+    expect(likeMatcher("%ＩＤＦ%")("2号炉 idf 軸受")).toBe(true);
+    expect(likeMatcher("%ガ%")("ｶﾞｽ")).toBe(true);
     expect(likeMatcher("%")("")).toBe(true);
     expect(likeMatcher("a\\b")("A\\B")).toBe(true);
     expect(likeMatcher("a\\b")("ab")).toBe(false);

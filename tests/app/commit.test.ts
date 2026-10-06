@@ -555,6 +555,33 @@ describe("CommitController: 新規作成", () => {
     expect(h.controller.writeLog()[0]).toMatchObject({ parentKey: pk("WO2100"), result: "verified", ops: { add: 1 } });
   });
 
+  it("add_rows の children: 複数の親に子行を 1 回で足し、反映すると親ごとに子が増える", async () => {
+    const h = harness();
+    await loadPermits(h);
+    const res = await h.call("add_rows", {
+      sheet: PERMIT_SHEET,
+      children: [
+        { parentRowKey: ck("WO2001", 1001), rows: [{ "EXT_WOPERMIT.EXT_AUTHORITY": "県", "EXT_WOPERMIT.EXT_PERMITTYPE": "届出" }] },
+        { parentRowKey: ck("WO2002", 1003), rows: [{ "EXT_WOPERMIT.EXT_AUTHORITY": "市", "EXT_WOPERMIT.EXT_PERMITTYPE": "許可" }, { "EXT_WOPERMIT.EXT_AUTHORITY": "国", "EXT_WOPERMIT.EXT_PERMITTYPE": "届出" }] },
+      ],
+      baseRevision: h.workspace.revision,
+      reason: "許可申請を足す",
+    });
+    expect(res).toMatchObject({ applied: 3, conflictCount: 0 });
+    expect(res.rowKeys).toHaveLength(3);
+    expect(h.workspace.batches.filter((b) => !b.undone)).toHaveLength(1);
+    const e = await h.fail("add_rows", { sheet: PERMIT_SHEET, rows: [{ WONUM: "X" }], children: [{ parentRowKey: pk("WO2001"), rows: [{}] }], baseRevision: h.workspace.revision, reason: "x" });
+    expect(e.code).toBe(RelayErrorCode.INVALID_ARGS);
+
+    h.fake.state.requests.length = 0;
+    const running = h.controller.run(PERMIT_SHEET, {});
+    await untilCanary(h);
+    h.controller.continueCanary(PERMIT_SHEET, true);
+    const done = await running;
+    expect(done.results.map((r) => r.status)).toEqual(["verified", "verified"]);
+    expect(h.fake.find("mxapiwo", (r) => r.attrs.wonum === "WO2002")!.children.ext_wopermit!.map((c) => c.attrs.ext_authority)).toEqual(["県", "市", "国"]);
+  });
+
   it("同じキーの作業指示が Maximo にもうあれば作らずに conflict にし、足した行は作業画面に残す", async () => {
     const h = harness();
     await loadPermits(h);

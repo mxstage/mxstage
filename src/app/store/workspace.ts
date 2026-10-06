@@ -614,27 +614,66 @@ export class Workspace {
         push(plan);
       });
     } else {
-      const parent = sheet.row(opts.parentRowKey);
-      // 親だけの行に削除の印が付いた親（親の削除）にも子を追加しない
-      if (!parent || parent.deleted || sheet.group(parent.parentKey).some((r) => r.childName === null && r.deleted !== null)) {
-        conflicts.push({ rowKey: opts.parentRowKey, col: "", reason: "row_not_found" });
-      } else {
-        const names = sheet.childNames();
-        if (names.length === 0) {
-          throw new StoreError("invalid_args", `Sheet ${sheet.name} has no child object columns`, { sheet: sheet.name });
-        }
-        if (opts.childName !== undefined && !names.includes(opts.childName)) {
-          throw new StoreError("invalid_args", `The child object ${opts.childName} is not in sheet ${sheet.name}`, { childName: opts.childName });
-        }
-        if (base !== undefined && sheet.groupRevision(parent.parentKey) > base) {
-          // 読んだ後に同じ親の行が追加・削除された（またはシートを読み込み直した）。同じ子を二重に足さないよう読み直させる
-          conflicts.push({ rowKey: opts.parentRowKey, col: "", reason: "changed_since_read" });
-        } else {
-          rows.forEach((values, i) => push(this.planChildRow(sheet, parent, values, i, opts.childName)));
-        }
-      }
+      this.planChildren(sheet, opts.parentRowKey, rows, 0, opts.childName, base, push, conflicts);
     }
     return this.finish(sheet, opts, ops, conflicts, "rows_added");
+  }
+
+  /**
+   * 複数の親の子行を 1 つのバッチで追加する（1 回の取り消しで消える）。
+   * 入力の位置（conflicts の #N）は、groups を順に並べたときの通し番号
+   */
+  addChildRows(
+    sheetName: string,
+    groups: ReadonlyArray<{ parentRowKey: string; rows: ReadonlyArray<Readonly<Record<string, CellValue>>> }>,
+    opts: EditOptions & { childName?: string },
+  ): ApplyResult {
+    const sheet = this.getSheet(sheetName);
+    checkEditOptions(opts, this._revision);
+    const conflicts: ConflictInfo[] = [];
+    const ops: PlannedOp[] = [];
+    const push = (plan: RowPlan) => {
+      if ("conflict" in plan) conflicts.push(plan.conflict);
+      else ops.push({ op: plan.op });
+    };
+    let offset = 0;
+    for (const g of groups) {
+      this.planChildren(sheet, g.parentRowKey, g.rows, offset, opts.childName, opts.baseRevision, push, conflicts);
+      offset += g.rows.length;
+    }
+    return this.finish(sheet, opts, ops, conflicts, "rows_added");
+  }
+
+  /** 1 つの親に子行を足す計画（addRows・addChildRows） */
+  private planChildren(
+    sheet: Sheet,
+    parentRowKey: string,
+    rows: ReadonlyArray<Readonly<Record<string, CellValue>>>,
+    offset: number,
+    childName: string | undefined,
+    base: number | undefined,
+    push: (plan: RowPlan) => void,
+    conflicts: ConflictInfo[],
+  ): void {
+    const parent = sheet.row(parentRowKey);
+    // 親だけの行に削除の印が付いた親（親の削除）にも子を追加しない
+    if (!parent || parent.deleted || sheet.group(parent.parentKey).some((r) => r.childName === null && r.deleted !== null)) {
+      conflicts.push({ rowKey: parentRowKey, col: "", reason: "row_not_found" });
+      return;
+    }
+    const names = sheet.childNames();
+    if (names.length === 0) {
+      throw new StoreError("invalid_args", `Sheet ${sheet.name} has no child object columns`, { sheet: sheet.name });
+    }
+    if (childName !== undefined && !names.includes(childName)) {
+      throw new StoreError("invalid_args", `The child object ${childName} is not in sheet ${sheet.name}`, { childName });
+    }
+    if (base !== undefined && sheet.groupRevision(parent.parentKey) > base) {
+      // 読んだ後に同じ親の行が追加・削除された（またはシートを読み込み直した）。同じ子を二重に足さないよう読み直させる
+      conflicts.push({ rowKey: parentRowKey, col: "", reason: "changed_since_read" });
+      return;
+    }
+    rows.forEach((values, i) => push(this.planChildRow(sheet, parent, values, offset + i, childName)));
   }
 
   deleteRows(sheetName: string, rowKeys: readonly string[], opts: EditOptions): ApplyResult {

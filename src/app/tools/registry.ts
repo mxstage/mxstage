@@ -1146,20 +1146,27 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
 
     add_rows: (args) => {
       assertNotBusy(args.sheet);
-      // rows（LLM が書いた数行）か from（別のシートの行を作業画面の中で写す）のどちらか 1 つ
-      if ((args.rows === undefined) === (args.from === undefined)) {
-        throw invalidArgs("Give either rows or from (not both, not neither).");
+      // rows（LLM が書いた数行）・from（別のシートの行を作業画面の中で写す）・children（複数の親の子行）のどれか 1 つ
+      if ([args.rows, args.from, args.children].filter((x) => x !== undefined).length !== 1) {
+        throw invalidArgs("Give exactly one of rows, from or children.");
       }
-      if (args.from !== undefined && args.parentRowKey !== undefined) {
-        throw invalidArgs("from adds new records; it cannot be combined with parentRowKey.");
+      if ((args.from !== undefined || args.children !== undefined) && args.parentRowKey !== undefined) {
+        throw invalidArgs("from and children cannot be combined with parentRowKey (children names a parent for each group).");
       }
-      const rows = args.rows ?? workspace.rowsFrom(args.from!.sheet, args.from!.columns, args.from!.filter ?? []);
-      const res = workspace.addRows(args.sheet, rows, {
-        author: "llm",
-        reason: args.reason,
-        baseRevision: args.baseRevision,
-        ...(args.parentRowKey !== undefined ? { parentRowKey: args.parentRowKey } : {}),
-      });
+      let res: ApplyResult;
+      if (args.children !== undefined) {
+        const total = args.children.reduce((n, g) => n + g.rows.length, 0);
+        if (total > 200) throw invalidArgs(`children has ${total} rows; add up to 200 rows per call.`);
+        res = workspace.addChildRows(args.sheet, args.children, { author: "llm", reason: args.reason, baseRevision: args.baseRevision });
+      } else {
+        const rows = args.rows ?? workspace.rowsFrom(args.from!.sheet, args.from!.columns, args.from!.filter ?? []);
+        res = workspace.addRows(args.sheet, rows, {
+          author: "llm",
+          reason: args.reason,
+          baseRevision: args.baseRevision,
+          ...(args.parentRowKey !== undefined ? { parentRowKey: args.parentRowKey } : {}),
+        });
+      }
       const batch = res.batchId === null ? undefined : workspace.batches.find((b) => b.batchId === res.batchId);
       const rowKeys = (batch?.ops ?? []).flatMap((op) => (op.kind === "addRow" ? [op.rowKey] : []));
       return editResult(args.sheet, res, { rowKeys });

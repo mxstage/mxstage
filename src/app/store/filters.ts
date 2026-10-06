@@ -79,22 +79,24 @@ export function inListMatcher(list: readonly CellValue[]): (cell: CellValue) => 
 }
 
 /**
- * like（% が 0 文字以上の任意の文字列、大文字小文字無視）の述語。
+ * like（% が 0 文字以上の任意の文字列、大文字小文字と全角半角を無視）の述語。
+ * 文字は NFKC と小文字にそろえて比べる（半角カナの「ｽｰﾄﾌﾞﾛﾜ」も「スートブロワ」で当たる。グリッドの「文字を含む」と同じ）。
  * 正規表現にすると % の多いパターンで指数的な後戻りが起きてタブが固まるため、
  * 先頭・末尾の固定部分の一致と、途中の固定部分の左から順の indexOf で判定する（文字列長 × パターン長で終わる）。
  * パターン中の記号（. \ ( [ など）はすべて文字そのものとして扱う。
  */
 export function likeMatcher(pattern: string): (text: string) => boolean {
-  const parts = pattern.toLowerCase().split("%");
+  const fold = (t: string) => t.normalize("NFKC").toLowerCase();
+  const parts = fold(pattern).split("%");
   if (parts.length === 1) {
     const exact = parts[0] ?? "";
-    return (text) => text.toLowerCase() === exact;
+    return (text) => fold(text) === exact;
   }
   const head = parts[0] ?? "";
   const tail = parts[parts.length - 1] ?? "";
   const middle = parts.slice(1, -1).filter((p) => p !== "");
   return (raw) => {
-    const text = raw.toLowerCase();
+    const text = fold(raw);
     if (text.length < head.length + tail.length || !text.startsWith(head) || !text.endsWith(tail)) return false;
     let pos = head.length;
     const end = text.length - tail.length;

@@ -4,7 +4,8 @@
 //   - ポートを取れた → primary。画面の配信・WebSocket の中継・/mx・内部経路を受け持ち、自分の MCP はローカルの Hub を使う。
 //   - ポートが使用中（誰かが応答した・待ち受けが EADDRINUSE で失敗した）→ /_mxstage/health の応答で相手を確かめる。
 //       MX Stage の橋渡しなら client（自分では待ち受けず、ツール呼び出しを primary に渡す）。
-//       それ以外なら「ポート <port> は別のアプリが使っています」で終わる（ずらさない）。
+//       それ以外なら、少し待って聞き直し（終わりかけの橋渡しを見誤らない）、それでも分からなければ
+//       「ポート <port> は別のアプリが使っています」で終わる（ずらさない）。
 // 引き継ぎ:
 //   - client は、呼び出しの前（と、watchIntervalMs ごと）にポートを取り直してみる。取れたら primary になる。
 //     ポートの取り合いは OS が 1 つにしか許さないので、同時に試しても勝つのは 1 つだけ。
@@ -32,7 +33,9 @@ import type { BridgeServer } from "./server.ts";
 export const CLIENT_WATCH_INTERVAL_MS = 2_000;
 
 /** 起動時、ポートが「使用中なのに誰も応答しない」ときに取り直す回数 */
-const START_ATTEMPTS = 3;
+const START_ATTEMPTS = 4;
+/** ポートの相手が MX Stage と分からなかったとき、聞き直すまでの間隔（終わりかけの橋渡しを別のアプリと見誤らない） */
+const START_RETRY_DELAY_MS = 500;
 
 export type BridgeRole = "idle" | "primary" | "client" | "closed";
 
@@ -58,6 +61,8 @@ export interface BridgeCoordinatorOptions {
   /** client のとき、primary が終わっていないかを確かめる間隔。0 なら呼び出しの前だけ確かめる */
   watchIntervalMs?: number;
   probeTimeoutMs?: number;
+  /** 起動時に相手が分からなかったとき、聞き直すまでの間隔（試験で縮める） */
+  startRetryDelayMs?: number;
   /** client がツール呼び出しの締切に足す余裕 */
   remoteGraceMs?: number;
   /** stderr への 1 行ログ（鍵・作業データは渡さない） */
@@ -167,6 +172,12 @@ export class BridgeCoordinator {
               "Claude などの LLM のアプリをすべて終了し、mxstage.cmd（または node scripts/setup-local.mjs）を実行してから開き直してください。",
           };
         case "other":
+          // 終わりかけの橋渡し（Claude が試しに起動してすぐ止めたもの・入れ替えで止まる古い版）は、
+          // 接続を切るだけで health に答えないことがある。すぐに別のアプリと決めず、少し待って聞き直す
+          if (attempt < START_ATTEMPTS - 1) {
+            await new Promise((done) => setTimeout(done, this.opts.startRetryDelayMs ?? START_RETRY_DELAY_MS));
+            continue;
+          }
           return { kind: "conflict", message: `ポート ${this.port} は別のアプリが使っています。--port で別の番号を指定してください。` };
       }
     }

@@ -5,6 +5,7 @@
 import { existsSync, statSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
+import { createServer as createTcpServer } from "node:net";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -73,6 +74,7 @@ function coordinator(port: number, overrides: Partial<BridgeCoordinatorOptions> 
     createHub: () => new LocalHub({ timeoutScale: SCALE }),
     watchIntervalMs: 0,
     probeTimeoutMs: 1_000,
+    startRetryDelayMs: 50,
     ...overrides,
   });
   coordinators.push(c);
@@ -467,6 +469,17 @@ describe("役割決め（同じプロセスの中）", () => {
     expect(c.server).toBeNull();
     // primary にならなかったので鍵ファイルも作らない
     expect(existsSync(box.keyFile)).toBe(false);
+  });
+
+  it("終わりかけの橋渡し（接続を切るだけで health に答えない）は別のアプリと見誤らず、空いたら primary になる", async () => {
+    // Claude Desktop は拡張を入れたとき・起動したときに、試しに起動したプロセスをすぐ止める。
+    // 止まる途中のプロセスは接続を切るだけなので、それを別のアプリとして終えると Claude の接続が失敗する
+    const port = await findFreePort();
+    const dying = createTcpServer((socket) => socket.destroy());
+    await new Promise<void>((done) => dying.listen(port, "127.0.0.1", () => done()));
+    setTimeout(() => dying.close(), 120);
+    const started = await coordinator(port, { startRetryDelayMs: 100 }).start();
+    expect(started.kind).toBe("primary");
   });
 
   it("ポートで誰かが応答するなら待ち受けを試さない（0.0.0.0 で待つ別のアプリの手前に割り込まない）", async () => {

@@ -14,7 +14,7 @@
       "registryType": "mcpb",
       "identifier": "https://github.com/mxstage/mxstage/releases/download/v0.2.7/mxstage-0.2.7.mcpb",
       "version": "0.2.7",
-      "fileSha256": "470e87b8bc0f5d40ddd38e9d5284a288f449b0c720c1786f5a16038d27396017",
+      "fileSha256": "c58abd5a78930e664c4fd5fdcb6d37f6c4f573a256f5a68aa151c9338887e884",
       "transport": {
         "type": "stdio"
       }

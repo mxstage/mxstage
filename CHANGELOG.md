@@ -4,21 +4,6 @@ All notable changes to MX Stage are listed here. Versions follow [Semantic Versi
 
 ## Unreleased
 
-### Added
-
-- **Reading printed forms.** apply_mapping reads a sheet of repeated forms, such as one daily work report per printed page: it finds each form by its title, takes header values by their labels (so inserted rows and shifted columns do not matter; a label can have several wordings, and full-width and half-width characters are treated alike) and makes one row per item line, with the form's values on every row. Several sheets (one per month, for example) can be read at once into one sheet. describe_import points out such sheets (formHint, with the titles used) and merged cells, and apply_mapping says when the number of forms read differs from it.
-- **fillDown and unpivot.** apply_mapping fills merged cells and ditto marks with the value above, and turns columns such as years into rows (one row per mark, with several marks in one cell split and a quantity split into units). The work screen moves the values; the AI only says how to read the file.
-- **Status changes.** A changed STATUS is committed with Maximo's own status change, after the record is created or updated and verified, and then read back, so Maximo applies its rules (allowed moves, status history). Closed or cancelled records, approved purchase orders (they need a revision in Maximo) and moves Maximo does not allow for work orders (such as COMP back to INPRG) are not sent and are listed with the reason. Changes to a status that cannot be undone (such as CLOSE or CAN) need an extra confirmation in the commit panel, which also counts the status changes. If a record is created but its status cannot be changed, the record is kept and the status change stays in the work screen for the next commit.
-- add_rows takes children: child rows under several parents in one call and one undo batch (for example failure report lines for many work orders), instead of one call per parent.
-- **Statuses by phase.** apply_rule can choose a value from each row's dates (phase): past work (the end date has passed), work in progress, or future work. By default it changes only rows added in the work screen, so existing records keep their status while their contents are corrected. Settings → Maximo connection → **Status for past work** chooses, per connection, what past work gets when the AI does not say: Completed (COMP, the default) or Closed (CLOSE).
-
-### Changed
-
-- STATUS is no longer sent as an ordinary value in an update or a new record.
-- like in the work screen (query_rows, aggregate, apply_rule) ignores full-width and half-width characters as well as case, as the grid's own filter already did. A search in full-width katakana finds descriptions written in half-width katakana.
-- The demo data is version 3: work orders are closed together after each fiscal year ends, so work finished in this fiscal year (from April 2026) stays completed (COMP) and can still be corrected, as in many sites. The demo downloads the new data once (about 10 MB per language).
-- The Skills describe deciding statuses by each record's phase, never one status for a whole file (mxstage-core-change, mxstage-core-commit, mxstage-obj-workorder, mxstage-obj-purchasing).
-
 ## 0.2.7 — 2026-10-06
 
 ### Added
@@ -28,12 +13,20 @@ All notable changes to MX Stage are listed here. Versions follow [Semantic Versi
 - A purple **Demo** badge in the top bar while connected to the demo. get_status and open_grid tell the AI about the demo.
 - `--no-demo` turns the demo off.
 - **Diff report (Excel).** The commit panel saves the changes of a sheet as an .xlsx file before you commit: one row per changed cell with the record's key, the column, the old value, the new value, who changed it (the AI assistant or a person), the reason and the time, plus added and deleted rows. A summary sheet gives the Maximo URL, the environment, the object structure, the commit request note, the counts, the changes by column and the work history. After a commit, until you change the sheet again, the button saves the changes of that commit together with the write log of that commit (the committed rows are reloaded from Maximo and leave the diff). Keep it as the record of what was approved. The file contains Maximo data; it is made in the work screen and sent nowhere.
+- **Reading printed forms.** apply_mapping reads a sheet of repeated forms, such as one daily work report per printed page: it finds each form by its title, takes header values by their labels (so inserted rows and shifted columns do not matter; a label can have several wordings, and full-width and half-width characters are treated alike) and makes one row per item line, with the form's values on every row. Several sheets (one per month, for example) can be read at once into one sheet. describe_import points out such sheets (formHint, with the titles used) and merged cells, and apply_mapping says when the number of forms read differs from it.
+- **fillDown and unpivot.** apply_mapping fills merged cells and ditto marks with the value above, and turns columns such as years into rows (one row per mark, with several marks in one cell split and a quantity split into units). The work screen moves the values; the AI only says how to read the file.
+- **Status changes.** A changed STATUS is committed with Maximo's own status change, after the record is created or updated and verified, and then read back, so Maximo applies its rules (allowed moves, status history). Closed or cancelled records, approved purchase orders (they need a revision in Maximo) and moves Maximo does not allow for work orders (such as COMP back to INPRG) are not sent and are listed with the reason. Changes to a status that cannot be undone (such as CLOSE or CAN) need an extra confirmation in the commit panel, which also counts the status changes. If a record is created but its status cannot be changed, the record is kept and the status change stays in the work screen for the next commit.
+- add_rows takes children: child rows under several parents in one call and one undo batch (for example failure report lines for many work orders), instead of one call per parent.
+- **Statuses by phase.** apply_rule can choose a value from each row's dates (phase): past work (the end date has passed), work in progress, or future work. By default it changes only rows added in the work screen, so existing records keep their status while their contents are corrected. Settings → Maximo connection → **Status for past work** chooses, per connection, what past work gets when the AI does not say: Completed (COMP, the default) or Closed (CLOSE).
 
 ### Changed
 
 - The license links in the work screen (Settings → License and the commit panel's license messages) open the license page in the screen's language (https://mxstage.tsunagi.app/license, /ja/license).
 - The documentation now describes commits as they work: records changed in Maximo after loading are skipped and listed, and a commit stops on an error or an unknown result (it said it stopped on conflicts). It also lists the update and demo downloads among the connections, and the Node.js version for each install channel.
 - The link to the object structures in the top bar is now an icon (with its name as a tooltip), next to Settings. While the definitions load, the count appears beside it.
+- STATUS is no longer sent as an ordinary value in an update or a new record.
+- like in the work screen (query_rows, aggregate, apply_rule) ignores full-width and half-width characters as well as case, as the grid's own filter already did. A search in full-width katakana finds descriptions written in half-width katakana.
+- The Skills describe deciding statuses by each record's phase, never one status for a whole file (mxstage-core-change, mxstage-core-commit, mxstage-obj-workorder, mxstage-obj-purchasing).
 
 ### Fixed
 

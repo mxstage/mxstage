@@ -2,7 +2,7 @@
 name: mxstage-obj-workorder
 description: "MX Stage object Skill for Maximo work orders and service requests (MXAPIWODETAIL, MXAPISR): correcting open work orders, planned labor and materials, status rules, and closed history."
 metadata:
-  version: "1.2.0"
+  version: "1.3.0"
   category: "object"
 ---
 
@@ -43,6 +43,15 @@ How MX Stage applies a STATUS edit: it updates or creates the record, verifies i
 ## New work orders
 
 Work orders and service requests can be created (New records in mxstage-core-change). Keys: SITEID and WONUM (TICKETID for service requests); MX Stage does not take Maximo's automatic numbers. Usually needed: DESCRIPTION, and the asset or location, work type and priority. Maximo sets the initial status (usually waiting for approval); a STATUS you fill is applied after the work order is created. Planned labor and materials can be added as child rows of the new work order. Do not create work orders that a PM should generate.
+
+## Matching work records (daily reports, repair logs)
+
+Work records give the day of the work, not the day the work order was reported. Corrective work is often reported days or weeks before it is done.
+
+- Load the work orders by the work dates: ACTSTART (or ACTFINISH) in the period with a few days of margin, in any status. Never limit them by REPORTDATE.
+- Match by site, asset (or location) and work date; the wording differs (nicknames, abbreviations, line numbers written in other ways).
+- A repair is missing from Maximo only when no work order exists for the same asset or location within a few days of its date. Before adding new work orders, load the work orders for those assets around those dates (where with in on ASSETNUM and an ACTSTART window). Report near matches to the user instead of creating them.
+- Agree with the user on the work order numbers for new ones (MX Stage does not use automatic numbering).
 
 ## Traps
 

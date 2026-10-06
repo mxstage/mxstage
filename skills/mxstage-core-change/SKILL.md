@@ -2,7 +2,7 @@
 name: mxstage-core-change
 description: "MX Stage basic operation: change sheets in the work screen with apply_rule (dry run first), patch_cells, add_rows and delete_rows, with reasons, conflicts and undo. Maximo is not changed yet."
 metadata:
-  version: "1.3.0"
+  version: "1.4.0"
   category: "core"
 ---
 
@@ -60,7 +60,7 @@ The right status depends on each record's phase, never on the kind of file or ta
 
 add_rows without parentRowKey adds a new record, which is created in Maximo when the user commits. A created record cannot be removed by MX Stage, so agree on the list first.
 
-1. **Check they are new.** Load the records that may already exist (for example a where with in on the keys) or match the list against a loaded sheet (mxstage-core-match). Records that exist are changed, not created.
+1. **Check they are new.** Load the records that may already exist (for example a where with in on the keys) or match the list against a loaded sheet (mxstage-core-match). Records that exist are changed, not created. When the file has no shared number (for example repairs in a daily report), compare by asset or location and date, and search Maximo around each date, not only the range you loaded first (Matching work records in mxstage-obj-workorder).
 2. **Have a sheet of the structure** with every column you will fill: load_sheet with those columns (a where that matches the records you compare with, or none).
 3. **Fill the keys and required attributes.** Every key column is needed (for example SITEID and ASSETNUM); MX Stage does not use Maximo's automatic numbering, so if the customer numbers automatically, ask for the numbers or let the user create those records in Maximo. Find required attributes with describe_object_structure, and the rules of the object in its object Skill.
 4. **Add children** with add_rows and parentRowKey set to the rowKey of the new row.

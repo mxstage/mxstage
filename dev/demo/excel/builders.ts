@@ -338,6 +338,9 @@ export function repairLog(data: PlantsData): ExcelFile {
   return data.lang === "ja" ? dailyReports(data) : repairTable(data);
 }
 
+/** 作業指示の作業の日（ACTSTART） */
+const workDay = (w: WoDraft): number => Date.parse(String(w.attrs.actstart));
+
 /** 表の修理記録（英語のデータ。月ごとのシート、日付は結合） */
 function repairTable(data: PlantsData): ExcelFile {
   const c = new Ctx(data);
@@ -347,7 +350,9 @@ function repairTable(data: PlantsData): ExcelFile {
   const entries = data.truth.repairs
     .map((r) => r.wo)
     .filter((w) => w.wonum !== undefined && (w.attrs.status === "COMP" || w.attrs.status === "CLOSE" || w.attrs.status === "INPRG"))
-    .sort((a, b) => a.report - b.report);
+    .filter((w) => typeof w.attrs.actstart === "string")
+    // 修理記録の日付は作業をした日（ACTSTART）。日本語の作業日報と同じ（報告日ではない）
+    .sort((a, b) => workDay(a) - workDay(b));
   const sheets: SheetSpec[] = [];
   const truth: RepairRowTruth[] = [];
   // Maximo に無い小さな修理（日本語の作業日報と同じ日・機器・不具合。書き方だけを英語の表に合わせる）
@@ -364,7 +369,7 @@ function repairTable(data: PlantsData): ExcelFile {
     type Line = { day: number; cells: CellInput[]; wo?: WoDraft; fresh?: NewRepairTruth };
     const lines: Line[] = [];
     for (const w of entries) {
-      const { m, d } = ymd(w.report);
+      const { m, d } = ymd(workDay(w));
       if (m !== month) continue;
       const r = rng.fork(w.wonum!);
       const pos = w.asset!.pos;

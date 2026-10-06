@@ -216,6 +216,25 @@ describe.each(["ja", "en"] as const)("Excel のサンプル（%s）", (lang) => 
     }
   });
 
+  it.runIf(lang === "en")("修理記録（英語）の日付は作業の日（ACTSTART）。日本語の作業日報と同じで、報告日ではない", async () => {
+    const f = files.en.find((x) => x.id === "repair-log")!;
+    const truth = (f.truth as { rows: Array<{ sheet: string; row: number; kind: string; wonum?: string; fresh?: { date: string } }> }).rows;
+    const actstart = new Map<string, string>();
+    for (const r of sets.en.data.tables.WORKORDER ?? []) actstart.set(String(r.attrs.wonum), String(r.attrs.actstart ?? "").slice(0, 10));
+    const wb = await parseXlsx(writeXlsx(f.sheets, { title: f.title, creator: "test", lang: "en" }));
+    let checked = 0;
+    for (const t of wb.tables) {
+      const built = shape.buildShapedSheet(shape.shapeImport(t, { headerRow: 3, fillDown: { columns: ["A"], mode: "merged", ditto: false } }), { name: "x", source: SRC });
+      const dateOf = new Map(built.rows.map((r) => [Number(r.values.SOURCE_ROW), String(r.values.Date)]));
+      for (const tr of truth.filter((x) => x.sheet === t.name)) {
+        const want = tr.kind === "WO" ? actstart.get(tr.wonum!) : tr.fresh!.date;
+        expect(dateOf.get(tr.row), `${t.name} row ${tr.row} ${tr.wonum ?? "NEW"}`).toBe(want);
+        checked++;
+      }
+    }
+    expect(checked).toBeGreaterThan(250);
+  });
+
   it("東部の台帳: 更新・増設・仕様の変更・名前の変更・撤去・Maximo の方が新しい行がある", () => {
     const f = files[lang].find((x) => x.id === "east-register")!;
     const kinds = new Set((f.truth as { rows: Array<{ kind: string }> }).rows.map((r) => r.kind));

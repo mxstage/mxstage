@@ -1,17 +1,16 @@
 // 設定の「デモ」。Maximo が無くても、この PC の中の架空の Maximo（ごみ焼却施設 3 か所）で MX Stage を試す。
 // - 「データを落としてつなぐ」を押したときだけ、橋渡しが置き場所（mxstage-demo.pages.dev）から架空のデータを落とす（src/bridge/demo.ts）。
 // - 落とし終えたら、予約の接続先（demo-ja・demo-en）に保存した接続先と同じ道でつなぐ（AutoConnector.connect）。
-// - サンプルの Excel は、作業画面にドロップしたのと同じ置き場（ImportStore）に入れるか、ダウンロードする。
+// - サンプルの Excel はダウンロードだけ。作業画面へは、本番と同じく利用者のドロップか AI の取り込み（create_import_session）で入れる。
 
 import { Button, ProgressBar, RadioButton, RadioButtonGroup } from "@carbon/react";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { DEMO_CONNECTION_IDS, demoLangOfBaseUrl, isDemoLang, type DemoExcelEntry, type DemoLang } from "../../shared/demo";
+import { DEMO_CONNECTION_IDS, demoLangOfBaseUrl, isDemoLang, type DemoLang } from "../../shared/demo";
 import { getLocale } from "../../shared/i18n";
 import type { AutoConnector } from "../connections/auto";
 import type { SavedConnectionsClient } from "../connections/client";
 import { createDemoApi, type DemoApi, type DemoState } from "../demo/client";
 import { demoMessages as m } from "../demo/messages";
-import type { ImportStore } from "../imports";
 import { spaClick } from "../ui/Link";
 import { Notice } from "../ui/Notice";
 import { APP_PATH } from "../ui/routes";
@@ -25,26 +24,7 @@ export interface DemoSectionProps {
   vault: SettingsVault;
   connections: SavedConnectionsClient | null;
   autoConnect: AutoConnector | null;
-  /** サンプルの Excel を入れる置き場（作業画面と同じ）。省くと「作業画面に取り込む」を出さない */
-  imports?: ImportStore | null;
   confirm?: (question: string) => boolean;
-  /** 既定は crypto.subtle */
-  digest?: (bytes: Uint8Array) => Promise<string>;
-  newImportId?: () => string;
-}
-
-function hex(bytes: ArrayBuffer): string {
-  return Array.from(new Uint8Array(bytes), (b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-async function subtleSha256(bytes: Uint8Array): Promise<string> {
-  return hex(await crypto.subtle.digest("SHA-256", bytes as Uint8Array<ArrayBuffer>));
-}
-
-function randomImportId(): string {
-  const b = new Uint8Array(9);
-  crypto.getRandomValues(b);
-  return `demo-${hex(b.buffer)}`;
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -163,27 +143,6 @@ export function DemoSection(props: DemoSectionProps) {
       setState(next);
       if (next.kind === "ready" && next.error !== null) setMessage({ kind: "error", text: t.failed(t.errors[next.error] ?? next.error) });
       else if (done) setMessage({ kind: "success", text: done });
-    } finally {
-      setWorking(false);
-    }
-  };
-
-  const loadIntoApp = async (file: DemoExcelEntry) => {
-    if (!props.imports) return;
-    setWorking(true);
-    try {
-      const bytes = await api.excel(lang, file.id);
-      const sha256 = bytes === null ? null : await (props.digest ?? subtleSha256)(bytes);
-      if (bytes === null || sha256 !== file.sha256) {
-        setMessage({ kind: "error", text: t.loadFailed });
-        return;
-      }
-      const importId = (props.newImportId ?? randomImportId)();
-      props.imports.add(
-        { importId, fileName: file.fileName, contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", bytes, sha256 },
-        { dropped: true },
-      );
-      setMessage({ kind: "success", text: t.loadedIntoApp(file.fileName) });
     } finally {
       setWorking(false);
     }
@@ -328,12 +287,7 @@ export function DemoSection(props: DemoSectionProps) {
                       <p className="muted small">{t.excel[f.id]}</p>
                     </div>
                     <div className="actions">
-                      {props.imports && (
-                        <Button kind="tertiary" size="sm" disabled={busy} onClick={() => void loadIntoApp(f)}>
-                          {t.loadIntoApp}
-                        </Button>
-                      )}
-                      <Button kind="ghost" size="sm" href={api.excelUrl(lang, f.id)}>
+                      <Button kind="tertiary" size="sm" href={api.excelUrl(lang, f.id)}>
                         {t.downloadFile}
                       </Button>
                     </div>

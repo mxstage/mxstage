@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AutoConnector } from "../../src/app/connections/auto";
 import { SELECTED_CONNECTION_KEY, SavedConnectionsClient, type SavedConnection } from "../../src/app/connections/client";
 import { parseDemoStatus, type DemoApi, type DemoState } from "../../src/app/demo/client";
-import { ImportStore } from "../../src/app/imports";
 import type { VaultView } from "../../src/app/keyvault/client";
 import { LicenseClient } from "../../src/app/license/client";
 import type { MaximoConnectionInfo } from "../../src/app/runtime/contracts";
@@ -140,7 +139,6 @@ class FakeDemoApi implements DemoApi {
     this.current = status();
     return this.ok();
   };
-  excel = async (): Promise<Uint8Array | null> => XLSX;
   excelUrl = (lang: DemoLang, id: string) => `/_mxstage/demo/excel/${lang}/${id}.xlsx`;
 }
 
@@ -193,7 +191,7 @@ async function settle(): Promise<void> {
   }
 }
 
-function setup(api: FakeDemoApi, extra: { imports?: ImportStore } = {}) {
+function setup(api: FakeDemoApi) {
   const vault = new FakeVault();
   const bridge = { connections: [] as SavedConnection[], demo: [] as SavedConnection[], lastUsedId: null as string | null };
   const connections = new SavedConnectionsClient({ fetch: bridgeFetch(bridge), storage: memoryStorage() });
@@ -211,7 +209,7 @@ function setup(api: FakeDemoApi, extra: { imports?: ImportStore } = {}) {
       },
     },
   });
-  return { vault, bridge, connections, autoConnect, connected, ...extra };
+  return { vault, bridge, connections, autoConnect, connected };
 }
 
 describe("設定の「デモ」", () => {
@@ -245,40 +243,18 @@ describe("設定の「デモ」", () => {
     expect(buttonByText("作業画面を開く")).toBeTruthy();
   });
 
-  it("サンプルの Excel を、SHA-256 を確かめて作業画面の置き場に入れる", async () => {
+  it("サンプルの Excel はダウンロードだけを出す（作業画面へは利用者のドロップか AI の取り込みで入れる）", async () => {
     const api = new FakeDemoApi();
     api.finish("ja");
-    const imports = new ImportStore();
-    const s = setup(api, { imports });
+    const s = setup(api);
     await act(async () => {
-      root.render(
-        createElement(DemoSection, { api, vault: s.vault, connections: s.connections, autoConnect: s.autoConnect, imports, digest: async () => "sha-ok", newImportId: () => "demo-1" }),
-      );
+      root.render(createElement(DemoSection, { api, vault: s.vault, connections: s.connections, autoConnect: s.autoConnect }));
     });
     await settle();
-    await act(async () => {
-      buttonByText("作業画面に取り込む").click();
-    });
-    await settle();
-    expect(imports.get("demo-1")).toMatchObject({ fileName: "発注一覧.xlsx", dropped: true, sha256: "sha-ok" });
-    expect(container.textContent).toContain("発注一覧.xlsx を作業画面に入れました");
-  });
-
-  it("SHA-256 が合わなければ入れない", async () => {
-    const api = new FakeDemoApi();
-    api.finish("ja");
-    const imports = new ImportStore();
-    const s = setup(api, { imports });
-    await act(async () => {
-      root.render(createElement(DemoSection, { api, vault: s.vault, connections: s.connections, autoConnect: s.autoConnect, imports, digest: async () => "other", newImportId: () => "demo-2" }));
-    });
-    await settle();
-    await act(async () => {
-      buttonByText("作業画面に取り込む").click();
-    });
-    await settle();
-    expect(imports.get("demo-2")).toBeNull();
-    expect(container.textContent).toContain("取り込めませんでした");
+    const link = container.querySelector('[data-excel="purchase-orders"] a');
+    expect(link?.getAttribute("href")).toBe("/_mxstage/demo/excel/ja/purchase-orders.xlsx");
+    expect(link?.textContent).toBe("ダウンロード");
+    expect(container.textContent).not.toContain("作業画面に取り込む");
   });
 
   it("消すときは確かめ、つないでいれば切ってから消す", async () => {

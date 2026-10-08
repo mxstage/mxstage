@@ -23,7 +23,7 @@ export const pagesMessages = defineMessages(
     reopen: {
       text: "If it does not connect, check that the bridge is running",
       title:
-        "The relay cannot connect while the bridge on this PC (MX Stage, started by Claude Code) is stopped. Once the bridge is running, this tab reconnects automatically. Your work data and API key exist only in this tab's memory, so do not close or reload the tab.",
+        "The relay cannot connect while the bridge on this PC (MX Stage) is stopped. Once the bridge is running, this tab reconnects automatically. Your work data and API key exist only in this tab's memory, so do not close or reload the tab.",
     },
     maximo: {
       disconnected: "Maximo: not connected",
@@ -65,9 +65,9 @@ export const pagesMessages = defineMessages(
       reloadKeepFailed: "Could not keep the work for the reload. Reloading will discard the work data in this tab. Reload anyway?",
       confirmEndWork: "End work? All sheets and change history will be discarded (nothing is committed to Maximo).",
       emptyTitle: "No sheets yet.",
-      emptyBefore: "Sheets appear here when you load data from an LLM client. See ",
+      emptyBefore: "Sheets appear here when your AI assistant loads data. See ",
       emptyLink: "Settings",
-      emptyAfter: " for how to connect an LLM client.",
+      emptyAfter: " for how to connect an AI assistant.",
       busy: "This sheet cannot be edited while it is being committed to Maximo.",
       allHidden: "All tables are hidden. Show one from \"Tables shown\" above.",
       paneLabel: (title: string, subtitle: string) => `${title} (${subtitle})`,
@@ -144,7 +144,7 @@ export const pagesMessages = defineMessages(
     reopen: {
       text: "つながらないときは橋渡しの起動を確かめてください",
       title:
-        "このパソコンの橋渡し（MX Stage。Claude Code が起動します）が止まっていると、中継につながりません。橋渡しが動き出せば、このタブは自動でつなぎ直します。作業データと API キーはこのタブのメモリにしか無いので、タブを閉じたり再読み込みしたりしないでください。",
+        "このパソコンの橋渡し（MX Stage）が止まっていると、中継につながりません。橋渡しが動き出せば、このタブは自動でつなぎ直します。作業データと API キーはこのタブのメモリにしか無いので、タブを閉じたり再読み込みしたりしないでください。",
     },
     maximo: {
       disconnected: "Maximo: 未接続",
@@ -186,7 +186,7 @@ export const pagesMessages = defineMessages(
       reloadKeepFailed: "作業を預けられませんでした。このまま再読み込みすると、このタブの作業データは消えます。再読み込みしますか？",
       confirmEndWork: "作業を終了しますか？ すべてのシートと変更履歴を破棄します（Maximo には反映されません）。",
       emptyTitle: "シートはまだありません。",
-      emptyBefore: "LLM クライアントから読み込むと、ここにシートが増えます。LLM クライアントの接続方法は ",
+      emptyBefore: "AI アシスタントが読み込むと、ここにシートが増えます。AI アシスタントの接続方法は ",
       emptyLink: "設定",
       emptyAfter: " にあります。",
       busy: "Maximo に反映中のため、このシートは編集できません。",

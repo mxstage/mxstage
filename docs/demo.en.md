@@ -48,15 +48,20 @@ The demo connection is always a **test environment** and needs no license. Commi
 
 ### Merge Excel files with Maximo (five samples are in the Demo tab)
 
-**Load into work screen** adds the file to the work screen, just like dropping it there. **Download** saves it so you can open it in Excel.
+**Download** saves a file, which you then give to the AI the same way as in real work:
+
+- Drop it on the work screen (the browser tab) and ask "import the file I dropped". This works with every AI assistant.
+- If your AI assistant can run commands (Claude Code, Codex, Antigravity, IBM Bob), tell it where the file is and ask it to import it. The AI sends the file to a one-time upload address (it asks for your approval first).
+
+Either way, the AI does not read the whole file. The work screen receives it, and the AI looks only at its shape (headers, columns, a few sample rows) to decide how to read it. Do not attach the Excel file to the chat: an attached file's contents are sent to the AI. Reloading the work screen removes dropped files (they are kept only in the tab's memory).
 
 | Excel | What to do | Supported |
 |---|---|---|
 | Purchase orders (FY2026 H1) | Fill in order amounts, accepted amounts, dates and vendors on completed outsourced work orders. There are no work order numbers; match by subject, plant and period | Fully |
 | Legacy equipment register (before Maximo) | Fill in serial numbers, install dates and manufacturers left blank or temporary by the 2018 migration | Fully |
 | Repair log (North, FY2026 H1) | Add failure codes to corrective work orders from repair records, and register repairs missing from Maximo. The Japanese data has daily work reports printed one A4 form per day; the English data is a table | Fully (the Japanese forms are read form by form; the English table's merged dates are filled down) |
-| East equipment register (ahead of Maximo) | Merge equipment added, replaced, re-specified or removed in a register kept by the plant | Partly (status changes for removed equipment come in a later version) |
-| Star chart (North / South, before Maximo) | Register maintenance history from before Maximo as closed work orders | Partly (the chart becomes one row per mark; registering closed work orders comes in a later version) |
+| East equipment register (ahead of Maximo) | Merge equipment added, replaced, re-specified or removed in a register kept by the plant: new assets for added and replaced equipment, decommissioning for removed equipment and old units | All |
+| Star chart (North / South, before Maximo) | Register maintenance history from before Maximo as completed work orders, one row per mark first | All (the chart shows only the fiscal year, so you choose the date) |
 
 Examples:
 
@@ -82,6 +87,7 @@ It is released when you close the demo, after an hour without use, or when MX St
 - A few standard object structures (such as `MXAPIASSETATTRIBUTE` and `MXAPIMETERREADING`) use names and child objects not yet checked against a real Maximo.
 - Responses are much faster than a real Maximo, so they say nothing about how long loading and committing take in practice.
 - The order amount attributes on work orders (`EXT_*`) stand for attributes a customer added.
+- The asset status rules are provisional and not yet checked against a real Maximo. New assets start as NOT READY, and a DECOMMISSIONED asset cannot move to another status. Decommissioning also changes the child assets (PARENT), and is refused while a work order on the asset or a child asset is open (not COMP, CLOSE or CAN). A real Maximo has more rules, for example for PMs and routes.
 
 ## Turn the demo off
 

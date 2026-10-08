@@ -77,8 +77,6 @@ export interface DemoApi {
   reset(): Promise<DemoState>;
   close(): Promise<DemoState>;
   remove(lang: DemoLang): Promise<DemoState>;
-  /** サンプルの Excel のバイト列（落とし済みのもの。SHA-256 は呼ぶ側が確かめる） */
-  excel(lang: DemoLang, id: string): Promise<Uint8Array | null>;
   /** ダウンロードのリンクに使う URL */
   excelUrl(lang: DemoLang, id: string): string;
 }
@@ -109,13 +107,5 @@ export function createDemoApi(fetchImpl: typeof fetch = (input, init) => fetch(i
     close: () => call(DEMO_CLOSE_PATH, {}),
     remove: (lang) => call(DEMO_REMOVE_PATH, { language: lang }),
     excelUrl,
-    excel: async (lang, id) => {
-      try {
-        const res = await fetchImpl(excelUrl(lang, id), { cache: "no-store", credentials: "same-origin" });
-        return res.ok ? new Uint8Array(await res.arrayBuffer()) : null;
-      } catch {
-        return null;
-      }
-    },
   };
 }

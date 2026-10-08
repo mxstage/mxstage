@@ -11,7 +11,6 @@ import type { AutoConnector } from "../connections/auto";
 import type { SavedConnection, SavedConnectionsClient, SaveProblem } from "../connections/client";
 import type { DemoApi } from "../demo/client";
 import { demoMessages } from "../demo/messages";
-import type { ImportStore } from "../imports";
 import type { ConnectInput, VaultView } from "../keyvault/client";
 import type { Environment, LicenseClient } from "../license/client";
 import { licenseMessages } from "../license/messages";
@@ -81,8 +80,6 @@ export interface SettingsPageProps {
   updates?: UpdatesApi;
   /** デモの窓口（省くと橋渡しの /_mxstage/demo） */
   demo?: DemoApi;
-  /** サンプルの Excel を入れる置き場（作業画面と同じ）。省くと「作業画面に取り込む」を出さない */
-  imports?: ImportStore | null;
 }
 
 /** 接続に成功したら、この URL に replaceState する（パスワードマネージャーの保存検知のため URL を変える） */
@@ -216,7 +213,6 @@ export function SettingsPage(props: SettingsPageProps) {
           vault={vault}
           connections={props.connections ?? null}
           autoConnect={props.autoConnect ?? null}
-          imports={props.imports ?? null}
           {...(props.demo ? { api: props.demo } : {})}
         />
       ),
@@ -875,7 +871,7 @@ function CopyButton({ text, clipboard }: { text: string; clipboard: ClipboardLik
   );
 }
 
-/** LLM クライアントの接続。橋渡しは stdio の MCP なので URL もトークンも無く、現状を示すだけにする */
+/** AI アシスタントの接続。橋渡しは stdio の MCP なので URL もトークンも無く、現状を示すだけにする */
 function LlmSection({ clipboard }: { clipboard: ClipboardLike | null }) {
   const status = localClientStatus();
   const t = m().llm;

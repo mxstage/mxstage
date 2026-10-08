@@ -142,7 +142,6 @@ export function Root({ services }: { services: AppServices }) {
           license={services.license}
           connections={services.connections}
           autoConnect={services.autoConnect}
-          imports={services.imports ?? null}
         />
         <Toasts store={services.toasts} />
       </>

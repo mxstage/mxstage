@@ -114,7 +114,7 @@ describe("設定画面の英語", () => {
     expect(connection.textContent).toContain("API key");
     expect(connection.querySelector('form.connect-form button[type="submit"]')?.textContent).toBe("Connect");
     expect((await selectTab("skills")).textContent).toContain("Skills (work procedures)");
-    expect((await selectTab("assistants")).textContent).toContain("LLM client connection");
+    expect((await selectTab("assistants")).textContent).toContain("AI assistant connection");
     expect((await selectTab("language")).textContent).toContain("Used for the work screen. The AI replies in the language you write in.");
     expect(JAPANESE.test(text.replaceAll("日本語", ""))).toBe(false);
     // 言語の名前は、どちらの言語でもその言語自身の書き方
@@ -131,7 +131,7 @@ describe("設定画面の英語", () => {
     });
     expect(viaOptionLabel("direct")).toBe("Direct (from the browser; Maximo needs CORS settings)");
     expect(connectErrorMessage(toMaximoError(401, null), "proxy")).toBe("The API key is not valid, or this connection does not have permission.");
-    expect(localClientStatus().summary).toBe("Registered with Claude Code.");
+    expect(localClientStatus().summary).toContain("registers MX Stage with the AI assistants on this PC");
   });
 
   it("Worker の文言（いつも英語）を、画面では今の言語に直す", () => {

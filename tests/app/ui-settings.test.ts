@@ -225,12 +225,12 @@ describe("設定画面のフォーム", () => {
     expect(q<HTMLInputElement>('input[name="username"]')?.value).toBe("MAXADMIN@dev");
   });
 
-  it("LLM クライアントの接続は登録済みの表示だけ（URL もトークンも出さない）", async () => {
+  it("AI アシスタントの接続は登録の説明だけ（URL もトークンも出さない）", async () => {
     await render({ vault: new FakeVault() });
     await selectTab("assistants");
     const text = panel("assistants").textContent ?? "";
-    expect(text).toContain("LLM クライアントの接続");
-    expect(text).toContain("Claude Code に登録済みです。");
+    expect(text).toContain("AI アシスタントの接続");
+    expect(text).toContain("AI アシスタント（Claude Desktop・Claude Code・Antigravity・Codex・IBM Bob）に MX Stage を登録します。");
     expect(text).toContain("claude mcp list");
     expect(container.textContent).not.toContain("/mcp");
     expect(container.textContent).not.toContain("個人トークン");

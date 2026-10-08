@@ -11,10 +11,10 @@ export const uiMessages = defineMessages(
     status: { error: "Error", warning: "Warning", success: "Success", info: "Information" },
     drop: {
       tooLarge: (name: string, mb: number) => `${name} is too large (up to ${mb} MB).`,
-      received: (name: string) => `Received ${name}. Ask Claude to "import the dropped file".`,
+      received: (name: string) => `Received ${name}. Ask your AI assistant to "import the dropped file".`,
       unreadable: (name: string) => `Could not read ${name}.`,
-      /** Claude が送ったファイルが届いた・届かなかった */
-      imported: (name: string) => `Received the file ${name}. Claude will check its contents and turn it into a sheet.`,
+      /** AI アシスタントが送ったファイルが届いた・届かなかった */
+      imported: (name: string) => `Received the file ${name}. Your AI assistant will check its shape and turn it into a sheet.`,
       importFailed: (reason: string) => `Could not receive the file (${reason}).`,
     },
     updateReady: "A new version is ready. Close this tab and open it again to switch to it.",
@@ -45,9 +45,9 @@ export const uiMessages = defineMessages(
     status: { error: "エラー", warning: "注意", success: "完了", info: "お知らせ" },
     drop: {
       tooLarge: (name, mb) => `${name} は大きすぎます（${mb}MB まで）。`,
-      received: (name) => `${name} を受け取りました。Claude に「ドロップしたファイルを取り込んで」と伝えてください。`,
+      received: (name) => `${name} を受け取りました。AI アシスタントに「ドロップしたファイルを取り込んで」と伝えてください。`,
       unreadable: (name) => `${name} を読み取れませんでした。`,
-      imported: (name) => `ファイル ${name} を受け取りました。Claude が中身を確かめてシートにします。`,
+      imported: (name) => `ファイル ${name} を受け取りました。AI アシスタントが形を確かめてシートにします。`,
       importFailed: (reason) => `ファイルを受け取れませんでした（${reason}）`,
     },
     updateReady: "新しい版を用意しました。このタブを閉じて開き直すと入れ替わります。",

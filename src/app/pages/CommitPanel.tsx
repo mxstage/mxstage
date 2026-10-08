@@ -1,12 +1,14 @@
 // 反映パネル。Maximo への書き込みは、利用者がここで [Maximo に反映] を押して確認したときだけ行う。
 
-import { Accordion, AccordionItem, Button, Checkbox, ListItem, Table, TableBody, TableCell, TableRow, UnorderedList } from "@carbon/react";
+import { Accordion, AccordionItem, Button, Checkbox, ListItem, NumberInput, RadioButton, RadioButtonGroup, Table, TableBody, TableCell, TableRow, UnorderedList } from "@carbon/react";
 import { useEffect, useId, useMemo, useState } from "react";
 import { diffReportFileName, diffReportMessages, diffReportXlsx, takeReportSnapshot } from "../commit/diffReport";
 import { commitMessages } from "../commit/messages";
 import type { LicenseClient } from "../license/client";
 import type { Workspace } from "../store";
-import type { CommitController, CommitPanelState } from "../runtime/contracts";
+import type { CommitBatchSize, CommitController, CommitPanelState } from "../runtime/contracts";
+import { DEFAULT_COMMIT_BATCH } from "../maximo/commit";
+import { batchSizeOf } from "../commit/controller";
 import { Dialog } from "../ui/Dialog";
 import { Notice } from "../ui/Notice";
 import { hostOf } from "./status";
@@ -43,6 +45,40 @@ export interface CommitPanelProps {
 
 const MAX_RESULT_ROWS = 200;
 
+/** 「1 回の反映数」を覚えておく localStorage のキー（この窓・このブラウザだけ） */
+const BATCH_STORAGE_KEY = "mxstage.commit.batch";
+/** 件数を指定するときの上限（入力の打ち間違いで桁が増えすぎないように） */
+const MAX_BATCH = 100_000;
+
+interface BatchSetting {
+  mode: "all" | "count";
+  count: number;
+}
+
+function loadBatch(): BatchSetting {
+  try {
+    const raw = typeof window !== "undefined" ? window.localStorage?.getItem(BATCH_STORAGE_KEY) : null;
+    if (raw) {
+      const v = JSON.parse(raw) as Partial<BatchSetting>;
+      const count = typeof v.count === "number" && Number.isFinite(v.count) && v.count >= 1 ? Math.min(MAX_BATCH, Math.floor(v.count)) : DEFAULT_COMMIT_BATCH;
+      return { mode: v.mode === "all" ? "all" : "count", count };
+    }
+  } catch {
+    // 読めなければ既定に戻す
+  }
+  return { mode: "count", count: DEFAULT_COMMIT_BATCH };
+}
+
+function saveBatch(b: BatchSetting): void {
+  try {
+    window.localStorage?.setItem(BATCH_STORAGE_KEY, JSON.stringify(b));
+  } catch {
+    // 覚えられなくても、この画面の間は選んだ値で動く
+  }
+}
+
+const batchSizeFrom = (b: BatchSetting): CommitBatchSize => (b.mode === "all" ? "all" : b.count);
+
 function safePanel(commits: CommitController, sheet: string): CommitPanelState | null {
   try {
     return commits.panel(sheet);
@@ -69,7 +105,12 @@ function downloadBlob(blob: Blob, fileName: string): void {
 export function CommitPanel({ commits, sheet, version, connected, locked, onMessage, workspace, license }: CommitPanelProps) {
   const [confirming, setConfirming] = useState(false);
   const [checks, setChecks] = useState<ConfirmChecks>({ deletes: false, nulls: false, irreversible: false });
+  const [batch, setBatch] = useState<BatchSetting>(loadBatch);
   const checkId = useId();
+  const updateBatch = (b: BatchSetting) => {
+    setBatch(b);
+    saveBatch(b);
+  };
   const panel = safePanel(commits, sheet);
 
   // シートを切り替えたら確認をやり直す（別のシートの件数で確認したまま、このシートを反映しないため）
@@ -103,6 +144,7 @@ export function CommitPanel({ commits, sheet, version, connected, locked, onMess
         allowNull: panel.needsNullConfirm ? checks.nulls : false,
         deletesConfirmed: panel.needsDeleteConfirm ? checks.deletes : false,
         irreversibleConfirmed: panel.needsIrreversibleConfirm === true ? checks.irreversible === true : false,
+        batchSize: batchSizeFrom(batch),
       });
       // 反映しなかった理由は controller が message で返す（無ければボタンの条件から推測する）
       const outcome = runOutcomeMessage(result, { connected, locked });
@@ -210,6 +252,37 @@ export function CommitPanel({ commits, sheet, version, connected, locked, onMess
           ))}
         </UnorderedList>
       )}
+      {/* 1 回の反映数（すべて・件数）。[Maximo に反映] の上に置く */}
+      <div className="commit-batch">
+        <RadioButtonGroup
+          legendText={t.batchLegend}
+          name={`${checkId}-batch`}
+          orientation="horizontal"
+          valueSelected={batch.mode}
+          disabled={panel.state === "running"}
+          onChange={(v) => updateBatch({ ...batch, mode: v === "all" ? "all" : "count" })}
+        >
+          <RadioButton labelText={t.batchAll} value="all" id={`${checkId}-batch-all`} />
+          <RadioButton labelText={t.batchCount} value="count" id={`${checkId}-batch-count`} />
+        </RadioButtonGroup>
+        {batch.mode === "count" && (
+          <NumberInput
+            id={`${checkId}-batch-n`}
+            label={t.batchCountLabel}
+            hideLabel
+            size="sm"
+            min={1}
+            max={MAX_BATCH}
+            step={1}
+            value={batch.count}
+            disabled={panel.state === "running"}
+            onChange={(_, { value }) => {
+              const n = typeof value === "number" ? value : Number(value);
+              if (Number.isFinite(n) && n >= 1) updateBatch({ ...batch, count: Math.min(MAX_BATCH, Math.floor(n)) });
+            }}
+          />
+        )}
+      </div>
       {/* 作業画面で常に出ている primary のボタンはこれ 1 つだけ */}
       <Button
         kind="primary"
@@ -295,6 +368,7 @@ export function CommitPanel({ commits, sheet, version, connected, locked, onMess
               <li key={line}>{line}</li>
             ))}
           </ul>
+          {batchSizeOf(batchSizeFrom(batch), c.parents) < c.parents && <p className="small">{t.batchLine(batchSizeOf(batchSizeFrom(batch), c.parents), c.parents)}</p>}
           <p className="muted small">{t.canaryNote}</p>
           {panel.needsDeleteConfirm && (
             <Checkbox

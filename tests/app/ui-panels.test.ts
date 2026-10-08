@@ -36,7 +36,7 @@ const LOG_ENTRY = {
 
 class FakeCommits implements CommitController {
   panels = new Map<string, CommitPanelState>();
-  runCalls: Array<{ sheet: string; opts: { allowNull?: boolean; deletesConfirmed?: boolean } }> = [];
+  runCalls: Array<{ sheet: string; opts: { allowNull?: boolean; deletesConfirmed?: boolean; batchSize?: "all" | number } }> = [];
   canaryCalls: Array<{ sheet: string; proceed: boolean }> = [];
   cancelCalls: string[] = [];
   dismissed: string[] = [];
@@ -53,7 +53,7 @@ class FakeCommits implements CommitController {
   request = (sheet: string): CommitPanelState => this.panel(sheet);
   panel = (sheet: string): CommitPanelState => this.panels.get(sheet) ?? panelState(sheet);
   isRunning = (sheet: string): boolean => this.panel(sheet).state === "running";
-  run = async (sheet: string, opts: { allowNull?: boolean; deletesConfirmed?: boolean }): Promise<CommitPanelState> => {
+  run = async (sheet: string, opts: { allowNull?: boolean; deletesConfirmed?: boolean; batchSize?: "all" | number }): Promise<CommitPanelState> => {
     this.runCalls.push({ sheet, opts });
     return this.runResult(sheet);
   };
@@ -73,6 +73,8 @@ let container: HTMLDivElement;
 let root: ReactRoot;
 
 beforeEach(() => {
+  // 「1 回の反映数」は localStorage に覚えるので、試験ごとに既定（件数 200）から始める
+  window.localStorage.clear();
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -119,6 +121,28 @@ function props(commits: FakeCommits, sheet: string, patch: Partial<CommitPanelPr
 }
 
 describe("反映パネル", () => {
+  it("1 回の反映数: 既定は件数 200。すべてを選ぶと全件で反映し、件数より多いときは確認に今回送る数を出す", async () => {
+    const commits = new FakeCommits();
+    commits.set("許可申請", { counts: { parents: 350, changedCells: 350, addedRows: 0, deletedRows: 0 } });
+    await render(props(commits, "許可申請"));
+    expect(container.textContent).toContain("1 回の反映数");
+    const count = container.querySelector<HTMLInputElement>("input[type=number]");
+    expect(count?.value).toBe("200");
+
+    await click("Maximo に反映");
+    expect(container.textContent).toContain("今回送るのは、全 350 件のうち 200 件です。");
+    await click("やめる");
+
+    const all = Array.from(container.querySelectorAll<HTMLInputElement>("input[type=radio]")).find((r) => r.value === "all")!;
+    await check(all);
+    expect(container.querySelector("input[type=number]")).toBeNull();
+    await click("Maximo に反映");
+    expect(container.textContent).not.toContain("今回送るのは");
+    await click("反映する");
+    expect(commits.runCalls[0]!.opts).toMatchObject({ batchSize: "all" });
+    expect(JSON.parse(window.localStorage.getItem("mxstage.commit.batch") ?? "{}")).toMatchObject({ mode: "all" });
+  });
+
   it("確認ダイアログを出してからでないと反映しない", async () => {
     const commits = new FakeCommits();
     commits.set("許可申請");
@@ -131,7 +155,7 @@ describe("反映パネル", () => {
     expect(commits.runCalls).toEqual([]);
 
     await click("反映する");
-    expect(commits.runCalls).toEqual([{ sheet: "許可申請", opts: { allowNull: false, deletesConfirmed: false, irreversibleConfirmed: false } }]);
+    expect(commits.runCalls).toEqual([{ sheet: "許可申請", opts: { allowNull: false, deletesConfirmed: false, irreversibleConfirmed: false, batchSize: 200 } }]);
     expect(onMessage).toHaveBeenCalledWith("反映が終わりました（反映済み 1 件）。", "info");
   });
 
@@ -164,7 +188,7 @@ describe("反映パネル", () => {
     }
     expect(findButton("反映する")?.disabled).toBe(false);
     await click("反映する");
-    expect(commits.runCalls).toEqual([{ sheet: "許可申請", opts: { allowNull: true, deletesConfirmed: true, irreversibleConfirmed: false } }]);
+    expect(commits.runCalls).toEqual([{ sheet: "許可申請", opts: { allowNull: true, deletesConfirmed: true, irreversibleConfirmed: false, batchSize: 200 } }]);
   });
 
   it("戻せないステータス（クローズ）への変更は、チェックを入れるまで反映できない。ステータスの変更の件数を出す", async () => {
@@ -182,7 +206,7 @@ describe("反映パネル", () => {
     await check(checks[0]!);
     expect(findButton("反映する")?.disabled).toBe(false);
     await click("反映する");
-    expect(commits.runCalls).toEqual([{ sheet: "作業指示", opts: { allowNull: false, deletesConfirmed: false, irreversibleConfirmed: true } }]);
+    expect(commits.runCalls).toEqual([{ sheet: "作業指示", opts: { allowNull: false, deletesConfirmed: false, irreversibleConfirmed: true, batchSize: 200 } }]);
   });
 
   it("反映しなかったときに「終わりました」と言わない", async () => {

@@ -5,7 +5,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { ObjectStructureCatalog } from "../../src/app/catalog/catalog";
 import { diffReportSheets } from "../../src/app/commit/diffReport";
-import { createCommitController, noChangesBlocker, notConnectedBlocker, notMaximoSheetBlocker, PANEL_REFRESH_MS } from "../../src/app/commit/controller";
+import { batchSizeOf, createCommitController, noChangesBlocker, notConnectedBlocker, notMaximoSheetBlocker, PANEL_REFRESH_MS } from "../../src/app/commit/controller";
 import { MaximoClient } from "../../src/app/maximo/client";
 import type { StatusPrefs } from "../../src/app/maximo/statusPrefs";
 import { RelayToolError, type ToolContext } from "../../src/app/relay";
@@ -298,6 +298,46 @@ describe("CommitController: 例 (a) を最後まで", () => {
     expect(result.state).toBe("done");
     expect(result.resultCounts).toEqual({ verified: 2 });
     expect(result.results).toHaveLength(2);
+  });
+});
+
+describe("CommitController: 1 回の反映数", () => {
+  it("件数を指定すると、その数の親だけを送り、残りは差分に残って次の反映で送る", async () => {
+    const h = await prepared();
+    const first = await h.controller.run(PERMIT_SHEET, { batchSize: 1 });
+    expect(first.batch).toEqual({ sending: 1, total: 2 });
+    expect(first.results.map((r) => r.status)).toEqual(["verified"]);
+    expect(first.message).toContain("1");
+    expect(posts(h.fake)).toHaveLength(1);
+    expect(h.workspace.getDiff(PERMIT_SHEET).entries.map((e) => e.rowKey)).toEqual([ck("WO2002", 1003)]);
+    expect(h.controller.panel(PERMIT_SHEET).counts.parents).toBe(1);
+
+    const second = await h.controller.run(PERMIT_SHEET, { batchSize: 1 });
+    expect(second.batch).toEqual({ sending: 1, total: 1 });
+    expect(second.results.map((r) => r.status)).toEqual(["verified"]);
+    expect(second.message).toBeUndefined();
+    expect(h.workspace.getDiff(PERMIT_SHEET).changedCells).toBe(0);
+    expect(childAttrs(h.fake)["1003"]!.ext_permitdate).toBe(NEW_DATE);
+  });
+
+  it("すべてなら全件を 1 回で送る（最初の 1 件の確認はそのまま）", async () => {
+    const h = await prepared();
+    const running = h.controller.run(PERMIT_SHEET, { batchSize: "all" });
+    await untilCanary(h);
+    h.controller.continueCanary(PERMIT_SHEET, true);
+    const done = await running;
+    expect(done.batch).toEqual({ sending: 2, total: 2 });
+    expect(done.results.map((r) => r.status)).toEqual(["verified", "verified"]);
+  });
+
+  it("batchSizeOf: すべて・件数・省略（既定 200）を、送る親の数にする", () => {
+    expect(batchSizeOf("all", 500)).toBe(500);
+    expect(batchSizeOf(undefined, 500)).toBe(200);
+    expect(batchSizeOf(undefined, 30)).toBe(30);
+    expect(batchSizeOf(50, 120)).toBe(50);
+    expect(batchSizeOf(0, 120)).toBe(1);
+    expect(batchSizeOf(2.7, 120)).toBe(2);
+    expect(batchSizeOf(Number.NaN, 120)).toBe(120);
   });
 });
 

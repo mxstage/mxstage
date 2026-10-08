@@ -8,7 +8,7 @@
 //   I5  送る属性は、変更された・readOnly でない・キー列でない列だけ
 //   I6  空の子配列を送らない（子コレクションを丸ごと置き換えない）
 //   I7  href は読み込み時の record.href だけを使い、組み立てない
-//   I8  1 計画は 200 親まで
+//   I8  1 回の送信は、反映パネルで選んだ件数まで（既定 200 親。計画を作るときは数を限らない）
 //   I10 null（空文字を含む）への変更は allowNull が無ければ拒否する
 //       【Maximo で null をどう送るか（JSON null か "" か）は P0 で確認する】
 //   I11 戻せないステータス（クローズ・取消・撤去など）への変更は、人の確認が要る
@@ -75,6 +75,9 @@ export const COMMIT_LIMITS = {
   maxDeletesTotal: 50,
   maxParentsPerPlan: 200,
 } as const;
+
+/** 反映パネルの「1 回の反映数」の既定（件数を指定するときの初めの値） */
+export const DEFAULT_COMMIT_BATCH = COMMIT_LIMITS.maxParentsPerPlan;
 
 const ATTR_RE = /^[A-Za-z0-9_]+$/;
 
@@ -401,7 +404,8 @@ export function planCommit(meta: SheetMeta, records: MaximoRecord[], changes: Co
   if (irreversible.length > 0 && !opts.irreversibleConfirmed) {
     throw new CommitInvariantError("I11", msg().invariant.irreversibleStatus(irreversible.length, [...new Set(irreversible.map((p) => p.status!.to))].join(", ")));
   }
-  validatePlans(plans, { allowNull: opts.allowNull ?? false, deletesConfirmed: opts.deletesConfirmed ?? false, childIdAttrs });
+  // 計画は全件作る。1 回に送る数は、反映するときに反映パネルの設定で区切る（executeCommit の maxParents）
+  validatePlans(plans, { allowNull: opts.allowNull ?? false, deletesConfirmed: opts.deletesConfirmed ?? false, childIdAttrs, maxParents: Infinity });
   return plans;
 }
 
@@ -488,12 +492,15 @@ export interface ValidatePlanOptions {
   /** シートの列定義。渡すと I5（列に有る・readOnly でない・キー列でない）も検査する */
   columns?: ColumnSchema[];
   keyColumns?: string[];
+  /** 1 回に送れる親の数（I8）。省くと COMMIT_LIMITS.maxParentsPerPlan。計画を作るだけのときは Infinity */
+  maxParents?: number;
 }
 
 /** 計画そのものの不変条件を検査する（送信前にもう一度呼ぶ） */
 export function validatePlans(plans: readonly CommitPlan[], opts: ValidatePlanOptions): void {
-  if (plans.length > COMMIT_LIMITS.maxParentsPerPlan) {
-    throw new CommitInvariantError("I8", msg().invariant.tooManyParents(COMMIT_LIMITS.maxParentsPerPlan, plans.length));
+  const maxParents = opts.maxParents ?? COMMIT_LIMITS.maxParentsPerPlan;
+  if (plans.length > maxParents) {
+    throw new CommitInvariantError("I8", msg().invariant.tooManyParents(maxParents, plans.length));
   }
   const idAttrs = upperKeys(opts.childIdAttrs ?? {});
   const colMap = opts.columns ? new Map(opts.columns.map((c) => [c.name.toUpperCase(), c])) : null;
@@ -774,6 +781,8 @@ export interface ExecuteCommitOptions {
    * 読み込みに使った構造とは別の構造へ書き込まないため。
    */
   os?: string;
+  /** 1 回に送れる親の数（I8）。反映パネルの「1 回の反映数」。省くと COMMIT_LIMITS.maxParentsPerPlan、すべてなら Infinity */
+  maxParents?: number;
 }
 
 /**
@@ -796,6 +805,7 @@ export async function executeCommit(client: MaximoClient, plans: CommitPlan[], o
     childIdAttrs: idAttrsOpt,
     columns: opts.meta?.columns,
     keyColumns: opts.meta?.keyColumns,
+    ...(opts.maxParents !== undefined ? { maxParents: opts.maxParents } : {}),
   });
   const guard = opts.statusGuard ?? { kind: null, hasStatus: false, hasHistoryFlag: false };
   const stopOnFailure = opts.stopOnFailure ?? true;

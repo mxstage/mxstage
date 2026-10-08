@@ -13,6 +13,7 @@ import { structureDriftProblems } from "../catalog/drift";
 import {
   COMMIT_LIMITS,
   CommitInvariantError,
+  DEFAULT_COMMIT_BATCH,
   executeCommit,
   planCommit,
   STATUS_ATTR,
@@ -210,6 +211,13 @@ function distinctParents(changes: CommitChanges): number {
   return keys.size;
 }
 
+/** 「1 回の反映数」を、この回に送る親の数にする（すべてなら全件。数は 1 以上の整数に丸める。省くと既定の 200） */
+export function batchSizeOf(batch: "all" | number | undefined, total: number): number {
+  if (batch === "all") return total;
+  const n = typeof batch === "number" && Number.isFinite(batch) ? Math.floor(batch) : DEFAULT_COMMIT_BATCH;
+  return Math.min(total, Math.max(1, n));
+}
+
 function rowResult(o: CommitRowOutcome): CommitRowResult {
   const out: CommitRowResult = { rowKey: o.rowKey, status: o.status };
   if (o.httpStatus !== undefined) out.httpStatus = o.httpStatus;
@@ -225,6 +233,7 @@ function clonePanel(p: CommitPanelState): CommitPanelState {
     blockers: [...p.blockers],
     awaitingCanary: p.awaitingCanary === null ? null : { ...p.awaitingCanary },
     results: p.results.map((r) => ({ ...r })),
+    ...(p.batch !== undefined ? { batch: { ...p.batch } } : {}),
   };
 }
 
@@ -531,7 +540,10 @@ export const createCommitController: CreateCommitController = (deps) => {
           return notRun(sheet, `${blockedMessagePrefix()}${still === null ? notConnectedBlocker() : otherConnectionBlocker(conn.info.baseUrl, still.info.baseUrl)}`);
         }
       }
-      const plans = attempt.plans;
+      // 「1 回の反映数」で区切る。残りは差分に残り、もう一度 [Maximo に反映] を押すと送る
+      const total = attempt.plans.length;
+      const size = batchSizeOf(opts.batchSize, total);
+      const plans = attempt.plans.slice(0, size);
       const sheetId = s.id;
       // 新しいレコードのステータス（作った後に変える）。ステータスだけ失敗したとき、作業画面に戻すために書いた人と値を覚えておく
       const createStatus = new Map<string, { to: string; author: BatchAuthor }>();
@@ -552,6 +564,7 @@ export const createCommitController: CreateCommitController = (deps) => {
       p.needsIrreversibleConfirm = ev.needsIrreversibleConfirm;
       p.awaitingCanary = null;
       p.results = [];
+      p.batch = { sending: plans.length, total };
       p.startedAt = now();
       delete p.finishedAt;
       // 実行したので、前回「実行しなかった理由」は消す
@@ -590,6 +603,7 @@ export const createCommitController: CreateCommitController = (deps) => {
           allowNull,
           maxDeletesConfirmed: deletesConfirmed,
           irreversibleConfirmed,
+          maxParents: plans.length,
           // ステータスの決まり（履歴・改訂が要る注文書・移れないステータスは送らない）。作業画面に保存した構造の定義から
           statusGuard: statusGuardOf(meta, meta.source.kind === "maximo" && meta.source.baseUrl !== undefined && deps.catalog ? (deps.catalog.get(meta.source.baseUrl, meta.source.os)?.info.columns ?? null) : null),
         });
@@ -622,6 +636,8 @@ export const createCommitController: CreateCommitController = (deps) => {
         });
         p.message = cancelledMessage();
       }
+      // 区切って送ったときは、残りの件数を知らせる（中止・失敗のときは、その理由を優先する）
+      if (plans.length < total && !entry.cancelled && !aborted && p.message === undefined) p.message = m().run.remaining(total - plans.length);
       const failedRows = p.results.some((r) => r.status === "error" || r.status === "unknown" || r.status === "conflict");
       p.state = failedRows || aborted ? "failed" : "done";
       p.finishedAt = now();

@@ -254,10 +254,9 @@ describe("planCommit", () => {
       expect(planCommit(bigMeta, bigRecords(6, 9), { ...none(), deletedRows: deletes(6, 9) }, { deletesConfirmed: true })).toHaveLength(6);
     });
 
-    it(`I8: 1 計画は ${COMMIT_LIMITS.maxParentsPerPlan} 親まで`, () => {
+    it("計画は親の数を限らずに全件作る（1 回に送る数は反映するときに区切る）", () => {
       const cells = (n: number) => Array.from({ length: n }, (_, i) => ({ rowKey: makeParentKey(["BEDFORD", `W${i}`]), col: "DESCRIPTION", value: "x" }));
-      expect(planCommit(bigMeta, bigRecords(200, 0), { ...none(), cells: cells(200) })).toHaveLength(200);
-      expect(codeOf(() => planCommit(bigMeta, bigRecords(201, 0), { ...none(), cells: cells(201) }))).toBe("I8");
+      expect(planCommit(bigMeta, bigRecords(201, 0), { ...none(), cells: cells(201) })).toHaveLength(201);
     });
   });
 
@@ -388,6 +387,10 @@ describe("validatePlans（送信前の再検査）", () => {
     expect(check(basePlan({ children: { MULTIASSETLOCCI: [{ action: "Add", attrs: { ASSETNUM: null } }] } }), { allowNull: true })).toBe("I10");
     expect(codeOf(() => validatePlans([basePlan(), basePlan()], vopts))).toBe("INPUT");
     expect(codeOf(() => validatePlans(Array.from({ length: 201 }, (_, i) => basePlan({ parentKey: `p${i}` })), vopts))).toBe("I8");
+    // I8 の上限は、反映パネルの「1 回の反映数」で変えられる（省くと 200、すべてなら Infinity）
+    const many = Array.from({ length: 201 }, (_, i) => basePlan({ parentKey: `p${i}` }));
+    expect(codeOf(() => validatePlans(many, { ...vopts, maxParents: Infinity }))).not.toBe("I8");
+    expect(codeOf(() => validatePlans(many.slice(0, 3), { ...vopts, maxParents: 2 }))).toBe("I8");
   });
 
   it("列定義を渡すと readOnly・キー列・シートに無い列も拒否する（I5）", () => {

@@ -78,7 +78,12 @@ export interface CommitPanelState {
   message?: string;
   /** 反映先。シートを読み込んだオブジェクト構造と接続先（Maximo から読み込んだシートだけ） */
   target?: { os: string; baseUrl: string | null };
+  /** 直近の run で送った親の数と、そのときの全件（「1 回の反映数」で区切ったとき、残りはもう一度の反映で送る） */
+  batch?: { sending: number; total: number };
 }
+
+/** 反映パネルの「1 回の反映数」。すべて、または件数（既定 200） */
+export type CommitBatchSize = "all" | number;
 
 /**
  * LLM のツールから使える反映の口。実行（run）を含めない。
@@ -94,7 +99,7 @@ export interface CommitRequester {
 /** UI だけが使う反映の口 */
 export interface CommitController extends CommitRequester {
   /** 利用者が作業画面で [Maximo に反映] をクリックしたときだけ呼ぶ */
-  run(sheet: string, opts: { allowNull?: boolean; deletesConfirmed?: boolean; irreversibleConfirmed?: boolean }): Promise<CommitPanelState>;
+  run(sheet: string, opts: { allowNull?: boolean; deletesConfirmed?: boolean; irreversibleConfirmed?: boolean; batchSize?: CommitBatchSize }): Promise<CommitPanelState>;
   /** カナリアの結果を見た利用者の判断 */
   continueCanary(sheet: string, proceed: boolean): void;
   /** 反映を打ち切る（利用者の操作）。送信済みの分は取り消さず、残りを skipped にして isRunning を解く */

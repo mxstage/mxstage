@@ -1389,6 +1389,21 @@ body.resizing-row * {
   padding: 0;
 }
 
+/* 1 回の反映数（すべて・件数）。[Maximo に反映] のすぐ上 */
+.commit-batch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--cds-spacing-03) var(--cds-spacing-05);
+  margin-block-end: var(--cds-spacing-04);
+}
+.commit-batch .cds--form-item {
+  flex: 0 0 auto;
+}
+.commit-batch .cds--number {
+  inline-size: 8rem;
+}
+
 /* 反映のボタンと中止はパネルの幅いっぱいに出す（Carbon の Button の最大幅は 20rem） */
 .commit-button.cds--btn,
 .cancel.cds--btn {

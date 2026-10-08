@@ -3,7 +3,7 @@
 [![MCP Registry](https://img.shields.io/badge/MCP_Registry-io.github.mxstage%2Fmxstage-0a7bbb)](https://registry.modelcontextprotocol.io/v0/servers?search=io.github.mxstage/mxstage)
 [![Latest release](https://img.shields.io/github/v/release/mxstage/mxstage?label=release)](https://github.com/mxstage/mxstage/releases/latest)
 [![Claude Desktop extension](https://img.shields.io/badge/Claude_Desktop-.mcpb_extension-d97757)](https://github.com/mxstage/mxstage/releases/latest)
-[![ChatGPT desktop](https://img.shields.io/badge/ChatGPT_desktop-Codex_%7C_Work-10a37f)](#ほかの-ai-アシスタント導入スクリプト)
+[![ChatGPT desktop](https://img.shields.io/badge/ChatGPT_desktop-Codex_%7C_Work-10a37f)](#対応する-ai-アシスタント)
 [![IBM Maximo / MAS Manage](https://img.shields.io/badge/IBM_Maximo-MAS_Manage-0f62fe)](#必要なもの)
 [![EAM / CMMS](https://img.shields.io/badge/category-EAM_%7C_CMMS-6f42c1)](#必要なもの)
 [![MCP server](https://img.shields.io/badge/MCP-server-555555)](https://modelcontextprotocol.io)
@@ -13,12 +13,11 @@
 
 [English](README.md) | 日本語
 
-Maximo（MAS Manage）のデータ整備を、利用者の LLM クライアント（Claude Desktop・ChatGPT デスクトップの Codex か Work・Antigravity・IBM Bob。Claude Code・Codex CLI でも動くが公式の対応ではない）と
-一緒に行うためのツール。画面（作業画面）と MCP サーバを、利用者の PC の中だけで動かす。
+**MX Stage は、IBM Maximo のデータの修正を、利用者の AI アシスタント（Claude Desktop・ChatGPT・Antigravity・IBM Bob）と一緒に行うためのツール。利用者の PC の中だけで動き、どの変更も、作業画面に置いて差分を見せ、人が承認してから Maximo に書く。**
 サイト: https://mxstage.tsunagi.app/ja/ 。問い合わせ: mxstage@tsunagi.app
 
-- **データの正本はブラウザの作業タブだけ。** LLM のツール呼び出しは作業タブに届き、その場でグリッドに
-  反映される。読み込んだ表をディスクに書くことはない（作業タブと、この PC の橋渡しのメモリにだけ置く）。
+- **AI が触るのは作業画面のシートで、Maximo ではない。** AI アシスタントは Maximo のデータを作業画面（ブラウザのタブ）のシートに読み込み、
+  分析して、根拠付きで直し方を示す。変わったセルはすべて画面で見える。読み込んだ表をディスクに書くことはない（作業タブと、この PC の橋渡しのメモリにだけ置く）。
 - **外へ通信するのは、Maximo と AI アシスタントだけ。** ただし設定の「更新」で **自動で更新する** をオンにしたとき（既定はオフ）だけ、
   橋渡しが 1 日 1 回 GitHub に最新の版の番号を問い合わせる。導入スクリプトで入れたものは作業中でないときに自動で入れ替わり（新しい版を GitHub から、部品を npm のレジストリから取る）、
   Claude Desktop の拡張機能は新しいファイルを GitHub からダウンロードして確かめるところまで行う（入れるのは利用者）。
@@ -26,11 +25,35 @@ Maximo（MAS Manage）のデータ整備を、利用者の LLM クライアン�
 - **Maximo の API キーは、この PC の橋渡しが OS の保護付きで保存し、ブラウザには渡さない**（Windows は DPAPI で暗号化。試していない macOS ではキーチェーン、Linux では本人だけが読めるファイルで守る）。
   作業画面はどの窓（インストールしたアプリ・ブラウザのタブ・AI アシスタントの中のブラウザ）で開いても、PC を再起動したあとでも自動でつながり、
   Maximo の環境が複数あれば設定で選んで切り替えられる（保存せずに接続することもでき、そのときキーはタブのメモリにだけ置く）。
-- **Maximo への書き込みは、利用者が作業画面で [Maximo に反映] を押したときだけ。** LLM のツールからは書き込めない。
+- **Maximo への書き込みは、利用者が作業画面で [Maximo に反映] を押したときだけ。** AI のツールからは書き込めない。
   まず 1 件だけ書いて確かめてから残りを送る。読み込んだ後にほかの人が変えたレコードは送らずに飛ばして一覧で知らせ、エラーや結果を確かめられないときは止まる。
+  反映する前なら、どの変更もまとめて取り消せる。1 回の反映で送るレコードの数は反映パネルで選ぶ（すべてか件数。既定は 200）。
 - **承認の記録が残る。** 反映パネルから差分レポート（Excel）を保存できる。変更 1 セル 1 行で、変更前・変更後・変えたのは AI か人か・根拠。反映の後は、その回の書き込みログも入る。
-- **MX Stage のクラウドは無い。** この PC で動く「橋渡し」（Node のプロセス 1 つ）が、画面の配信・LLM との MCP 接続・
+- **MX Stage のクラウドは無い。** この PC で動く「橋渡し」（Node のプロセス 1 つ）が、画面の配信・AI アシスタントとの MCP 接続・
   Maximo への中継を引き受ける。Maximo は橋渡しが直接呼ぶので、Maximo 側の CORS 設定も要らない。
+- **手順を教えられる。** 会話で決めた手順を *Skill* として保存すると、次から AI がそれに従う。
+
+## Maximo の REST API を AI から直接呼ばない理由
+
+Maximo の MCP サーバには、AI に REST API を呼ばせるものがいくつかある。読むだけならそれでよいが、一括の修正には危ない。
+AI が何を書こうとしているかが見えず、推測の誤りがそのまま本番に入る。MX Stage は、その間に作業画面のシート・差分・取り消し・人の承認を挟む。
+
+## 対応する AI アシスタント
+
+| AI アシスタント | 対応 |
+|---|---|
+| Claude Desktop（チャット・Code タブ） | 対応 |
+| ChatGPT デスクトップ — **Codex** か **Work** のモード（Chat のモードはローカルの MCP サーバを使えない） | 対応 |
+| Antigravity（2.0・IDE） | 対応（導入スクリプトが登録する） |
+| IBM Bob | 対応（導入スクリプトが登録する） |
+| Claude Code・Codex CLI と IDE 拡張 | 動くが、公式の対応ではない |
+
+## 必要なもの
+
+- Windows（Mac・Linux は試していない）
+- 導入スクリプトで入れるとき: Node.js 22.6 以上と Git（無ければ導入の途中で入れてよいか確認される）。Claude Desktop の拡張はどちらも要らない。npm（`npx @mxstage/mxstage`）は Node.js 20 以上
+- Chrome か Edge
+- IBM Maximo か Maximo Application Suite（Manage）。JSON API（`/maximo/api`）と API キーが使えること
 
 ## 入れ方
 
@@ -68,20 +91,11 @@ Claude Code が下の「導入手順（Claude Code 向け）」に沿って入�
 終わったら、使う環境を開き直す。デスクトップの `mxstage`（または `http://127.0.0.1:8788/app`）を開き、
 **設定で Maximo の URL と API キーを入れる。** API キーはチャットに書かない。
 
+設定では、Maximo ごとに **本番** か **テスト** かも選ぶ。本番への反映にはライセンスが要る（下の「ライセンス」）。それ以外はすべて無償。
+
 npm でサーバを起動する MCP クライアントでは、`npx -y @mxstage/mxstage` でサーバだけを動かすこともできる（Node.js 20 以上。Skill やショートカットは導入スクリプトでだけ入る）。
 
 更新は「MX Stage を更新して」、取り消しは「MX Stage をアンインストールして」と Claude Code に伝える（下の「アンインストール」）。
-
-### 必要なもの
-
-- Windows（Mac・Linux は試していない）
-- 導入スクリプトで入れるとき: Node.js 22.6 以上と Git（無ければ導入の途中で入れてよいか確認される）。Claude Desktop の拡張はどちらも要らない。npm（`npx @mxstage/mxstage`）は Node.js 20 以上
-- Chrome か Edge
-- 次のどれか 1 つ以上。導入を頼むのは Claude Code か Claude Desktop の Code タブを想定している（ほかの環境から頼むのは試していない。手で実行してもよい）
-  - Claude Code（CLI）、Claude Desktop（チャット・Code タブ）
-  - Antigravity（2.0・IDE・`agy` CLI）
-  - Codex（ChatGPT デスクトップアプリの Codex・CLI・IDE 拡張）
-  - IBM Bob
 
 ## 環境ごとの置き場所
 
@@ -134,7 +148,7 @@ node scripts/setup-local.mjs --uninstall
 | 上の表の全環境の MCP 設定の `mxstage`（導入が置き換えた利用者の設定があれば、控えから元に戻す） | ほかの MCP サーバとほかの設定 |
 | 導入が写した Skill（`~\.claude\skills`・`~\.gemini\config\skills`・`~\.agents\skills`・`~\.bob\skills` の下） | 写したあとに書き換えられた Skill |
 | ログイン時の自動起動（スタートアップの `mxstage-bridge.lnk`）とデスクトップの `mxstage` | 利用者の Skill の元（`~\.config\mxstage\skills\`） |
-| 導入が起動した橋渡し | LLM が起動した橋渡し（その LLM を終了すると止まる） |
+| 導入が起動した橋渡し | AI アシスタントが起動した橋渡し（その AI アシスタントを終了すると止まる） |
 | 導入の記録（`~\.config\mxstage\setup.json`） | 控え（`~\.config\mxstage\backup\`） |
 
 終わったら、使っていた環境を開き直す。この PC から跡形なく消すときは、続けて次も消す。
@@ -187,7 +201,7 @@ Claude Desktop は、拡張機能（`.mcpb`）の MX Stage を入れて有効に
 
 | 対象 | 内容 |
 |---|---|
-| 橋渡し | ポート `8788`（固定。ずらさない）で起動する。PC に 1 つだけで、LLM クライアントが起動した分はここへ中継する |
+| 橋渡し | ポート `8788`（固定。ずらさない）で起動する。PC に 1 つだけで、AI アシスタントが起動した分はここへ中継する |
 | MCP と Skill | 上の「環境ごとの置き場所」の表のとおりに登録する。登録しないときは `--no-claude-desktop`・`--no-antigravity`・`--no-codex`・`--no-bob`・`--no-skills` |
 | 自動起動・ショートカット | ログイン時に橋渡しを起動するショートカットと、デスクトップの `mxstage` を作る |
 
@@ -195,7 +209,7 @@ Claude Desktop は、拡張機能（`.mcpb`）の MX Stage を入れて有効に
 
 ## Skill（作業手順書）
 
-LLM に MX Stage の使い方を教えるファイル。**アプリ既定**と**利用者の Skill** の 2 か所に分けている。
+AI アシスタントが従う作業手順のファイル。**アプリ既定**と**利用者の Skill** の 2 か所に分けている。
 
 | | 置き場所 | 中身 | 更新 |
 |---|---|---|---|
@@ -205,9 +219,9 @@ LLM に MX Stage の使い方を教えるファイル。**アプリ既定**と**
 | 利用者の Skill | `~/.config/mxstage/skills/<名前>/SKILL.md` | 客先の環境ごと（カスタムのオブジェクト・属性・決まり）と、繰り返す作業の手順 | 利用者が置く。MX Stage を更新しても消えず、このリポジトリにも入らない。`mxstage` で始まる名前は使えない |
 
 - **どの環境でも届く。** MX Stage をつないだ会話では、最初にツールを使ったときの結果に、目次と全 Skill の一覧が添えられる。
-  読み込み・変更・取り込み・反映などのツールの結果には、その段階で読む Skill の名前が添えられ、LLM が `get_skill` で読む（資産の仕様を読み込んだら資産と分類の Skill など）。
-  Skill のファイルを置かない Claude Desktop のチャットや `agy` CLI でも、これで同じ手順になる（利用者の Skill の本文は、LLM がツールで読む）。
-- **チャットから作れる。** 作業の途中で「この手順を Skill として残して」と頼むと、LLM が名前・説明・本文を示して確かめたうえで
+  読み込み・変更・取り込み・反映などのツールの結果には、その段階で読む Skill の名前が添えられ、AI が `get_skill` で読む（資産の仕様を読み込んだら資産と分類の Skill など）。
+  Skill のファイルを置かない Claude Desktop のチャットや `agy` CLI でも、これで同じ手順になる（利用者の Skill の本文は、AI がツールで読む）。
+- **チャットから作れる。** 作業の途中で「この手順を Skill として残して」と頼むと、AI が名前・説明・本文を示して確かめたうえで
   `~/.config/mxstage/skills/` に保存する。
 - 各環境の Skill の置き場所へは、導入のたびに写す。利用者の Skill を足したり直したりしたら、導入をもう一度実行する
   （「MX Stage の Skill を入れ直して」と頼めばよい）。
@@ -221,19 +235,22 @@ LLM に MX Stage の使い方を教えるファイル。**アプリ既定**と**
 - [docs/local.md](docs/local.md) — 毎日の使い方・更新・取り消し・うまくいかないとき・どこに何を書くか
 - [docs/status.md](docs/status.md) — 今どこまでできているか
 - [docs/publish.md](docs/publish.md) — GitHub へ送る前の検査（客先の情報を送らない）
+- [docs/design.md](docs/design.md) — 作業画面の見た目の約束
 
 ## 開発
 
 ```bash
 npm run typecheck      # tsc（app / bridge）
-npx vitest run         # 試験（app / bridge）
+npx vitest run         # 試験（app / bridge / デモのデータの生成）
 npm run test:setup     # 導入スクリプトの試験（一時フォルダだけに書き、本物の claude コマンドは呼ばない）
 npm run build          # アプリ既定の Skill の生成と画面のビルド（dist/app）
 npm run dev:app        # 画面の開発サーバ（http://localhost:5173/app?samples=1 で架空のサンプルを表示。中継は開発用の橋渡し 8790 へ）
+npm run dev:fake-maximo  # 開発用の仮想 Maximo（https://127.0.0.1:9797。API キーは test-api-key）
+npm run dev:bridge     # 開発用の橋渡し（ポート 8790。仮想 Maximo 用の開発ライセンスを受け付ける）
 node scripts/check-publish.mjs --worktree   # 送る前の検査（docs/publish.md）
 ```
 
-依存を入れるときは、IBM のテレメトリ（`@carbon/react` などが入れるときに動く `@ibm/telemetry-js`）を止める（PowerShell なら `$env:IBM_TELEMETRY_DISABLED='true'; npm install`）。導入スクリプト（`scripts/setup-local.mjs`）は自分で止める。画面の見た目の約束は [docs/design.md](docs/design.md)。
+依存を入れるときは、IBM のテレメトリ（`@carbon/react` などが入れるときに動く `@ibm/telemetry-js`）を止める（PowerShell なら `$env:IBM_TELEMETRY_DISABLED='true'; npm install`）。導入スクリプト（`scripts/setup-local.mjs`）は自分で止める。画面の見た目の約束は [docs/design.md](docs/design.md)。ライセンスの検査の開発と試験は [dev/README.md](dev/README.md)。
 
 **Maximo への反映は、開発環境の Maximo とダミーデータでだけ試すこと。** 書き込みを自動で元に戻す仕組みは無い。
 
@@ -242,7 +259,9 @@ node scripts/check-publish.mjs --worktree   # 送る前の検査（docs/publish.
 [Business Source License 1.1](LICENSE)（BSL）。ソースは読めるが、オープンソースではない。正式な条件は英語の [LICENSE](LICENSE) で、ここはその要約。
 
 - **無償で使える**: 本番の Maximo への「Maximo に反映」（データを作る・変える・消す）以外のすべて。テスト環境への反映も、本番のデータの読み込み・集計・Skill づくり・作業画面での編集と差分の確認も無償。ソースを読む・直す・配ることもできる（直したものにも同じ条件が付く）。
-- **商用ライセンスが要る**: MX Stage で本番の Maximo に反映すること。本番の Maximo 1 環境につき年 4,800 ドル。キーにはその環境の接続先（別名を 3 つまで）が書いてあり、接続先が合えば何人・何台の PC でも使える。
+- **商用ライセンスが要る**: MX Stage で本番の Maximo に反映すること。本番の Maximo 1 環境につき年 4,800 ドル。キーにはその環境の接続先（別名を 3 つまで）が書いてあり、接続先が合えば何人・何台の PC でも使える。[ライセンスと購入](https://mxstage.tsunagi.app/ja/license)。
 - **本番環境**: 組織が日々の業務の記録に使っている Maximo と、それに置き換わる準備中の環境（本番の切り替え前の移行先など）。**テスト環境**: それ以外のすべて（開発・検証・研修・デモ・移行のリハーサル）。本番のデータの写しを入れていてもテスト環境。
 - **各版は、公開から 4 年たつと Apache License 2.0 になる。** その版は、それ以後は Apache 2.0 の条件で本番への書き込みにも使える。
 - npm で入れるパッケージとフォント（IBM Carbon Design System・IBM Plex など）は、それぞれのライセンスに従う（[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)）。
+
+IBM と Maximo は International Business Machines Corporation の商標。MX Stage は独立した製品で、IBM と提携しておらず、IBM の承認も受けていない。

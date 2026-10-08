@@ -17,8 +17,8 @@ English | [日本語](README.ja.md)
 
 Website: https://mxstage.tsunagi.app · Contact: mxstage@tsunagi.app
 
-- **Your AI works on a staging sheet, not on Maximo.** The AI assistant loads Maximo data into a sheet in the *work screen* (a browser tab), analyses it and proposes changes with reasons. You see every changed cell.
-- **Only a person can commit.** The AI's tools cannot write to Maximo. Changes are written only when you press **Commit to Maximo** in the work screen. MX Stage writes one record first and lets you check it before it sends the rest. Records that someone else changed after you loaded them are skipped and listed; it stops on an error or a result it cannot confirm. Any batch of changes can be undone before you commit.
+- **Your AI works on a staging sheet, not on Maximo.** The AI assistant loads Maximo data into a sheet in the *work screen* (a browser tab), analyses it and proposes changes with reasons. You see every changed cell. The sheets live only in the work screen tab and the bridge's memory; loaded tables are never written to disk.
+- **Only a person can commit.** The AI's tools cannot write to Maximo. Changes are written only when you press **Commit to Maximo** in the work screen. MX Stage writes one record first and lets you check it before it sends the rest. Records that someone else changed after you loaded them are skipped and listed; it stops on an error or a result it cannot confirm. Any batch of changes can be undone before you commit. You choose in the commit panel how many records one commit sends (all of them, or a number; 200 by default).
 - **Keep a record of what was approved.** The commit panel saves a diff report (Excel): one row per changed cell with the old value, the new value, who changed it (the AI assistant or a person) and why. After a commit, it also holds the write log of that commit.
 - **Nothing leaves your PC except calls to your Maximo and your AI assistant.** There is no MX Stage cloud and no telemetry. There are two optional exceptions: if you turn on **Settings → Updates → Update automatically** (off by default), the bridge asks GitHub once a day for the latest version number; and if you choose **Settings → Demo → Download data and connect**, it downloads fictional sample data once from `mxstage-demo.pages.dev` (nothing is sent). Installs made with the setup script then update themselves while no work is open (the new version from GitHub, its packages from the npm registry); the Claude Desktop extension downloads the new file from GitHub and checks it for you to install. A small local process (the *bridge*) serves the work screen, talks MCP to your AI assistant and relays requests to Maximo, so Maximo needs no CORS settings. Your Maximo API key is saved on this PC by the bridge, encrypted with Windows data protection (DPAPI), and is not sent to the browser (on macOS, untested, the Keychain protects it; on Linux, a file only your user can read). Every window of the work screen — the installed app, a browser tab, or the browser inside your AI assistant — connects automatically, even after a restart, and you can switch between saved Maximo environments in Settings. (You can also connect without saving; the key then stays only in the tab's memory.)
 - **Teach it your procedures.** Save a procedure worked out in a conversation as a *Skill*; the AI follows it next time.
@@ -96,7 +96,27 @@ To update, say "update MX Stage"; to remove it, say "uninstall MX Stage" (see [U
 | Codex (ChatGPT desktop, CLI, IDE extension) | `[mcp_servers.mxstage]` in `~\.codex\config.toml` | `~\.agents\skills\<name>\SKILL.md` | Restart Codex |
 | IBM Bob | `mcpServers.mxstage` in `~\.bob\settings\mcp.json` | `~\.bob\skills\<name>\SKILL.md` | Restart IBM Bob |
 
+The installer copies the 17 built-in Skills (the index `mxstage-workbench`, the basic operations `mxstage-core-*` and the standard objects `mxstage-obj-*`) and your own Skills (in `~\.config\mxstage\skills\`). Assistants that get no Skill files (Claude Desktop chat, the `agy` CLI) still receive the index and the list of Skills in tool results (see [Skills](#skills)).
+
+### Checking in each assistant
+
+Screen names are those in each product's documentation (English UI, September 2026).
+
+| Assistant | MCP (`mxstage` and its tools) | Skills (`mxstage-workbench` and others) |
+|---|---|---|
+| Claude Code (CLI) | `/mcp` in a conversation (list and connection state). In a shell: `claude mcp list`, `claude mcp get mxstage` | `/skills` in a conversation. Typing `/` shows `/mxstage-workbench` |
+| Claude Desktop (Code tab) | **+** in the input box → **Connectors** | Type `/` in the input box, or **+** → **Slash commands** |
+| Claude Desktop (chat) | **+** in the input box → **Connectors** → **Manage connectors** shows the tools. Connection state and logs: Settings → **Developer** (log: `%APPDATA%\Claude\logs\mcp-server-mxstage.log`) | Not shown (no files are copied). Ask "show the MX Stage Skills" and the tools return the list |
+| Antigravity 2.0 | Settings at the bottom left (`Ctrl+,`) → **Customizations** → **Installed MCP Servers** (refresh to reload) | The same **Customizations**. Call one with `/<name>` in a conversation |
+| Antigravity IDE | **…** at the top of the agent panel → **MCP Servers** → **Manage MCP Servers** (**View raw config** opens the file) | **Customizations** in the agent panel |
+| `agy` CLI | `/mcp` in a conversation | Not shown (no files are copied) |
+| Codex (ChatGPT desktop) | Settings → **MCP servers**. `/mcp` in the input box | **Skills** on the left. Type `@` in the input box to pick one |
+| Codex CLI | `codex mcp list`. `/mcp` in a conversation | `/skills` in a conversation, or `$mxstage-workbench` |
+| Codex IDE extension | Gear menu → **MCP servers** | `/skills`, or type `$` to pick one |
+
 ## Uninstall
+
+### Remove everything
 
 Say "uninstall MX Stage" to Claude Code, or run in `%USERPROFILE%\mxstage`:
 
@@ -105,6 +125,20 @@ node scripts/setup-local.mjs --uninstall
 ```
 
 This removes the `mxstage` entries from every assistant (restoring any setting the installer replaced), the Skills it copied (unless you edited them), the sign-in shortcut and desktop shortcut, and the bridge it started. It keeps your own Skills (`~\.config\mxstage\skills\`) and the backups. To remove everything, also delete `%USERPROFILE%\mxstage` and `~\.config\mxstage` (the backups are full copies of the original settings files, including any tokens in them), and clear the site data for `127.0.0.1:8788` in your browser.
+
+### Remove it from some assistants only
+
+The installer has no option to remove a single assistant, so delete only the `mxstage` entry from that assistant's settings. Other servers' settings stay.
+
+| Assistant | Remove the MCP server | Remove the Skills |
+|---|---|---|
+| Claude Code (CLI) | `claude mcp remove --scope user mxstage` | In `~\.claude\skills\`, delete the folders MX Stage copied (`mxstage-workbench`, `mxstage-core-*`, `mxstage-obj-*` and your own Skills' names) |
+| Claude Desktop (chat and Code tab) | Settings → **Developer** → **Edit Config** opens `claude_desktop_config.json`: delete the `"mxstage"` entry under `mcpServers` and reopen Claude Desktop. To remove it from the Code tab too, also remove it from Claude Code | None in chat. The Code tab uses Claude Code's |
+| Antigravity | Delete the `"mxstage"` entry under `mcpServers` in `~\.gemini\config\mcp_config.json` (**View raw config** in the IDE opens it) | Delete the same folders in `~\.gemini\config\skills\` |
+| Codex | Delete the `[mcp_servers.mxstage]` table (up to the next `[` line) in `~\.codex\config.toml` and reopen Codex | Delete the same folders in `~\.agents\skills\` |
+| IBM Bob | Delete the `"mxstage"` entry under `mcpServers` in `~\.bob\settings\mcp.json` and restart IBM Bob | Delete the same folders in `~\.bob\skills\` |
+
+Running the installer again registers it with that assistant again, unless you add `--no-claude-desktop`, `--no-antigravity`, `--no-codex` or `--no-bob` (Claude Code has no such option, but it is not registered while the MX Stage extension is enabled in Claude Desktop, unless you add `--claude-code`).
 
 ## Installation steps for Claude Code
 
@@ -119,6 +153,16 @@ When the user asks to install MX Stage, follow these steps and get the user's ap
 5. **Tell the user** to restart the assistant they use, to enter the Maximo URL and API key in the work screen settings (`http://127.0.0.1:8788/app`), and never to paste the API key into the chat.
 
 **Update**: steps 2 to 4. Ask the user to restart their assistant afterwards so the new bridge is used. **Uninstall**: `node scripts/setup-local.mjs --uninstall --json`. **Status**: `node scripts/setup-local.mjs --status --json` (changes nothing).
+
+## What the installer does
+
+| What | Details |
+|---|---|
+| Bridge | Starts on port `8788` (fixed, never shifted). There is one per PC; bridges started by AI assistants relay to it |
+| MCP and Skills | Registers them as in [Where it is registered](#where-it-is-registered). To leave some out: `--no-claude-desktop`, `--no-antigravity`, `--no-codex`, `--no-bob`, `--no-skills` |
+| Startup and shortcuts | A shortcut that starts the bridge at sign-in, and `mxstage` on the desktop |
+
+Running it again is safe. See [docs/local.md](docs/local.md) (in Japanese) for details.
 
 ## Skills
 
@@ -138,23 +182,25 @@ A Skill is a procedure the AI assistant follows.
 
 ## Documentation
 
-The detailed guides are in Japanese for now:
+The detailed guides are in Japanese for now, except the demo guide:
 
 - [docs/demo.en.md](docs/demo.en.md) — trying MX Stage without Maximo (the built-in demo; in English)
-- [docs/local.md](docs/local.md) — daily use, updates, troubleshooting
+- [docs/local.md](docs/local.md) — daily use, updates, uninstalling, troubleshooting, where things are written
 - [docs/status.md](docs/status.md) — what works today
-- [docs/publish.md](docs/publish.md) — checks before publishing
+- [docs/publish.md](docs/publish.md) — checks before pushing to GitHub (no customer data)
+- [docs/design.md](docs/design.md) — the design rules of the work screen
 
 ## Development
 
 ```bash
 npm run typecheck      # tsc (app and bridge)
-npx vitest run         # tests (app and bridge)
+npx vitest run         # tests (app, bridge and the demo data generator)
 npm run test:setup     # installer tests (write only to temporary folders)
 npm run build          # build the built-in Skills and the work screen (dist/app)
 npm run dev:app        # dev server for the work screen (http://localhost:5173/app?samples=1 shows sample data; relays to the dev bridge on 8790)
 npm run dev:fake-maximo  # a fake Maximo at https://127.0.0.1:9797 (API key: test-api-key)
 npm run dev:bridge     # a bridge on port 8790 that accepts the development license for the fake Maximo
+node scripts/check-publish.mjs --worktree   # checks before pushing (docs/publish.md)
 ```
 
 Disable IBM telemetry when installing dependencies (`$env:IBM_TELEMETRY_DISABLED='true'; npm install` in PowerShell); the installer does this itself. See [dev/README.md](dev/README.md) for developing and testing license checks.
@@ -168,7 +214,7 @@ MX Stage is licensed under the [Business Source License 1.1](LICENSE). The sourc
 - **Free**: everything except committing to a production Maximo — loading, analysing and editing production data, building Skills, and committing to test environments. You may read, modify and redistribute the source under the same license.
 - **License needed**: using MX Stage to create, change or delete data in a **production Maximo environment** — US$4,800 per production environment per year, for any number of users and PCs. The license key names the environment's URLs (up to three aliases). [License and purchase](https://mxstage.tsunagi.app/license).
 - **Production environment**: the Maximo your organization uses to record day-to-day operations, and an environment being prepared to replace it (for example, a migration target before go-live). **Test environment**: everything else (development, test, training, demonstration, migration rehearsal), even if it holds a copy of production data.
-- **Each version becomes Apache License 2.0 four years after its release.**
+- **Each version becomes Apache License 2.0 four years after its release.** From then on, that version can also write to production under Apache 2.0.
 - Third-party packages and fonts (IBM Carbon Design System, IBM Plex and others) keep their own licenses ([THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)).
 
 IBM and Maximo are trademarks of International Business Machines Corporation. MX Stage is an independent product and is not affiliated with or endorsed by IBM.

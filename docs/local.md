@@ -51,7 +51,7 @@ IBM Bob が入っていれば（`~\.bob` があれば）そちらにも登録さ
 | 依存とビルド | `node_modules` が無いか、`package-lock.json` の方が新しければ `npm install`。`dist\app` が無いか、画面と Skill のもと（`src\app`・`src\shared`・`skills`・`public`・`vite.config.ts`・`package-lock.json`）の方が新しければ `npm run build` |
 | ポート | `8788` を使います。**ずらしません。** 既に橋渡しが動いていればそれを使います。橋渡しではない別のプログラムが `8788` を使っているときは、**何も書き換えずに NG で止まります**（そのプログラムを止めるか、`--port <番号>` で別の番号を指定します） |
 | 橋渡しの起動 | `node --experimental-strip-types src\bridge\cli.ts --no-mcp --port 8788` を裏で起動し、応えるまで（最大 20 秒）待ちます。`--no-mcp` は「画面と中継だけで、stdio の MCP は開かない」という意味です。ウィンドウは出しません。既に橋渡しが動いていれば起動し直しません |
-| Claude Code | `~\.claude.json` の `mcpServers.mxstage` に登録（`claude mcp add --scope user MX Stage -- <node> --experimental-strip-types <入口> --port 8788` と同じ内容）。**Claude Desktop に拡張機能（`.mcpb`）の MX Stage が入っていて有効なら登録しません**（Claude Desktop の Code タブは拡張機能から MX Stage を受け取るので、両方にあるとツールが二重に出ます）。前にこの導入が書いた分は控えを取ってから外し、利用者が手で書いたものは残して警告します。ターミナルの Claude Code でも使うときは `--claude-code`（記録に残り、次回からも登録します。`--uninstall` で消えます）。`--no-claude-desktop` のときは Claude Desktop を見ないので、これまでどおり登録します。Skill は拡張機能では入らないので、いつもどおり写します |
+| Claude Code | `~\.claude.json` の `mcpServers.mxstage` に登録（`claude mcp add --scope user mxstage -- <node> --experimental-strip-types <入口> --port 8788` と同じ内容）。**Claude Desktop に拡張機能（`.mcpb`）の MX Stage が入っていて有効なら登録しません**（Claude Desktop の Code タブは拡張機能から MX Stage を受け取るので、両方にあるとツールが二重に出ます）。前にこの導入が書いた分は控えを取ってから外し、利用者が手で書いたものは残して警告します。ターミナルの Claude Code でも使うときは `--claude-code`（記録に残り、次回からも登録します。`--uninstall` で消えます）。`--no-claude-desktop` のときは Claude Desktop を見ないので、これまでどおり登録します。Skill は拡張機能では入らないので、いつもどおり写します |
 | Claude Desktop | 設定フォルダがある置き場所すべての `claude_desktop_config.json` の `mcpServers.mxstage` に登録します。ふつうの版は `%APPDATA%\Claude\`、Microsoft Store 版（MSIX）は `%LOCALAPPDATA%\Packages\Claude_<発行元 ID>\LocalCache\Roaming\Claude\`（パッケージが `%APPDATA%` に新しく作るフォルダはここへ振り替えられます。`%APPDATA%\Claude` が先にあればそちらが使われます）。どちらの設定フォルダも無ければ（入れていない・一度も起動していない）何も作りません。その置き場所に**拡張機能（`.mcpb`）の MX Stage が入っていて有効なら登録せず**、前にこの導入が書いた `mxstage` を外します（拡張機能は同じ設定フォルダの `Claude Extensions\<id>\`・`Claude Extensions Settings\<id>.json` の `isEnabled`・`extensions-installations.json` で見分けます。利用者が手で書いた `mxstage` は残して警告します）。登録しないときは `--no-claude-desktop` |
 | Antigravity | `~\.gemini` があるときだけ、`~\.gemini\config\mcp_config.json` の `mcpServers.mxstage` に登録（2.0・IDE・`agy` CLI が同じファイルを読みます）。無ければ何も作りません。登録しないときは `--no-antigravity` |
 | Codex | `~\.codex`（`CODEX_HOME` があればそこ）があるときだけ、`config.toml` に `[mcp_servers.mxstage]` の表を 1 つだけ足します（デスクトップ・CLI・IDE 拡張が同じファイルを読みます。ほかの行・コメントには触りません）。表ではない書き方の MX Stage があれば触りません。登録しないときは `--no-codex` |
@@ -144,7 +144,7 @@ Claude に MX Stage の使い方を教えるファイルです。**アプリ既�
 | アプリ既定 | リポジトリの `skills\`（目次の `mxstage-workbench`、基本動作の `mxstage-core-*`、標準オブジェクトの `mxstage-obj-*`） | どの業務にも共通の決まり、基本動作、Maximo の標準オブジェクトごとの振る舞い。MX Stage と一緒に置き換わるので、書き換えないでください |
 | 利用者の Skill | `~\.config\mxstage\skills\<名前>\SKILL.md` | 業務や客先ごとの手順。MX Stage を更新しても消えず、リポジトリにも入りません |
 
-- **どの LLM クライアントでも使えます。** Claude Code・Claude Desktop のチャット・Gemini など、MX Stage をつないだクライアントには、
+- **どの LLM クライアントでも使えます。** Claude Code・Claude Desktop のチャット・Antigravity・ChatGPT デスクトップ・IBM Bob など、MX Stage をつないだクライアントには、
   会話で最初にツールを使ったときに基本手順と利用者の Skill の一覧が届きます（クライアント側の Skill の設定は要りません）。
 - **チャットから Skill を作れます。** 作業の途中で「この手順を Skill として残して」と頼むと、LLM が名前・説明・本文を示して確かめたうえで、
   `~\.config\mxstage\skills\` に保存します。次の会話から使えます（既にある Skill を書き換えるときも確かめます）。

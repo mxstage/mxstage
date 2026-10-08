@@ -1,4 +1,4 @@
-// Skill の正本（skills/*/SKILL.md）と、Worker に同梱する generated.ts の整合、および frontmatter の規則を確かめる。
+// Skill の正本（skills/*/SKILL.md）と、橋渡しに同梱する src/bridge/defaultSkills.ts の整合、および frontmatter の規則を確かめる。
 // 規則は scripts/build-skills.ts と同じものを、ここでは独立に実装して二重に検査する。
 
 import { describe, expect, it } from "vitest";

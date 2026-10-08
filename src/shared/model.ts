@@ -193,13 +193,6 @@ export interface CommitRowResult {
   message?: string;
 }
 
-export interface CommitStatus {
-  sheet: string;
-  state: CommitState;
-  note?: string;
-  requestedAt?: number;
-  results: CommitRowResult[];
-}
 
 export type JobState = "running" | "done" | "failed" | "cancelled";
 

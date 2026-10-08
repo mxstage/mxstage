@@ -35,7 +35,7 @@ export const RELAY_TIMEOUTS = {
 } as const;
 
 export const RELAY_LIMITS = {
-  /** WebSocket 1 フレームの上限（Workers の受信上限 32MiB より十分小さくする） */
+  /** WebSocket 1 フレームの上限（大きな結果は分けて送るので、1 フレームは小さく保つ） */
   maxFrameBytes: 1_048_576,
   /** これを超える結果は tool.chunk に分割する */
   chunkThresholdBytes: 262_144,
@@ -183,7 +183,7 @@ export interface CancelMsg {
   reason: "deadline" | "mcp_cancelled" | "superseded";
 }
 
-/** 単回チケットで受け取った Excel などをタブへ流す（Worker は保存しない）。data は base64 */
+/** 単回チケットで受け取った Excel などをタブへ流す（橋渡しは保存しない）。data は base64 */
 export interface ImportChunkMsg {
   type: "import.chunk";
   importId: string;
@@ -236,20 +236,13 @@ export interface HubStatus {
  * Hub が MCP サーバに公開する呼び出し（src/bridge/hub.ts が実装し、client の橋渡しは primary へ中継する）。
  */
 export interface HubRpc {
-  /** onProgress はタブの tool.progress を受け取る（Worker が MCP の進捗通知に変換し、クライアントの無応答タイムアウトを延ばす） */
+  /** onProgress はタブの tool.progress を受け取る（橋渡しが MCP の進捗通知に変換し、クライアントの無応答タイムアウトを延ばす） */
   invoke(req: HubInvokeRequest, onProgress?: (p: InvokeProgress) => unknown): Promise<HubInvokeResponse>;
   status(): Promise<HubStatus>;
   /** インポートチケットで受け取ったファイルの断片を primary タブへ流す（保存しない） */
   pushImport(msg: ImportChunkMsg): Promise<{ delivered: boolean }>;
 }
 
-/**
- * タブの WebSocket 接続。Worker が認証と Origin 検査を済ませてから
- * stub.fetch(new Request(`https://hub${HUB_WS_PATH}`, { headers: { Upgrade: "websocket", [HUB_USER_HEADER]: userKey } })) を呼ぶ。
- */
-export const HUB_WS_PATH = "/ws";
-export const HUB_USER_HEADER = "X-Mx-User";
-export const HUB_LOCATION_HINT = "apac-ne";
 
 /** モデルに次の行動が分かる文言にする（汎用的なエラー文は使わない） */
 export function relayErrorMessage(code: RelayErrorCode, appUrl: string): string {

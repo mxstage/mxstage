@@ -8,7 +8,7 @@ import type { ChunkMsg, ErrorMsg, HelloMsg, ProgressMsg, TabToHub, ToolResultPay
 
 const MAX_MESSAGE_TEXT = 4_000;
 
-/** attachment.ts の MAX_TAB_ID_LENGTH と同じ */
+/** タブ ID の長さの上限（isValidTabId は 1〜128 文字） */
 export const MAX_TAB_ID_LENGTH = 128;
 export const MAX_APP_VERSION_LENGTH = 64;
 export const MAX_WORKSPACE_LENGTH = 256;

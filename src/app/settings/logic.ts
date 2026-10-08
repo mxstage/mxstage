@@ -5,11 +5,6 @@ import { VaultRequestError } from "../keyvault/client";
 import { MaximoError, MaximoNetworkError, type MaximoVia } from "../maximo/client";
 import { localizeVaultMessage, settingsMessages as m } from "./messages";
 
-/** 同一オリジン検査（CSRF 対策）に落ちたときの文言 */
-export function forbiddenOriginMessage(): string {
-  return m().connectError.forbiddenOrigin;
-}
-
 export interface SettingsFormInput {
   baseUrl: string;
   via: string;
@@ -74,11 +69,6 @@ export function validateSettingsForm(input: SettingsFormInput): SettingsFormErro
 export function proxyErrorCode(message: string): string | null {
   const found = /（\/mx: ([A-Za-z0-9_]+)）$/.exec(message);
   return found?.[1] ?? null;
-}
-
-/** proxy 方式で Maximo に届かなかったときの案内 */
-export function unreachableHint(): string {
-  return m().connectError.unreachable;
 }
 
 /**
@@ -207,8 +197,6 @@ export function saveSettings(storage: StorageLike | null, s: SavedSettings): voi
 // LLM クライアントへの登録の表示
 // ---------------------------------------------------------------------------
 
-/** 橋渡しを登録するときの MCP サーバ名（Claude Code / Claude Desktop の一覧に出る名前） */
-export const LOCAL_MCP_SERVER_NAME = "mxstage";
 
 export interface LocalClientStatus {
   /** 画面に出す現状の一言 */

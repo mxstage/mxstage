@@ -5,7 +5,7 @@ Skills that help Claude correct IBM Maximo and Maximo Application Suite (Manage)
 ## Skills
 
 - **maximo-data-cleanup**: plan a bulk correction of Maximo records (assets, locations, work orders, job plans, PMs, classifications and specifications, items): pin down the records and the rule, look at the data first, prepare a reviewable before/after list, commit in small steps and verify.
-- **mxstage**: what MX Stage is and when it fits, price and license, how to install it in Claude Desktop, ChatGPT desktop (Codex or Work mode), IBM Bob or Claude Code, and troubleshooting.
+- **mxstage**: what MX Stage is and when it fits, price and license, how to install it in Claude Desktop, ChatGPT desktop (Codex or Work mode), Antigravity, IBM Bob or Claude Code, and troubleshooting.
 
 ## Use it
 

@@ -103,7 +103,7 @@ export interface PlanAttempt {
   needsNullConfirm: boolean;
   /** 確認が無いと I11（戻せないステータス）に引っかかる */
   needsIrreversibleConfirm: boolean;
-  /** I3 / I10 以外で計画を作れなかった理由（利用者向けの文言。末尾の括弧に内部コードを残す） */
+  /** I3 / I10 / I11 以外で計画を作れなかった理由（利用者向けの文言。末尾の括弧に内部コードを残す） */
   error: string | null;
 }
 
@@ -146,8 +146,8 @@ export function describePlanError(e: unknown): string {
 }
 
 /**
- * 計画を作る。I3 / I10 は「人の確認が要る」ことが分かればよいので、確認済みとして作り直して他の問題も見る。
- * I3 / I10 以外の不変条件違反は error（blockers になる）。
+ * 計画を作る。I3 / I10 / I11 は「人の確認が要る」ことが分かればよいので、確認済みとして作り直して他の問題も見る。
+ * それ以外の不変条件違反は error（blockers になる）。
  */
 export function attemptPlan(
   meta: SheetMeta,

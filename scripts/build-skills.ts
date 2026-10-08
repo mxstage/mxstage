@@ -3,7 +3,7 @@
 // skills/ からそのまま ~/.claude/skills へ写す。
 // 利用者の Skill（~/.config/mxstage/skills/）はここでは扱わない（橋渡しが読むたびに同じ規則で検証する）。
 // 実行: node --experimental-strip-types scripts/build-skills.ts [--check]
-//   --check: 検証と generated.ts が最新かの確認だけを行い、ファイルを書かない。
+//   --check: 検証と src/bridge/defaultSkills.ts が最新かの確認だけを行い、ファイルを書かない。
 // Node 標準モジュールだけを使う。検証に失敗したら終了コード 1。
 // 検証・生成の関数は tests/app/skills-build.test.ts が import して試験する（import しただけでは何も書き込まない）。
 

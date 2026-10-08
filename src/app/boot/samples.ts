@@ -1,7 +1,7 @@
 // 開発サーバ（vite dev）でだけ使うサンプルデータ。`?samples=1` を付けて開くと、Maximo に接続しなくても
 // 画面（関連する表の同時表示・列の絞り込み・反映パネル）を確かめられる。
 //
-// 本番のビルドには入らない（main.tsx が import.meta.env.DEV の中で動的に import する）。
+// 本番のビルドには入らない（boot/services.ts が import.meta.env.DEV の中で動的に import する）。
 // ここで作るのは「Maximo から読み込んだ形」のシート。作業指示（MXAPIWODETAIL）＋機器台帳＋ロケーションを模した架空のデータ。
 
 import type { CellValue, ColumnSchema } from "../../shared/model";

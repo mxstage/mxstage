@@ -1,4 +1,4 @@
-// dist/app の静的配信。SPA なので /app と /settings は index.html を返す。
+// dist/app の静的配信。SPA なので /・/app・/settings・/structures は index.html を返す。
 
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
@@ -54,11 +54,6 @@ export function resolveStaticPath(root: string, pathname: string): string | null
   return full;
 }
 
-export interface StaticResult {
-  status: number;
-  /** 見つかったファイルの絶対パス（404 のときは null） */
-  file: string | null;
-}
 
 /** 名前にハッシュが入る資材（vite の出力は /assets/ 配下） */
 export function isHashedAsset(pathname: string): boolean {

@@ -130,7 +130,7 @@ export function AppPage({ runtime, vault, toasts, catalog, license, onEndWork, o
   const current = selected !== null && workspace.hasSheet(selected) ? selected : (sheetNames[0] ?? null);
   // 最後に触った表のシート（反映・変更履歴のパネルはこのシートを出す）。組に無い表を足すと、タブのシートと違うことがある
   const [focused, setFocused] = useState<string | null>(null);
-  // AI が作った・変えた・反映を頼んだシートへ表示を移す（AI の作業を目で追えるように）。人がタブを選んだ直後は動かさない
+  // できたシート・AI が変えたシート・AI が反映を頼んだシートへ表示を移す（AI の作業を目で追えるように）。人がタブを選んだ直後は動かさない
   const follower = useRef<AiFollower | null>(null);
   useEffect(() => {
     const f = new AiFollower({

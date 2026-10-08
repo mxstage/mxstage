@@ -294,7 +294,7 @@ describe("設定画面のフォーム", () => {
 });
 
 describe("設定画面のタブ", () => {
-  it("接続・デモ・AI アシスタント・Skill・言語のタブがあり（ライセンスを渡さなければライセンスのタブは無い）、各パネルはタブの名前を持つ", async () => {
+  it("接続・デモ・AI アシスタント・Skill・更新・言語のタブがあり（ライセンスを渡さなければライセンスのタブは無い）、各パネルはタブの名前を持つ", async () => {
     await render({ vault: new FakeVault() });
     const tablist = q<HTMLElement>('[role="tablist"]')!;
     expect(tablist.getAttribute("aria-label")).toBe("設定の項目");

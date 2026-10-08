@@ -7,7 +7,7 @@
 //   npm run dev:bridge                   開発用の橋渡し（http://127.0.0.1:8790/app。自己署名を受け入れる）
 //
 // 橋渡しの Maximo への中継は https だけを受けるので、自己署名の証明書をその場で作る（openssl を使う）。
-// 作った証明書は一時フォルダに置き、次からも使う。ポート 8788 はデモの橋渡しが使うので、開発では使わない。
+// 作った証明書は一時フォルダに置き、次からも使う。ポート 8788 はふだん使いの橋渡し（組み込みのデモもその中で動く）が使うので、開発では使わない。
 
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";

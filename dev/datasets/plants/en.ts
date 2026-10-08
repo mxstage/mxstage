@@ -1,5 +1,5 @@
 // 英語版の辞書（catalog.ts などの日本語の正本 → 英語）と、英語の人名。
-// 訳し漏れは tests/dev/plants-lang.test.ts が「英語の出力に日本語が残っていない」で見つける。
+// 訳し漏れは tests/dev/plants-v2.test.ts が「英語の出力に日本語が残っていない」で見つける。
 // 機器・装置・系統・分類の名前は英語の CMMS でよく使う Title Case、作業・問題・原因は文の形にする。
 
 /** 姓（[表示, ID 用]）。catalog.ts の SURNAMES と同じ数 */

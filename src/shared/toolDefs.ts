@@ -55,7 +55,7 @@ const ruleValue = z.union([
 const sheetName = z.string().min(1).max(64);
 const cursor = z.string().optional().describe("nextCursor from the previous result");
 
-/** 実行場所: tab = 作業タブで実行（中継）、worker = Worker だけで完結 */
+/** 実行場所: tab = 作業タブで実行（中継）、worker = 橋渡しだけで完結（名前は以前の Cloudflare Worker の構成の名残） */
 export type ToolRunAt = "tab" | "worker";
 
 export interface ToolDef<S extends z.ZodObject = z.ZodObject> {
@@ -310,7 +310,7 @@ export const TOOL_DEFS = {
   delete_rows: tool({
     name: "delete_rows",
     title: "Delete rows",
-    description: "Marks rows of a sheet (including child rows) for deletion. They are deleted from Maximo only when a person commits.",
+    description: "Marks child rows of a sheet for deletion (deleting top-level records is not supported and blocks the commit). They are deleted from Maximo only when a person commits.",
     inputSchema: z.strictObject({
       sheet: sheetName,
       rowKeys: z.array(z.string()).min(1).max(200),
@@ -344,7 +344,7 @@ export const TOOL_DEFS = {
     name: "request_commit",
     title: "Request a commit to Maximo",
     description:
-      "Asks for approval in the commit panel of the work screen. Maximo is written to only when the user clicks there. Check the result with get_commit_result.",
+      "Asks for approval in the commit panel of the work screen. Maximo is written to only when the user clicks there. The user chooses how many records one commit sends (all, or a number, 200 by default); the rest stay in the diff for the next commit. Check the result with get_commit_result (batch gives sent and total).",
     inputSchema: z.strictObject({
       sheet: sheetName,
       note: z.string().max(1000).describe("Explanation of the changes, shown to the user"),
@@ -364,7 +364,7 @@ export const TOOL_DEFS = {
     name: "create_import_session",
     title: "Prepare an Excel or CSV import",
     description:
-      "Returns an importId, a one-time upload URL (with a curl example) and a drop URL for sending an Excel (.xlsx) or CSV file to the work screen. If you know the file path, send it with curl; otherwise ask the user to drop the file on the work screen. Never copy row data into tool arguments.",
+      "Returns an importId, a one-time upload URL (with a curl example) and a drop URL for sending an Excel (.xlsx, .xlsm), CSV or TSV file to the work screen. If you know the file path, send it with curl; otherwise ask the user to drop the file on the work screen. Never copy row data into tool arguments.",
     inputSchema: z.strictObject({
       fileName: z.string().max(200).optional(),
     }),

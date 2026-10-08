@@ -13,7 +13,7 @@
 
 English | [日本語](README.ja.md)
 
-**MX Stage is a local-only AI workbench for correcting IBM Maximo data with your own AI assistant (Claude Desktop, ChatGPT, IBM Bob): every change is staged, diffed and approved by a human before it is written to Maximo.**
+**MX Stage is a local-only AI workbench for correcting IBM Maximo data with your own AI assistant (Claude Desktop, ChatGPT, Antigravity, IBM Bob): every change is staged, diffed and approved by a human before it is written to Maximo.**
 
 Website: https://mxstage.tsunagi.app · Contact: mxstage@tsunagi.app
 
@@ -33,9 +33,9 @@ Several Maximo MCP servers let the AI call the REST API. That is fine for readin
 |---|---|
 | Claude Desktop (chat and Code tab) | Supported |
 | ChatGPT desktop — **Codex** or **Work** mode (Chat mode cannot use local MCP servers) | Supported |
-| Claude Code, Codex CLI and IDE extension, Antigravity | Work, not officially supported |
+| Antigravity (2.0, IDE) | Supported (registered by the installer) |
 | IBM Bob | Supported (registered by the installer) |
-| LM Studio | Coming |
+| Claude Code, Codex CLI and IDE extension | Work, not officially supported |
 
 ## Requirements
 

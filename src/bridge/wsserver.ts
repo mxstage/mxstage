@@ -15,7 +15,6 @@ export type UpgradeSocket = Duplex & {
 
 const GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
-export const WS_CONNECTING = 0;
 export const WS_OPEN = 1;
 export const WS_CLOSING = 2;
 export const WS_CLOSED = 3;

@@ -3,7 +3,7 @@
 // - client（ポートが使用中で、相手が MX Stage の橋渡しだった）は RemoteHub で primary にツール呼び出しを渡す。
 //
 // 経路:
-//   GET  /_mxstage/health         鍵なし。{ name, version, protocol } だけ返す（鍵や PID は出さない）
+//   GET  /_mxstage/health         鍵なし。{ name, version, protocol, stale } だけ返す（鍵や PID は出さない）
 //   POST /_mxstage/invoke         鍵あり。HubInvokeRequest を受け、改行区切り JSON で進捗と結果を返す
 //   GET  /_mxstage/status         鍵あり。HubStatus
 //   POST /_mxstage/import-ticket  鍵あり。アップロード URL のチケットを primary で発行する

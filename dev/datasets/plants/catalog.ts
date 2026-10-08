@@ -1075,8 +1075,6 @@ export const WORKTYPES: Array<[string, string]> = [
   ["PM", "予防保全"], ["CM", "是正保全"], ["EM", "緊急保全"], ["CAL", "校正"], ["INSP", "点検・検査"], ["CP", "更新工事"],
 ];
 
-/** 外注の作業の 1 時間あたりの単価（円。人数 × 時間に掛ける） */
-export const CONTRACT_RATE: [number, number] = [7000, 12000];
 
 /** 東部の機器台帳（Excel）だけにある変更の基準日（これより後の機器の変更は Maximo の資産に入っていない） */
 export const LEDGER_CUTOFF = { y: 2025, m: 4 };

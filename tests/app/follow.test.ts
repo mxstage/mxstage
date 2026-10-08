@@ -1,4 +1,4 @@
-// AI の作業に表示を合わせる（src/app/pages/follow.ts）: AI が作った・変えた・反映を頼んだシートへ移り、
+// AI の作業に表示を合わせる（src/app/pages/follow.ts）: できたシート・AI が変えたシート・AI が反映を頼んだシートへ移り、
 // 人の編集では移らず、人がタブを選んだ直後は動かさない。
 
 import { describe, expect, it } from "vitest";

@@ -1,5 +1,5 @@
 // 出力の言語（日本語・英語）。ジェネレータは判定をすべて日本語の正本（catalog.ts）で行い、表に書き出す文だけをここで言語にする。
-// 同じ種なら日英で同じ乱数を引くように、言語ごとの候補の配列は同じ長さにそろえる（tests/dev/plants-lang.test.ts が確かめる）。
+// 同じ種なら日英で同じ乱数を引くように、言語ごとの候補の配列は同じ長さにそろえる（tests/dev/plants-v2.test.ts が確かめる）。
 
 import { EN, EN_GIVEN_NAMES, EN_SURNAMES } from "./en.ts";
 import { GIVEN_NAMES, SURNAMES } from "./catalog.ts";

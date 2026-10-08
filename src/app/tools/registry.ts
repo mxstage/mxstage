@@ -4,7 +4,6 @@
 // - 行データは rows（突合は samples）の下に置き、dataNotice を付ける。長いセル・大きな結果は切り詰める。
 // - LLM の変更の作者は "llm"。Maximo への書き込みはできない（commits は run を持たない CommitRequester）。
 // - describe_import / apply_mapping は作業画面に届いたファイル（ImportStore）を読む。
-// - import_rows / export_sheet は未実装（tools に含めないので RelaySocket が未対応として返す）。
 
 import type { z } from "zod";
 import { demoLangOfBaseUrl } from "../../shared/demo";
@@ -351,6 +350,8 @@ function panelSummary(p: CommitPanelState): Record<string, unknown> {
   };
   if (p.requestedBy !== undefined) out.requestedBy = p.requestedBy;
   if (p.requestedAt !== undefined) out.requestedAt = isoTime(p.requestedAt);
+  // 「1 回の反映数」で区切ったとき: 直近の反映で送った親の数と、そのときの全件（残りは差分に残る）
+  if (p.batch !== undefined) out.batch = p.batch;
   return out;
 }
 

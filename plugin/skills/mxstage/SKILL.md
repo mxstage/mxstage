@@ -1,6 +1,6 @@
 ---
 name: mxstage
-description: "Explain, install, set up and troubleshoot MX Stage, the human-approved AI workbench for IBM Maximo / MAS Manage data. Use when the user asks about MX Stage, its price or license, how to install it in Claude Desktop, ChatGPT desktop, IBM Bob or Claude Code, or when they want AI to change Maximo data and MX Stage is not connected yet."
+description: "Explain, install, set up and troubleshoot MX Stage, the human-approved AI workbench for IBM Maximo / MAS Manage data. Use when the user asks about MX Stage, its price or license, how to install it in Claude Desktop, ChatGPT desktop, Antigravity, IBM Bob or Claude Code, or when they want AI to change Maximo data and MX Stage is not connected yet."
 ---
 
 # MX Stage
@@ -45,7 +45,7 @@ Ask which assistant they use, then give only the matching steps.
 3. Open `http://127.0.0.1:8788/app` in Chrome or Edge and enter the Maximo URL and API key in Settings.
 4. Start a new chat and ask "show the MX Stage status".
 
-**ChatGPT desktop (Codex or Work mode), IBM Bob, Claude Code**: the installer registers MX Stage with every supported assistant on the PC. It needs Node.js 22.6 or later and Git. The easiest way is to give Claude Code (or the Code tab of Claude Desktop) the repository URL https://github.com/mxstage/mxstage and say "install this"; it follows the steps in the README and asks before each command. By hand: clone the repository to `%USERPROFILE%\mxstage` and run `node scripts/setup-local.mjs`. Then restart the assistant and enter the Maximo URL and API key in the work screen settings.
+**ChatGPT desktop (Codex or Work mode), Antigravity, IBM Bob, Claude Code**: the installer registers MX Stage with every supported assistant on the PC. It needs Node.js 22.6 or later and Git. The easiest way is to give Claude Code (or the Code tab of Claude Desktop) the repository URL https://github.com/mxstage/mxstage and say "install this"; it follows the steps in the README and asks before each command. By hand: clone the repository to `%USERPROFILE%\mxstage` and run `node scripts/setup-local.mjs`. Then restart the assistant and enter the Maximo URL and API key in the work screen settings.
 
 In Settings, the user marks each Maximo as **production** or **test**.
 

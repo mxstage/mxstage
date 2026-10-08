@@ -6,7 +6,7 @@ setlocal
 cd /d "%~dp0"
 title MX Stage
 
-where node > /dev/null 2>&1
+where node > nul 2>&1
 if errorlevel 1 (
   echo Node.js was not found.
   echo Install the LTS version from https://nodejs.org and run this file again.

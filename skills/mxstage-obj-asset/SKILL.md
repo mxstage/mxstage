@@ -2,7 +2,7 @@
 name: mxstage-obj-asset
 description: "MX Stage object Skill for Maximo assets and their meters (MXAPIASSET): bulk corrections of the asset register, specifications, meters, and the traps of classification changes, moves and status."
 metadata:
-  version: "1.1.0"
+  version: "1.2.0"
   category: "object"
 ---
 
@@ -21,7 +21,7 @@ Key: SITEID and ASSETNUM (ASSETNUM is unique only within a site). Usual children
 
 ## What it cannot do now
 
-- **Change status** (operating, not ready, decommissioned). Maximo changes asset status through its own action, which propagates to child assets and stops when active PMs, routes or open work orders exist. Editing STATUS in the sheet does not run that action. Tell the user to use Change Status in the Assets application.
+- **Change status** (operating, not ready, decommissioned). Maximo changes asset status through its own action, which propagates to child assets and stops when active PMs, routes or open work orders exist. A changed STATUS in the sheet is committed through that action (Maximo's status change), but MX Stage has not been tested with assets and does not know their rules. Do not change asset STATUS in the sheet; tell the user to use Change Status in the Assets application.
 - **Swap assets, or read meter history.** Meter readings are entered through Maximo's reading actions (see below).
 
 ## Traps

@@ -42,8 +42,6 @@ export type ParsedLicenseKey =
   | { ok: true; key: string; signingInput: string; signature: Uint8Array; payload: LicensePayload }
   | { ok: false; problem: LicenseKeyProblem };
 
-/** ライセンスの状態 */
-export type LicenseState = "none" | "valid" | "expired" | "revoked" | "invalid";
 
 // ---------------------------------------------------------------------------
 // 橋渡しと作業画面のあいだでやり取りする形（/_mxstage/license）

@@ -60,7 +60,7 @@ export const MAX_ERROR_MESSAGE_CHARS = 2_000;
 /** Hub の messages.ts は 4,000 字で切る */
 const MAX_PROGRESS_MESSAGE_CHARS = 4_000;
 
-/** attachment.ts の MAX_TAB_ID_LENGTH（isValidTabId は 1〜128 文字） */
+/** src/bridge/frames.ts の MAX_TAB_ID_LENGTH と同じ（isValidTabId は 1〜128 文字） */
 const MAX_TAB_ID_LENGTH = 128;
 /** Hub（src/bridge/hub.ts）の CLOSE_PROTOCOL_MISMATCH */
 const CLOSE_PROTOCOL_MISMATCH = 1008;

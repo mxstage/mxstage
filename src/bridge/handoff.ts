@@ -15,7 +15,6 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import type { LocalHub } from "./hub.ts";
 import { readBody } from "./peer.ts";
 
-export const HANDOFF_PREFIX = "/_mxstage/handoff/";
 export const HANDOFF_START_PATH = "/_mxstage/handoff/start";
 export const HANDOFF_UPLOAD_PATH = "/_mxstage/handoff/upload";
 export const HANDOFF_REFUSE_PATH = "/_mxstage/handoff/refuse";

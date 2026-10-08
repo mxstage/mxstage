@@ -89,4 +89,4 @@ To keep the demo off, for example on company PCs, start the bridge with `--no-de
 
 ## Building and publishing the data (developers)
 
-The data is generated from `dev/datasets/plants/` in this repository. See [docs/demo-ops.md](demo-ops.md) (in Japanese) for building and publishing, and [dev/README.md](../dev/README.md) for the details of the data.
+The data is generated from `dev/datasets/plants/` in this repository. See [demo-ops.md](demo-ops.md) (in Japanese) for building and publishing, and [dev/README.md](../dev/README.md) for the details of the data.

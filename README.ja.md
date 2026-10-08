@@ -13,7 +13,7 @@
 
 [English](README.md) | 日本語
 
-Maximo（MAS Manage）のデータ整備を、利用者の LLM クライアント（Claude Desktop・ChatGPT デスクトップの Codex か Work・IBM Bob。Claude Code・Codex CLI・Antigravity でも動くが公式の対応ではない。LM Studio は対応の予定）と
+Maximo（MAS Manage）のデータ整備を、利用者の LLM クライアント（Claude Desktop・ChatGPT デスクトップの Codex か Work・Antigravity・IBM Bob。Claude Code・Codex CLI でも動くが公式の対応ではない）と
 一緒に行うためのツール。画面（作業画面）と MCP サーバを、利用者の PC の中だけで動かす。
 サイト: https://mxstage.tsunagi.app/ja/ 。問い合わせ: mxstage@tsunagi.app
 

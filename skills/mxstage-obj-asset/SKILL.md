@@ -2,7 +2,7 @@
 name: mxstage-obj-asset
 description: "MX Stage object Skill for Maximo assets and their meters (MXAPIASSET): bulk corrections of the asset register, specifications, meters, and the traps of classification changes, moves and status."
 metadata:
-  version: "1.2.0"
+  version: "1.4.0"
   category: "object"
 ---
 
@@ -19,9 +19,18 @@ Key: SITEID and ASSETNUM (ASSETNUM is unique only within a site). Usual children
 | Add a meter to assets | ASSETMETER child rows with add_rows (METERNAME, and the attributes the meter type needs) | The meter must exist and be active |
 | Fix references (location, parent, GL account, calendar) | apply_rule with a lookup | Load the referenced master with load_master first. Changing LOCATION or PARENT is a move: read the traps |
 
+## Status (operating, not ready, decommissioned)
+
+A changed STATUS is committed through Maximo's own status change (after the other changes are written and verified), so Maximo applies its rules. For example, decommissioning also changes the child assets (PARENT), and Maximo refuses it while work orders on the asset or its children are open. Those records come back as errors with Maximo's message; do not retry them, list them for the user with the work orders named in the message. Closing or cancelling those work orders is the user's decision.
+
+- Decide the status per record from what the source says (for example removed or replaced equipment becomes DECOMMISSIONED), never one status for a whole file.
+- DECOMMISSIONED cannot be undone: a decommissioned asset cannot change to any other status, and MX Stage does not send such a change. The user confirms it in the commit panel. Say the count and the records in the request note.
+- Before decommissioning, look at the child assets (PARENT) that will follow, and at open work orders on the asset and its children. Tell the user both.
+- A replaced asset: the new asset is a new record at the same location; the old one is decommissioned (and moved off the location if the user wants).
+- In a real Maximo, try one or two records in a test environment first.
+
 ## What it cannot do now
 
-- **Change status** (operating, not ready, decommissioned). Maximo changes asset status through its own action, which propagates to child assets and stops when active PMs, routes or open work orders exist. A changed STATUS in the sheet is committed through that action (Maximo's status change), but MX Stage has not been tested with assets and does not know their rules. Do not change asset STATUS in the sheet; tell the user to use Change Status in the Assets application.
 - **Swap assets, or read meter history.** Meter readings are entered through Maximo's reading actions (see below).
 
 ## Traps
@@ -38,7 +47,7 @@ Key: SITEID and ASSETNUM (ASSETNUM is unique only within a site). Usual children
 New assets can be created (New records in mxstage-core-change). Keys: SITEID and ASSETNUM; MX Stage does not take Maximo's automatic numbers, so ASSETNUM must be known.
 
 - Usually needed: DESCRIPTION, and the references (LOCATION, PARENT, CLASSSTRUCTUREID, ITEMNUM for rotating assets) must already exist; load them with load_master to check.
-- Maximo sets the initial status (usually not ready) and, with a classification, adds the classification's specification rows. Fill specification values in a later commit, after the sheet shows those rows.
+- Maximo sets the initial status (usually NOT READY) and, with a classification, adds the classification's specification rows. To put a new asset in service, set STATUS to OPERATING in its row; MX Stage changes the status after creating the record. Fill specification values in a later commit, after the sheet shows those rows.
 - Create parent assets before their children (an earlier commit).
 - Rotating assets need the item in the site's inventory or an issue; if Maximo rejects them, report the message.
 

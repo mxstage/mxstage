@@ -156,7 +156,13 @@ export const FAKE_STATUSFUL: Readonly<Record<string, { initial: string; history:
   WORKORDER: { initial: "WAPPR", history: ["CLOSE", "CAN"] },
   PO: { initial: "WAPPR", history: ["CLOSE", "CAN", "REVISE"], editable: ["WAPPR", "PNDREV"] },
   SR: { initial: "NEW", history: ["CLOSED", "CANCELLED"] },
+  ASSET: { initial: "NOT READY", history: [] },
 };
+
+/** 資産の撤去済み。ここからは他のステータスへ移れない（製品の src/shared/status.ts の canChangeStatus と同じ） */
+export const FAKE_ASSET_DECOMMISSIONED = "DECOMMISSIONED";
+/** 撤去を断る「閉じていない作業指示」から外すステータス */
+const FAKE_WO_DONE = ["COMP", "CLOSE", "CAN"];
 
 /** 作業指示のステータスの移り方（IBM の「Allowable Status Changes for Work Orders」） */
 export const FAKE_WO_TRANSITIONS: Readonly<Record<string, readonly string[]>> = {
@@ -505,6 +511,41 @@ export function createFakeMaximo(seed: FakeSeed): FakeMaximo {
     return "status" in os.def.attrs ? (FAKE_STATUSFUL[(os.def.mbo ?? "").toUpperCase()] ?? null) : null;
   }
 
+  /** 資産の子孫（同じサイトで PARENT がこの資産を指すものを、たどれるだけ）。撤去済みのものは除く */
+  function assetDescendants(os: FakeOsState, root: FakeRecord): FakeRecord[] {
+    const site = String(root.attrs.siteid ?? "");
+    const out: FakeRecord[] = [];
+    const seen = new Set<string>([String(root.attrs.assetnum ?? "")]);
+    let frontier = [String(root.attrs.assetnum ?? "")];
+    while (frontier.length > 0) {
+      const next: string[] = [];
+      for (const r of os.records) {
+        const num = String(r.attrs.assetnum ?? "");
+        if (String(r.attrs.siteid ?? "") !== site || seen.has(num) || !frontier.includes(String(r.attrs.parent ?? ""))) continue;
+        seen.add(num);
+        next.push(num);
+        if (String(r.attrs.status ?? "").toUpperCase() !== FAKE_ASSET_DECOMMISSIONED) out.push(r);
+      }
+      frontier = next;
+    }
+    return out;
+  }
+
+  /** これらの資産を指す、閉じていない作業指示の番号（完了・クローズ・取消と履歴は除く） */
+  function openWorkOrders(assets: FakeRecord[]): string[] {
+    const keys = new Set(assets.map((a) => `${String(a.attrs.siteid ?? "")}|${String(a.attrs.assetnum ?? "")}`));
+    const lists = new Set<FakeRecord[]>();
+    for (const s of Object.values(state.os)) if ((s.def.mbo ?? "").toUpperCase() === "WORKORDER" && "assetnum" in s.def.attrs) lists.add(s.records);
+    const out: string[] = [];
+    for (const records of lists) {
+      for (const w of records) {
+        if (w.attrs.historyflag === true || FAKE_WO_DONE.includes(String(w.attrs.status ?? "").toUpperCase())) continue;
+        if (keys.has(`${String(w.attrs.siteid ?? "")}|${String(w.attrs.assetnum ?? "")}`)) out.push(String(w.attrs.wonum ?? "?"));
+      }
+    }
+    return out;
+  }
+
   /** 中身を変えられないレコード（履歴・承認済みの注文書）なら、その理由で断る */
   function assertEditable(os: FakeOsState, rec: FakeRecord): void {
     const rule = statusRule(os);
@@ -535,6 +576,19 @@ export function createFakeMaximo(seed: FakeSeed): FakeMaximo {
     if ((os.def.mbo ?? "").toUpperCase() === "WORKORDER" && !(FAKE_WO_TRANSITIONS[from] ?? []).includes(to)) {
       throw new FakeHttpError(400, "BMXAA4590E", `The status cannot change from ${from} to ${to}`);
     }
+    // 資産: 撤去済みからは移れない。撤去は子の資産（PARENT でたどる）にも及び、閉じていない作業指示があれば断る
+    let family: FakeRecord[] = [];
+    if ((os.def.mbo ?? "").toUpperCase() === "ASSET" && from !== to) {
+      if (from === FAKE_ASSET_DECOMMISSIONED) throw new FakeHttpError(400, "BMXAA4590E", `The asset is decommissioned; its status cannot change to ${to}`);
+      if (to === FAKE_ASSET_DECOMMISSIONED) {
+        family = assetDescendants(os, rec);
+        const open = openWorkOrders([rec, ...family]);
+        if (open.length > 0) {
+          const list = open.slice(0, 5).join(", ") + (open.length > 5 ? ` and ${open.length - 5} more` : "");
+          throw new FakeHttpError(400, "BMXAA_FAKE_OPEN_WO", `Asset ${String(rec.attrs.assetnum)} cannot be decommissioned while work orders on it or its child assets are open (${list}). Complete or cancel them first`);
+        }
+      }
+    }
     let date = new Date().toISOString();
     if (body.date !== undefined && body.date !== null) {
       const ms = Date.parse(String(body.date));
@@ -547,6 +601,11 @@ export function createFakeMaximo(seed: FakeSeed): FakeMaximo {
     rec.attrs.status = to;
     if ("statusdate" in os.def.attrs) rec.attrs.statusdate = date;
     if (rule.history.includes(to) && "historyflag" in os.def.attrs) rec.attrs.historyflag = true;
+    for (const child of family) {
+      child.attrs.status = to;
+      if ("statusdate" in os.def.attrs) child.attrs.statusdate = date;
+      child.rowstamp = nextRowstamp();
+    }
     // ステータスの履歴の子（wostatus・postatus など）
     const histKind = Object.keys(os.def.children ?? {}).find((k) => k.endsWith("status"));
     if (histKind) {

@@ -77,6 +77,41 @@ function statusSeed(): FakeSeed {
   return seed;
 }
 
+/** 資産（親子・孫・別サイトの子・撤去済み）と、資産を指す作業指示を足す */
+function assetSeed(): FakeSeed {
+  const seed = statusSeed();
+  const wo = seed.objectStructures.MXAPIWO!;
+  wo.attrs.assetnum = { type: "string", maxLength: 12 };
+  wo.records!.push(
+    { attrs: { siteid: "BEDFORD", wonum: "WO3010", description: "安全弁の点検", status: "WAPPR", historyflag: false, assetnum: "A301" } },
+    { attrs: { siteid: "BEDFORD", wonum: "WO3011", description: "送風機の点検（済）", status: "COMP", historyflag: false, assetnum: "A100" } },
+  );
+  seed.objectStructures.MXAPIASSET = {
+    description: "Asset",
+    mbo: "ASSET",
+    keyAttrs: ["siteid", "assetnum"],
+    attrs: {
+      siteid: { type: "string", maxLength: 8, required: true },
+      assetnum: { type: "string", maxLength: 12, required: true },
+      description: { type: "string", maxLength: 100 },
+      parent: { type: "string", maxLength: 12 },
+      status: { type: "string", maxLength: 20, hasList: true },
+      statusdate: { type: "datetime", readOnly: true },
+    },
+    lists: { status: ["NOT READY", "OPERATING", "DECOMMISSIONED"].map((value) => ({ value })) },
+    records: [
+      { attrs: { siteid: "BEDFORD", assetnum: "A100", description: "送風機", parent: null, status: "OPERATING" } },
+      { attrs: { siteid: "BEDFORD", assetnum: "A101", description: "送風機 電動機", parent: "A100", status: "OPERATING" } },
+      { attrs: { siteid: "BEDFORD", assetnum: "A102", description: "電動機の端子箱", parent: "A101", status: "OPERATING" } },
+      { attrs: { siteid: "NASHUA", assetnum: "A103", description: "別サイトの同じ親番号", parent: "A100", status: "OPERATING" } },
+      { attrs: { siteid: "BEDFORD", assetnum: "A300", description: "空気槽", parent: null, status: "OPERATING" } },
+      { attrs: { siteid: "BEDFORD", assetnum: "A301", description: "空気槽 安全弁", parent: "A300", status: "OPERATING" } },
+      { attrs: { siteid: "BEDFORD", assetnum: "A400", description: "旧ポンプ", parent: null, status: "DECOMMISSIONED" } },
+    ],
+  };
+  return seed;
+}
+
 const WO_SELECT = ["DESCRIPTION", "STATUS", "ACTSTART", "ACTFINISH"];
 const WO_GUARD: ExecuteCommitOptions["statusGuard"] = { kind: "WORKORDER", hasStatus: true, hasHistoryFlag: true };
 
@@ -87,8 +122,8 @@ interface Setup {
   records: MaximoRecord[];
 }
 
-async function setup(os = "MXAPIWO", select = WO_SELECT): Promise<Setup> {
-  const fake = createFakeMaximo(statusSeed());
+async function setup(os = "MXAPIWO", select = WO_SELECT, seed: FakeSeed = statusSeed()): Promise<Setup> {
+  const fake = createFakeMaximo(seed);
   const client = new MaximoClient({ baseUrl: fake.baseUrl, apiKey: () => fake.apiKey, via: "direct", fetchImpl: fake.fetch, sleep: async () => {} });
   const info = await getObjectStructureInfo(client, os);
   const knownAttrs = new Set(info.columns.map((c) => c.name));
@@ -158,6 +193,10 @@ describe("ステータスの決まり", () => {
     expect(canChangeStatus("WORKORDER", "XYZ", "COMP")).toBeNull();
     expect(canChangeStatus("PO", "APPR", "CLOSE")).toBeNull();
     expect(canChangeStatus(null, "WAPPR", "COMP")).toBeNull();
+    expect(canChangeStatus("ASSET", "DECOMMISSIONED", "OPERATING")).toBe(false);
+    expect(canChangeStatus("ASSET", " decommissioned ", "DECOMMISSIONED")).toBeNull();
+    expect(canChangeStatus("ASSET", "OPERATING", "DECOMMISSIONED")).toBeNull();
+    expect(canChangeStatus("ASSET", "NOT READY", "OPERATING")).toBeNull();
   });
 
   it("構造の属性から、決まりを当てるオブジェクトを見分ける（STATUS が無ければ null）", () => {
@@ -166,7 +205,9 @@ describe("ステータスの決まり", () => {
     expect(statusObjectKind(["PONUM", "STATUS"])).toBeNull();
     expect(statusObjectKind(["TICKETID", "STATUS"])).toBe("SR");
     expect(statusObjectKind(["WONUM", "DESCRIPTION"])).toBeNull();
-    expect(statusObjectKind(["ASSETNUM", "STATUS"])).toBeNull();
+    expect(statusObjectKind(["SITEID", "ASSETNUM", "STATUS"])).toBe("ASSET");
+    expect(statusObjectKind(["SITEID", "PMNUM", "ASSETNUM", "STATUS"])).toBeNull();
+    expect(statusObjectKind(["SITEID", "WONUM", "ASSETNUM", "STATUS"])).toBe("WORKORDER");
   });
 
   it("戻せないステータス", () => {
@@ -232,6 +273,41 @@ describe("仮想 Maximo のステータスの変更", () => {
     expect(await reason(await create({ siteid: "BEDFORD", wonum: "WO9001", status: "COMP" }))).toBe("BMXAA_FAKE_STATUS_ATTR");
     expect((await create({ siteid: "BEDFORD", wonum: "WO9001" })).status).toBe(201);
     expect(woOf(fake, "WO9001").attrs).toMatchObject({ status: "WAPPR", historyflag: false });
+  });
+
+  it("資産: 作ると準備中。撤去は子と孫の資産にも及び（別サイトは除く）、撤去済みからは移れない。中身は直せる", async () => {
+    const fake = createFakeMaximo(assetSeed());
+    const asset = (n: string) => fake.find("mxapiasset", (r) => r.attrs.assetnum === n)!;
+    const changeAsset = (n: string, status: string) => post(fake, fake.hrefOf("mxapiasset", asset(n).uid), "&action=wsmethod:changeStatus", { status });
+    const create = (body: unknown) =>
+      fake.fetch(`${fake.baseUrl}/maximo/api/os/mxapiasset?lean=1`, { method: "POST", headers: { apikey: fake.apiKey, "content-type": "application/json" }, body: JSON.stringify(body) });
+    expect(await reason(await create({ siteid: "BEDFORD", assetnum: "A200", status: "OPERATING" }))).toBe("BMXAA_FAKE_STATUS_ATTR");
+    expect((await create({ siteid: "BEDFORD", assetnum: "A200" })).status).toBe(201);
+    expect(asset("A200").attrs.status).toBe("NOT READY");
+    expect((await changeAsset("A200", "OPERATING")).status).toBe(204);
+
+    expect((await changeAsset("A100", "DECOMMISSIONED")).status).toBe(204);
+    expect(["A100", "A101", "A102", "A103"].map((n) => asset(n).attrs.status)).toEqual(["DECOMMISSIONED", "DECOMMISSIONED", "DECOMMISSIONED", "OPERATING"]);
+    expect(typeof asset("A102").attrs.statusdate).toBe("string");
+    const back = await changeAsset("A100", "OPERATING");
+    expect(back.status).toBe(400);
+    expect(await reason(back)).toBe("BMXAA4590E");
+    const edited = await post(fake, fake.hrefOf("mxapiasset", asset("A100").uid), "", { description: "送風機（撤去）" }, { patchtype: "MERGE" });
+    expect(edited.status).toBeLessThan(300);
+    expect(asset("A100").attrs).toMatchObject({ description: "送風機（撤去）", status: "DECOMMISSIONED" });
+  });
+
+  it("資産: 子の資産に閉じていない作業指示があると撤去を断る。完了にすれば撤去できる", async () => {
+    const fake = createFakeMaximo(assetSeed());
+    const asset = (n: string) => fake.find("mxapiasset", (r) => r.attrs.assetnum === n)!;
+    const changeAsset = (n: string, status: string) => post(fake, fake.hrefOf("mxapiasset", asset(n).uid), "&action=wsmethod:changeStatus", { status });
+    const refused = await changeAsset("A300", "DECOMMISSIONED");
+    expect(refused.status).toBe(400);
+    expect(await reason(refused)).toBe("BMXAA_FAKE_OPEN_WO");
+    expect([asset("A300").attrs.status, asset("A301").attrs.status]).toEqual(["OPERATING", "OPERATING"]);
+    expect((await change(fake, "WO3010", { status: "COMP" })).status).toBe(204);
+    expect((await changeAsset("A300", "DECOMMISSIONED")).status).toBe(204);
+    expect([asset("A300").attrs.status, asset("A301").attrs.status]).toEqual(["DECOMMISSIONED", "DECOMMISSIONED"]);
   });
 
   it("承認済みの注文書は、改訂しないと中身を変えられない", async () => {
@@ -354,6 +430,28 @@ describe("反映: ステータスの変更", () => {
     expect(posts(s.fake)).toHaveLength(1);
     expect(woOf(s.fake, "WO3002").attrs.description).toBe("配管更新（済）");
     expect(woOf(s.fake, "WO3003").attrs.status).toBe("COMP");
+  });
+
+  it("資産: 撤去は確かめてから送る。撤去済みから移すものは送らずに skipped、閉じていない作業指示がある資産は Maximo の断りを error で返す", async () => {
+    const s = await setup("MXAPIASSET", ["DESCRIPTION", "PARENT", "STATUS"], assetSeed());
+    const apk = (n: string) => makeParentKey(["BEDFORD", n]);
+    const plans = planCommit(s.meta, s.records, {
+      ...none(),
+      cells: [
+        { rowKey: apk("A100"), col: "STATUS", value: "DECOMMISSIONED" },
+        { rowKey: apk("A400"), col: "STATUS", value: "OPERATING" },
+        { rowKey: apk("A300"), col: "STATUS", value: "DECOMMISSIONED" },
+      ],
+    }, { irreversibleConfirmed: true });
+    const results = await run(s, plans, { statusGuard: { kind: "ASSET", hasStatus: true, hasHistoryFlag: false }, stopOnFailure: false });
+    expect(results.map((r) => [r.rowKey, r.status, r.reasonCode ?? null])).toEqual([
+      [apk("A100"), "verified", null],
+      [apk("A300"), "error", "BMXAA_FAKE_OPEN_WO"],
+      [apk("A400"), "skipped", SKIP_STATUS_TRANSITION],
+    ]);
+    expect(results[1]!.message).toContain("WO3010");
+    const asset = (n: string) => s.fake.find("mxapiasset", (r) => r.attrs.assetnum === n)!;
+    expect(["A100", "A101", "A400", "A300"].map((n) => asset(n).attrs.status)).toEqual(["DECOMMISSIONED", "DECOMMISSIONED", "DECOMMISSIONED", "OPERATING"]);
   });
 
   it("COMP の作業指示は中身を直せる（履歴ではない）", async () => {

@@ -1065,16 +1065,29 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
         ...(args.cursor !== undefined ? { cursor: args.cursor } : {}),
       });
       const offset = decodeCursor(args.cursor);
+      // 行は columns の並びの配列にする（列名を行ごとに繰り返さない。トークンが半分ほどになる）。先頭は rowKey、diff ではステータスと変わった列を足す
+      const diff = args.view === "diff";
+      const columns = ["rowKey", ...res.columns, ...(diff ? ["_status", "_changedColumns"] : [])];
+      const truncated: Record<string, string[]> = {};
       const rows = res.rows.map((r) => {
         const c = clipValues(r.values);
-        const row: Record<string, unknown> = { rowKey: r.rowKey, values: c.values };
-        if (r.status !== undefined) row.status = r.status;
-        if (r.changedColumns !== undefined) row.changedColumns = r.changedColumns;
-        if (c.truncated.length > 0) row.truncated = c.truncated;
+        if (c.truncated.length > 0) truncated[r.rowKey] = c.truncated;
+        const row: unknown[] = [r.rowKey, ...res.columns.map((col) => c.values[col] ?? null)];
+        if (diff) row.push(r.status ?? null, r.changedColumns ?? null);
         return row;
       });
-      const base = { sheet: args.sheet, view: args.view, total: res.total };
-      const build = (n: number) => pageOf(base, "rows", rows, n, offset, res.nextCursor);
+      const build = (n: number): Record<string, unknown> => {
+        const page = rows.slice(0, n);
+        const out: Record<string, unknown> = { sheet: args.sheet, view: args.view, total: res.total, dataNotice: DATA_NOTICE, returned: n, columns, rows: page };
+        out.nextCursor = n < rows.length ? encodeCursor(offset + n) : res.nextCursor;
+        if (n < rows.length) out.sizeNote = SIZE_NOTE;
+        const cut = Object.fromEntries(page.map((r) => r[0] as string).filter((k) => truncated[k] !== undefined).map((k) => [k, truncated[k]!]));
+        if (Object.keys(cut).length > 0) {
+          out.truncated = cut;
+          out.truncatedNote = TRUNCATED_NOTE;
+        }
+        return out;
+      };
       return toolResult(build(fitCount(rows.length, build)), res.revision);
     },
 
@@ -1267,8 +1280,22 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
       base.dataNotice = DATA_NOTICE;
       base.next =
         "Confirm with the user which sheet and which row hold the headers, then turn it into a sheet with apply_mapping (ask if there is more than one candidate). Renaming columns to Maximo attribute names with rename makes matching easier. For repeated forms (formHint) use form; for merged or ditto cells use fillDown; for years or months across columns use unpivot.";
+      // シートを指定しないときは、同じ形（見出しの列か帳票のラベルが同じ）のシートは最初の 1 枚だけを詳しく返す（月ごとのシートなど）
+      const firstOfLayout = new Map<string, number>();
+      const sameAs = analyses.map((a, i) => {
+        if (args.sheet !== undefined) return null;
+        const form = formHint(a.table);
+        const key = JSON.stringify({ h: a.headerRow, c: a.headerRow !== null ? a.columns.map((c) => c.name) : null, f: form?.labels ?? null });
+        const first = firstOfLayout.get(key);
+        if (first === undefined) {
+          firstOfLayout.set(key, i);
+          return null;
+        }
+        return { name: a.table.name, rowCount: a.table.rows.length, ...(form !== null ? { forms: form.forms } : {}), sameLayoutAs: analyses[first]!.table.name };
+      });
       const build = (samples: number, columnLimit: number, n: number): Record<string, unknown> => {
-        const v: Record<string, unknown> = { ...base, sheets: analyses.slice(0, n).map((a) => importView(a, samples, columnLimit)) };
+        const v: Record<string, unknown> = { ...base, sheets: analyses.slice(0, n).map((a, i) => sameAs[i] ?? importView(a, samples, columnLimit)) };
+        if (sameAs.slice(0, n).some((x) => x !== null)) v.sameLayoutNote = "Sheets with sameLayoutAs have the same headers or form labels as that sheet, so their details are left out. Read them the same way (several sheets can go in one apply_mapping), or look at one with sheet.";
         if (n < analyses.length) {
           v.sheetsNote = `Only the first ${n} of ${analyses.length} sheets were returned because the result is large. Look at them one by one with sheet.`;
           v.sheetNames = analyses.map((a) => a.table.name);

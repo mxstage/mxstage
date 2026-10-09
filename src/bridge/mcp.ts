@@ -87,9 +87,20 @@ export function nextSkillHints(tool: ToolName, args: Record<string, unknown>, hi
   return names;
 }
 
-/** 結果に案内を足す（structuredContent は変えず、文字の内容の後ろに足す） */
+/**
+ * 結果に案内を足す。文字の内容の後ろに足し、structuredContent があれば mxstageNotes にも足す。
+ * structuredContent があると、それだけを LLM に渡すクライアントがある（Claude Code）。文字の内容だけに足すと、目次や Skill の案内が届かない
+ */
 export function withGuide(result: CallToolResult, guide: string): CallToolResult {
-  return { ...result, content: [...(result.content ?? []), { type: "text", text: guide }] };
+  const structured = result.structuredContent;
+  const notes = structured !== undefined && structured !== null && typeof structured === "object" ? (structured as Record<string, unknown>).mxstageNotes : undefined;
+  return {
+    ...result,
+    ...(structured !== undefined && structured !== null && typeof structured === "object"
+      ? { structuredContent: { ...structured, mxstageNotes: [...(Array.isArray(notes) ? notes : []), guide] } }
+      : {}),
+    content: [...(result.content ?? []), { type: "text", text: guide }],
+  };
 }
 
 /**
@@ -328,7 +339,7 @@ export function buildBridgeMcpServer(deps: BridgeMcpDeps): McpServer {
         const first = !guided;
         guided = true;
         // 更新の知らせは get_status のたびと、会話で最初の呼び出しに添える（最初が get_status なら 1 回だけ）。
-        // get_status 以外の結果の structuredContent は変えず、文だけを足す
+        // get_status 以外の結果には、知らせを案内として足す（文字の内容と structuredContent の mxstageNotes）
         if (name === "get_status") result = withUpdates(result, await collectUpdates(deps));
         else if (first) {
           const text = updatesText(await collectUpdates(deps));

@@ -103,6 +103,8 @@ export interface QueryRow {
 }
 
 export interface QueryRowsResult {
+  /** 返した列（rows の values の並び） */
+  columns: string[];
   rows: QueryRow[];
   nextCursor: string | null;
   revision: number;
@@ -1175,7 +1177,7 @@ export class Workspace {
       }
       return out;
     });
-    return { rows, nextCursor, revision: this._revision, total: matched.length };
+    return { columns: [...columns], rows, nextCursor, revision: this._revision, total: matched.length };
   }
 
   /**

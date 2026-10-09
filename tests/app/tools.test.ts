@@ -493,7 +493,7 @@ describe("メタデータのツール", () => {
     expect(first.sheet).toBe("範囲の確認");
     const again = await h.call("scope_options", { os: "MXAPIWO", name: "範囲の確認", where: [{ attr: "STATUS", op: "eq", value: "COMP" }] });
     expect(again).toMatchObject({ replaced: true, scanned: 2 });
-    const rowKey = (await h.call("query_rows", { sheet: "範囲の確認" })).rows[0].rowKey;
+    const rowKey = (await h.call("query_rows", { sheet: "範囲の確認" })).rows[0][0];
     h.workspace.applyEdits("範囲の確認", [{ rowKey, col: "STATUS", value: "WAPPR" }], { author: "user" });
     const e = await h.fail("scope_options", { os: "MXAPIWO", name: "範囲の確認" });
     expect(e.message).toContain("changes not yet committed to Maximo");
@@ -736,16 +736,27 @@ describe("load_sheet", () => {
 });
 
 describe("参照のツール", () => {
-  it("query_rows は rows と dataNotice を返し、長いセルを切り詰める", async () => {
+  it("query_rows は列名を 1 回だけ返し、行は列の並びの配列（先頭は rowKey）。長いセルを切り詰める", async () => {
     const h = harness();
     excelSheet(h.workspace, "メモ", ["ID", "TEXT"], [{ ID: "r1", TEXT: "あ".repeat(1_500) }, { ID: "r2", TEXT: "短い" }], ["ID"]);
     const res = await h.call("query_rows", { sheet: "メモ", columns: ["ID", "TEXT"] });
     expect(res.dataNotice).toBe(DATA_NOTICE);
     expect(res.total).toBe(2);
-    expect([...(res.rows[0].values.TEXT as string)]).toHaveLength(MAX_CELL_CHARS);
-    expect(res.rows[0].truncated).toEqual(["TEXT"]);
+    expect(res.columns).toEqual(["rowKey", "ID", "TEXT"]);
+    expect(res.rows[1]).toEqual([res.rows[1][0], "r2", "短い"]);
+    expect([...(res.rows[0][2] as string)]).toHaveLength(MAX_CELL_CHARS);
+    expect(res.truncated).toEqual({ [res.rows[0][0]]: ["TEXT"] });
     expect(res.truncatedNote).toContain(String(MAX_CELL_CHARS));
-    expect(res.rows[1].truncated).toBeUndefined();
+  });
+
+  it("query_rows の diff では、ステータスと変わった列を行の最後に足す", async () => {
+    const h = harness();
+    excelSheet(h.workspace, "メモ", ["ID", "TEXT"], [{ ID: "r1", TEXT: "a" }, { ID: "r2", TEXT: "b" }], ["ID"]);
+    const key = (await h.call("query_rows", { sheet: "メモ" })).rows[0][0];
+    h.workspace.applyEdits("メモ", [{ rowKey: key, col: "TEXT", value: "A" }], { author: "user" });
+    const res = await h.call("query_rows", { sheet: "メモ", view: "diff", columns: ["TEXT"] });
+    expect(res.columns).toEqual(["rowKey", "TEXT", "_status", "_changedColumns"]);
+    expect(res.rows).toEqual([[key, "A", "changed", ["TEXT"]]]);
   });
 
   it("結果が上限（MAX_RESULT_TEXT_BYTES）を超えたら件数を減らし、nextCursor で続きを返す", async () => {
@@ -759,7 +770,7 @@ describe("参照のツール", () => {
       const res = await h.call("query_rows", { sheet: "大きい", limit: 200, ...(cursor === undefined ? {} : { cursor }) });
       expect(new TextEncoder().encode(JSON.stringify(res)).length).toBeLessThanOrEqual(MAX_RESULT_TEXT_BYTES);
       expect(res.returned).toBeGreaterThan(0);
-      for (const r of res.rows) seen.add(r.rowKey as string);
+      for (const r of res.rows) seen.add(r[0] as string);
       cursor = res.nextCursor ?? undefined;
       calls++;
     } while (cursor !== undefined && calls < 20);

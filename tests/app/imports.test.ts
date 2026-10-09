@@ -88,6 +88,12 @@ function workbookBytes(opts: { deflate?: boolean } = {}): Promise<Uint8Array> {
 
 // ---------------------------------------------------------------------------
 
+/** query_rows の結果（行は列の並びの配列）を、行ごとの { rowKey, values } にする */
+function rowObjects(res: Record<string, any>): Array<{ rowKey: string; values: Record<string, unknown> }> {
+  const columns = res.columns as string[];
+  return (res.rows as unknown[][]).map((r) => ({ rowKey: r[0] as string, values: Object.fromEntries(columns.slice(1).map((c, i) => [c, r[i + 1]])) }));
+}
+
 describe("ZIP の展開", () => {
   it("無圧縮と deflate のどちらも同じ中身を返す", async () => {
     for (const deflate of [false, true]) {
@@ -443,7 +449,7 @@ describe("describe_import / apply_mapping", () => {
     expect(r.note).toContain("cannot be committed to Maximo");
 
     const q = await h.call("query_rows", { sheet: "台帳", columns: ["ASSETNUM"] });
-    expect(q.rows.map((x: any) => [x.rowKey, x.values.ASSETNUM])).toEqual([
+    expect(rowObjects(q).map((x: any) => [x.rowKey, x.values.ASSETNUM])).toEqual([
       ["4", "A5001"],
       ["5", "5002"],
       ["7", "A5003"],
@@ -482,7 +488,7 @@ describe("describe_import / apply_mapping", () => {
     expect(add).toMatchObject({ applied: 1, rowKeys: [makeParentKey(["BEDFORD", "A5003"])] });
     const q = await h.call("query_rows", { sheet: "資産", filter: [{ attr: "ASSETNUM", op: "eq", value: "A5003" }], columns: ["SITEID", "ASSETNUM", "DESCRIPTION"] });
     const src = await h.call("query_rows", { sheet: "台帳", filter: [{ attr: "ASSETNUM", op: "eq", value: "A5003" }], columns: ["タグ"] });
-    expect(q.rows[0].values).toEqual({ SITEID: "BEDFORD", ASSETNUM: "A5003", DESCRIPTION: src.rows[0].values["タグ"] });
+    expect(rowObjects(q)[0]!.values).toEqual({ SITEID: "BEDFORD", ASSETNUM: "A5003", DESCRIPTION: rowObjects(src)[0]!.values["タグ"] });
 
     // もうある機器（A5001）とキーの空いた行は衝突として返し、足さない
     const again = await h.call("add_rows", { sheet: "資産", from: { sheet: "台帳", columns }, baseRevision: add.revision, reason: "全部" });
@@ -583,6 +589,22 @@ describe("帳票の読み取り・fillDown・unpivot（ツール）", () => {
     expect(d.next).toContain("form");
   });
 
+  it("describe_import: シートを指定しないとき、同じ形のシート（月ごとの帳票など）は最初の 1 枚だけ詳しく返す", async () => {
+    const h = harness();
+    const rows = sheetRows(dailyReportRows());
+    const bytes = await makeXlsx({ sheets: [{ name: "4月", rows }, { name: "5月", rows }, { name: "機器一覧", rows: LIST_ROWS }], shared: SHARED });
+    h.imports.add({ importId: "d2", fileName: "作業日報.xlsx", contentType: "", bytes, sha256: "" });
+    const d = await h.call("describe_import", { importId: "d2" });
+    expect(d.sheets[0]).toMatchObject({ name: "4月", formHint: { forms: 3 } });
+    expect(d.sheets[1]).toEqual({ name: "5月", rowCount: d.sheets[0].rowCount, forms: 3, sameLayoutAs: "4月" });
+    expect(d.sheets[2]).toMatchObject({ name: "機器一覧", headerRow: 3 });
+    expect(d.sameLayoutNote).toContain("sameLayoutAs");
+    // シートを指定すれば、そのシートを詳しく返す
+    const one = await h.call("describe_import", { importId: "d2", sheet: "5月" });
+    expect(one.sheets[0]).toMatchObject({ name: "5月", formHint: { forms: 3 } });
+    expect(one.sameLayoutNote).toBeUndefined();
+  });
+
   it("apply_mapping の form: 1 明細 1 行のシートにし、帳票の上の欄を各行に付ける", async () => {
     const h = harness();
     const bytes = await makeXlsx({ sheets: [{ name: "4月", rows: sheetRows(dailyReportRows()) }] });
@@ -599,7 +621,7 @@ describe("帳票の読み取り・fillDown・unpivot（ツール）", () => {
     expect(r.columns).toEqual(["SOURCE_ROW", "BLOCK", "NO", "CONTRACT", "WORKDATE", "NOTES", "No.", "作業区分", "DESCRIPTION", "時間"]);
     expect(r.formNote).toContain("BLOCK");
     const rows = await h.call("query_rows", { sheet: "作業日報 4月", columns: ["BLOCK", "NO", "WORKDATE", "作業区分", "DESCRIPTION"] });
-    expect(rows.rows.map((x: { values: Record<string, unknown> }) => x.values)).toEqual([
+    expect(rowObjects(rows).map((x) => x.values)).toEqual([
       { BLOCK: 1, NO: "4-01", WORKDATE: "R8.4.1", 作業区分: "巡視点検", DESCRIPTION: "場内巡視 異常なし" },
       { BLOCK: 1, NO: "4-01", WORKDATE: "R8.4.1", 作業区分: "故障修理", DESCRIPTION: "2号の誘引 IDF 異音 給脂" },
       { BLOCK: 1, NO: "4-01", WORKDATE: "R8.4.1", 作業区分: "故障修理", DESCRIPTION: "同上 経過観察" },
@@ -617,7 +639,7 @@ describe("帳票の読み取り・fillDown・unpivot（ツール）", () => {
     expect(r).toMatchObject({ rowCount: 4, keyColumns: ["SOURCE_CELL", "MARK"], unpivot: { columns: ["C", "D"], rows: 4, skippedEmptyCells: 1 } });
     expect(r.rowKeyNote).toContain("SOURCE_CELL");
     const q = await h.call("query_rows", { sheet: "星取表", columns: ["機器名称", "FY", "MARK", "SOURCE_CELL"] });
-    expect(q.rows.map((x: { values: Record<string, unknown> }) => Object.values(x.values))).toEqual([
+    expect(rowObjects(q).map((x) => Object.values(x.values))).toEqual([
       ["押込送風機", 2006, "○", "C3"],
       ["押込送風機", 2007, "○", "D3"],
       ["押込送風機", 2007, "◎", "D3"],

@@ -309,7 +309,10 @@ describe("MCP の結果に添える", () => {
     const client = await connect(() => Promise.reject(new Error("調べられない")));
     const status = await client.callTool({ name: "get_status", arguments: {} });
     expect(status.isError).toBeFalsy();
-    expect(status.structuredContent).toEqual({ tabConnected: true, tool: "get_status" });
+    // 更新の知らせは無い。最初の結果なので、目次は mxstageNotes にも入る（structuredContent だけを LLM に渡すクライアントのため）
+    const { mxstageNotes, ...rest } = status.structuredContent as Record<string, unknown>;
+    expect(rest).toEqual({ tabConnected: true, tool: "get_status" });
+    expect(mxstageNotes).toEqual([expect.stringContaining("[MX Stage rules and Skill index")]);
     expect(texts(status)).not.toMatch(/\[MX Stage updates\]/);
     await client.close();
 

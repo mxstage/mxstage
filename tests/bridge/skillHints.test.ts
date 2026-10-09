@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { SKILLS as DEFAULT_SKILLS } from "../../src/bridge/defaultSkills.ts";
-import { nextSkillHints, sessionGuide } from "../../src/bridge/mcp.ts";
+import { nextSkillHints, sessionGuide, withGuide } from "../../src/bridge/mcp.ts";
 import { objectSkillFor, skillHintText, skillsForCall } from "../../src/bridge/skillHints.ts";
 import { TOOL_NAMES } from "../../src/shared/toolDefs.ts";
 
@@ -108,5 +108,19 @@ describe("最初の結果に添える目次", () => {
 
   it("利用者の Skill が無ければ作り方の Skill を案内する", () => {
     expect(sessionGuide(dir)).toContain("follow mxstage-core-skills");
+  });
+});
+
+describe("案内の添え方（withGuide）", () => {
+  it("文字の内容の後ろに足し、structuredContent があれば mxstageNotes にも足す（structuredContent だけを LLM に渡すクライアントのため）", () => {
+    const base = { content: [{ type: "text" as const, text: "{\"a\":1}" }], structuredContent: { a: 1 } };
+    const once = withGuide(base, "目次");
+    const twice = withGuide(once, "Skill の知らせ");
+    expect(twice.content.map((c) => (c as { text: string }).text)).toEqual(["{\"a\":1}", "目次", "Skill の知らせ"]);
+    expect(twice.structuredContent).toEqual({ a: 1, mxstageNotes: ["目次", "Skill の知らせ"] });
+    // structuredContent の無い結果は、文字の内容だけに足す
+    const plain = withGuide({ content: [{ type: "text" as const, text: "x" }] }, "目次");
+    expect(plain.structuredContent).toBeUndefined();
+    expect(plain.content).toHaveLength(2);
   });
 });

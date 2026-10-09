@@ -47,7 +47,9 @@ const matchConditionShape = {
       targetEnd: z.string().optional().describe("End date column on the other side, e.g. ACTFINISH. Blank: the start day only"),
     })
     .optional()
-    .describe("The date on this side falls within the other side's start to end (by day, inclusive)"),
+    .describe(
+      "The date on this side falls within the other side's start to end (by day, inclusive). Dates written as 2026-05-04, 2026/5/4 or in the Japanese era (R8.5.4), with or without the Japanese year, month and day marks, are read as they are; do not rewrite them",
+    ),
   targetFilter: z.array(typedFilter).max(20).optional().describe("Narrow the other side, e.g. WORKTYPE in CM,EM for repair rows"),
   group: z
     .string()

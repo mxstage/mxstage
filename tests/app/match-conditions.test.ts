@@ -213,10 +213,26 @@ describe("鍵の無い突合", () => {
     expect(code(() => match(ws, { contains: { col: "TEXT", targetCol: "ASSETNUM", via: { sheet: "nope", matchCol: "A", sourceCol: "B" } } }))).toBe("sheet_not_found");
   });
 
-  it("日付のセル: YYYY-MM-DD と YYYY/M/D を日にする", () => {
+  it("日付のセル: 西暦と和暦（令和・平成・昭和）を日にする", () => {
     expect(dayOfCell("2026-05-11T09:00:00+09:00")).toBe("2026-05-11");
     expect(dayOfCell("2026/5/1")).toBe("2026-05-01");
+    expect(dayOfCell("2026年5月1日（金）")).toBe("2026-05-01");
+    expect(dayOfCell("2026.5.1")).toBe("2026-05-01");
+    // 和暦
+    expect(dayOfCell("R8.5.4")).toBe("2026-05-04");
+    expect(dayOfCell("r8/5/4")).toBe("2026-05-04");
+    expect(dayOfCell("令和8年5月4日")).toBe("2026-05-04");
+    expect(dayOfCell("令和 8 年 5 月 4 日(月)")).toBe("2026-05-04");
+    expect(dayOfCell("令和元年5月1日")).toBe("2019-05-01");
+    expect(dayOfCell("Ｒ８．５．４")).toBe("2026-05-04");
+    expect(dayOfCell("H31.4.30")).toBe("2019-04-30");
+    expect(dayOfCell("平成31年4月30日")).toBe("2019-04-30");
+    expect(dayOfCell("S64.1.7")).toBe("1989-01-07");
+    // 日付でないもの・無い日
     expect(dayOfCell("5月1日")).toBe(null);
+    expect(dayOfCell("R8.2.30")).toBe(null);
+    expect(dayOfCell("2026-13-01")).toBe(null);
+    expect(dayOfCell("RX.5.4")).toBe(null);
     expect(dayOfCell(20260501)).toBe(null);
   });
 

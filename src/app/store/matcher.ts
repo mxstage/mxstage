@@ -42,12 +42,35 @@ export interface Matcher {
   matchRows(rows: readonly RowState[]): Map<RowState, RowMatch>;
 }
 
-/** 日付のセルの日（YYYY-MM-DD）。「2026-05-11」「2026/5/11」で始まる文字列だけを日付とみなす */
+/** 和暦の元年の前の年（令和 1 年 = 2019 年） */
+const ERA_BASE: Record<string, number> = { R: 2018, 令和: 2018, H: 1988, 平成: 1988, S: 1925, 昭和: 1925 };
+const WESTERN_DAY_RE = /^(\d{4})\s*[-/.年]\s*(\d{1,2})\s*[-/.月]\s*(\d{1,2})/;
+const ERA_DAY_RE = /^(令和|平成|昭和|R|H|S)\s*(元|\d{1,2})\s*[-/.年]\s*(\d{1,2})\s*[-/.月]\s*(\d{1,2})/i;
+
+/**
+ * 日付のセルの日（YYYY-MM-DD）。日付で始まる文字列だけを日付とみなす。
+ * 「2026-05-11」「2026/5/11」「2026.5.11」「2026年5月11日」と、和暦の「R8.5.11」「令和8年5月11日」「令和元年…」（平成・昭和も）を読む。
+ * 帳票の作業日は和暦で書かれることが多いので、日付の幅で突き合わせる前に書き換えなくてよいようにする
+ */
 export function dayOfCell(v: CellValue): string | null {
   if (typeof v !== "string") return null;
-  const m = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/.exec(v.trim());
-  if (!m) return null;
-  return `${m[1]}-${m[2]!.padStart(2, "0")}-${m[3]!.padStart(2, "0")}`;
+  const t = v.normalize("NFKC").trim();
+  let y: number, m: number, d: number;
+  const w = WESTERN_DAY_RE.exec(t);
+  const e = w ? null : ERA_DAY_RE.exec(t);
+  if (w) {
+    [y, m, d] = [Number(w[1]), Number(w[2]), Number(w[3])];
+  } else if (e) {
+    const base = ERA_BASE[e[1]!.length === 1 ? e[1]!.toUpperCase() : e[1]!];
+    if (base === undefined) return null;
+    [y, m, d] = [base + (e[2] === "元" ? 1 : Number(e[2])), Number(e[3]), Number(e[4])];
+  } else {
+    return null;
+  }
+  // 無い日（2 月 30 日など）は日付とみなさない
+  const date = new Date(Date.UTC(y, m - 1, d));
+  if (date.getUTCFullYear() !== y || date.getUTCMonth() !== m - 1 || date.getUTCDate() !== d) return null;
+  return date.toISOString().slice(0, 10);
 }
 
 function addDays(day: string, n: number): string {

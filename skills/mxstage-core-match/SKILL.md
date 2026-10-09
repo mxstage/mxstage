@@ -2,7 +2,7 @@
 name: mxstage-core-match
 description: "MX Stage basic operation: match two sheets with match_sheets (keys, composite keys, or rules for free-text rows without a key) and handle unmatched and ambiguous rows."
 metadata:
-  version: "1.2.0"
+  version: "1.3.0"
   category: "core"
 ---
 
@@ -45,9 +45,10 @@ Daily reports, repair reports and contractor sheets often name equipment in free
 2. **Look at how the file writes names.** Use aggregate or a few rows of query_rows on the text column. Write rewrite rules that make the nicknames equal to the Maximo names, applied after normalize (for example a rule with find `#(\d)` that writes the number the way the asset names do). Keep each rule narrow; a rule that matches too much makes wrong pairs.
 3. **Combine conditions** in match_sheets (leftCol and rightCol may be omitted):
    - contains: the text column contains the other side's name; with via, the name comes from another sheet (for work orders: the Assets sheet, its ASSETNUM and its DESCRIPTION).
-   - dateWithin: the row's date falls within the record's start and end (ACTSTART to ACTFINISH).
+   - dateWithin: the row's date falls within the record's start and end (ACTSTART to ACTFINISH). Dates in the file are read as written, including the Japanese era (R8.5.4); do not rewrite the date column first.
    - targetFilter with leftFilter: split the rows by kind and match each kind to its records only (repair rows to CM and EM work orders, inspection rows to the others). Run match_sheets once per kind.
-   - group: only for documents that are about one record (one repair report, one work order). The rows of a document then share the record that its rows matched. Do not use it on daily reports that list many jobs.
+   - group: for documents that are about one record (one repair report, one work order report). The rows of a document then share the record that its rows matched, including rows that name no equipment (preparation, test run, tidying up). Do not use it on daily reports that list many jobs.
+   - Files that mix both kinds (daily reports and repair reports in one sheet): run two passes, split by leftFilter on the document column (BLOCK for forms read with apply_mapping, or the report number): the one-record documents with group on that column, the others without group. Do not leave the one-record documents out to read them row by row.
    - followsAbove: rows that only say "same as above" (a ditto mark or word at the start of the text) take the record of the row directly above, when that row matched one record. Fill ditto marks in category columns with fillDown when importing (mxstage-core-import), so such rows land in the same kind as the row above.
 4. **Try before linking.** Show the user the counts (matched, ambiguous, left-only) and samples of each, including a few matched rows with their text and the record, before writing anything. If a sample is wrong, narrow the rule or add a condition and run again. Never widen a rule just to raise the matched count.
 5. **Link.** Use apply_rule with a lookup that has the same conditions (sourceCol is the key to bring, for example WONUM), with the same filter as leftFilter. dryRun first; the counts must agree with match_sheets. Example set: `{"WONUM": {"lookup": {"sheet": "WorkOrders", "sourceCol": "WONUM", "normalize": ["trim", "nfkc", "upper", "removeSpaces"], "contains": {"col": "WORK", "targetCol": "ASSETNUM", "via": {"sheet": "Assets", "matchCol": "ASSETNUM", "sourceCol": "DESCRIPTION"}}, "dateWithin": {"col": "DATE", "targetStart": "ACTSTART", "targetEnd": "ACTFINISH"}}}}`. Only rows with one candidate are written; ambiguous rows come back as lookup_ambiguous and left-only rows are skipped.

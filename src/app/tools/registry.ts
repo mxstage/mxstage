@@ -1103,7 +1103,16 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
     },
 
     match_sheets: (args) => {
-      const m = workspace.matchSheets(args.left, args.right, args.leftCol, args.rightCol, args.normalize, args.sampleSize);
+      const { leftFilter, rewrite, contains, dateWithin, targetFilter, group, followsAbove } = args;
+      const m = workspace.matchSheets(args.left, args.right, args.leftCol, args.rightCol, args.normalize, args.sampleSize, {
+        leftFilter,
+        rewrite,
+        contains,
+        dateWithin,
+        targetFilter,
+        group,
+        followsAbove,
+      });
       const key = (k: string) => clipString(k) ?? k;
       const samples = {
         matched: m.samples.matched.map((s) => ({ ...s, key: key(s.key) })),
@@ -1117,6 +1126,8 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
           left: args.left,
           right: args.right,
           matched: m.matched,
+          ...(m.matchedByGroup !== undefined ? { matchedByGroup: m.matchedByGroup } : {}),
+          ...(m.matchedByAbove !== undefined ? { matchedByAbove: m.matchedByAbove } : {}),
           unmatchedLeft: m.unmatchedLeft,
           unmatchedRight: m.unmatchedRight,
           ambiguous: m.ambiguous,

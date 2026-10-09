@@ -2,7 +2,7 @@
 name: mxstage-obj-workorder
 description: "MX Stage object Skill for Maximo work orders and service requests (MXAPIWODETAIL, MXAPISR): correcting open work orders, planned labor and materials, status rules, and closed history."
 metadata:
-  version: "1.3.0"
+  version: "1.4.0"
   category: "object"
 ---
 
@@ -50,6 +50,7 @@ Work records give the day of the work, not the day the work order was reported. 
 
 - Load the work orders by the work dates: ACTSTART (or ACTFINISH) in the period with a few days of margin, in any status. Never limit them by REPORTDATE.
 - Match by site, asset (or location) and work date; the wording differs (nicknames, abbreviations, line numbers written in other ways).
+- Do the matching with rules in match_sheets, not by reading the rows (mxstage-core-match, Rows without a shared key): contains with via to the asset names, dateWithin on ACTSTART and ACTFINISH, rewrite for the nicknames, and targetFilter on WORKTYPE so repair rows meet corrective work orders and inspection rows meet the others. Link with an apply_rule lookup only the rows with one candidate.
 - A repair is missing from Maximo only when no work order exists for the same asset or location within a few days of its date. Before adding new work orders, load the work orders for those assets around those dates (where with in on ASSETNUM and an ACTSTART window). Report near matches to the user instead of creating them.
 - Agree with the user on the work order numbers for new ones (MX Stage does not use automatic numbering).
 

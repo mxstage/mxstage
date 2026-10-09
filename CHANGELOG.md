@@ -4,6 +4,14 @@ All notable changes to MX Stage are listed here. Versions follow [Semantic Versi
 
 ## Unreleased
 
+### Added
+
+- **Matching rows without a shared key.** match_sheets and the lookup of apply_rule take rules for free-text records such as daily and repair reports: rewrite (regular expressions that make nicknames equal to Maximo names), contains (the text contains the other side's name, optionally taken from another sheet such as the asset descriptions), dateWithin (the date falls within the record's start and end), targetFilter (for example repair rows only against corrective work orders), group (one document about one record) and followsAbove (ditto rows take the record above). The AI writes the rules; the work screen does the matching. As before, only rows with exactly one candidate are linked, and the others are returned with counts and samples. In the demo's May reports, 73 of 109 lines were linked with no wrong link and 31 were left for a decision.
+
+### Changed
+
+- Lighter tool results: query_rows returns column names once and rows as arrays; describe_import describes sheets with the same layout once; the tool notes reach clients that read only structured results.
+
 ## 0.2.7 — 2026-10-08
 
 ### Added

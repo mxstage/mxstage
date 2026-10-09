@@ -64,13 +64,22 @@ export interface CompositeKey {
 }
 
 /**
- * 複数列（複合キー）の突合キー。
+ * 複数列（複合キー）の突合キー。rewrite は正規化の後に各列へ当てる置き換え（match_sheets の rewrite）。
  * 単一列の id は正規化した値そのもの。複数列の id は正規化した値の配列を JSON にする。
  * 区切り文字（\u001f など）での連結と同じ役割だが、値にその文字が含まれても別のキーが同じ id にならない。
  * 突合する両側は同じ列数なので、単一列と複数列の id が混ざることはない。
  */
-export function normalizeCompositeKey(values: ReadonlyArray<CellValue | undefined>, options: readonly NormalizeOption[]): CompositeKey {
-  const parts = values.map((v) => normalizeKey(v, options));
+export function normalizeCompositeKey(
+  values: ReadonlyArray<CellValue | undefined>,
+  options: readonly NormalizeOption[],
+  rewrite: (s: string) => string = (s) => s,
+): CompositeKey {
+  const parts = values.map((v) => {
+    const k = normalizeKey(v, options);
+    if (k === null) return null;
+    const out = rewrite(k);
+    return out === "" ? null : out;
+  });
   const label = parts.map((p) => p ?? "").join(" | ");
   if (parts.some((p) => p === null)) return { id: null, label };
   return { id: parts.length === 1 ? (parts[0] as string) : JSON.stringify(parts), label };

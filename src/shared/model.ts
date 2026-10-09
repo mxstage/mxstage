@@ -83,12 +83,12 @@ export type RuleValue =
   | {
       lookup: {
         sheet: string;
-        /** このシート側の突合列。複合キー（例 ["SITEID","EXT_EQUIPTAG"]）は配列で、targetMatchCol と同じ順・同じ個数にする */
-        matchCol: string | string[];
-        targetMatchCol: string | string[];
+        /** このシート側の突合列。複合キー（例 ["SITEID","EXT_EQUIPTAG"]）は配列で、targetMatchCol と同じ順・同じ個数にする。contains か dateWithin があれば省ける */
+        matchCol?: string | string[];
+        targetMatchCol?: string | string[];
         sourceCol: string;
         normalize?: NormalizeOption[];
-      };
+      } & MatchConditions;
     }
   | {
       /**
@@ -114,6 +114,26 @@ export type RuleValue =
     };
 
 export type NormalizeOption = "trim" | "upper" | "lower" | "nfkc" | "removeSpaces" | "removeHyphens";
+
+/**
+ * 突合の追加の条件（match_sheets と apply_rule の lookup で共通）。決まりは AI が作り、照合はタブ内のプログラムが行う。
+ * 候補が 1 件に決まる行だけを結び、0 件・2 件以上の行は結ばずに返す。
+ * col はこの側（match_sheets では左、lookup ではこのシート）、targetCol は相手側（右、参照先のシート）の列。
+ */
+export interface MatchConditions {
+  /** 正規化の後に、両側の文字列へ順に当てる置き換え（正規表現、すべての一致を置き換える）。通称をそろえる。例: find "#(\d)"、replace "$1号炉" */
+  rewrite?: Array<{ find: string; replace: string }>;
+  /** この側の文（col）に、相手の名前（targetCol）が含まれる。via で、相手の列の値から別のシートの名前を引ける（例: ASSETNUM → 資産の DESCRIPTION） */
+  contains?: { col: string; targetCol: string; via?: { sheet: string; matchCol: string; sourceCol: string } };
+  /** この側の日付（col）が、相手の始まりの日〜終わりの日（両端を含む）に入る。targetEnd が無いか空なら始まりの日だけ */
+  dateWithin?: { col: string; targetStart: string; targetEnd?: string };
+  /** 相手側の行を絞る条件（例: 修理の行は WORKTYPE が CM・EM の作業指示だけ） */
+  targetFilter?: TypedFilter[];
+  /** この側の列。同じ値の行を 1 つの帳票とみなし、1 件に決まった行の相手がそろって 1 件なら、帳票の全行をその相手に結ぶ */
+  group?: string;
+  /** 「同上」の行: col が pattern（正規表現）に合い、自分では 1 件に決まらない行は、真上の行が 1 件に決まっていればその相手を引き継ぐ */
+  followsAbove?: { col: string; pattern: string };
+}
 
 export type BatchAuthor = "user" | "llm";
 
@@ -172,6 +192,10 @@ export interface DiffEntry {
 
 export interface MatchSummary {
   matched: number;
+  /** matched のうち、同じ帳票（group）の別の行の結果で結んだもの */
+  matchedByGroup?: number;
+  /** matched のうち、「同上」として真上の行の相手を引き継いだもの */
+  matchedByAbove?: number;
   unmatchedLeft: number;
   unmatchedRight: number;
   ambiguous: number;

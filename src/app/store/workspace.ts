@@ -12,6 +12,7 @@ import type {
   ConflictInfo,
   DiffEntry,
   LookupStats,
+  MatchConditions,
   MatchSummary,
   NormalizeOption,
   PhaseStats,
@@ -25,7 +26,7 @@ import { StoreError } from "./errors";
 import { compileFilters } from "./filters";
 import { randomHex } from "./ids";
 import { JobRegistry } from "./jobs";
-import { normalizeCompositeKey } from "./normalize";
+import { compileMatcher, type RowMatch } from "./matcher";
 import { checkLimit, paginate } from "./paging";
 import { Sheet, type CellInfo, type CellOverlay, type RowMark, type RowState, type RowStatus, type SheetJSON, type ViewKind } from "./sheet";
 import { coerceValue, isBlank, offsetOfValue, sameCellValue, type CoerceOptions, type DateOffsetHint } from "./values";
@@ -264,6 +265,8 @@ interface CompiledRule {
   kind: "const" | "copyFrom" | "lookup" | "phase";
   /** phase の比べる日 */
   asOf?: string;
+  /** 対象の行をまとめて先に評価する（lookup の group は、同じ帳票の行をまとめて見る） */
+  prepare?: (rows: readonly RowState[]) => void;
   evaluate: (row: RowState) => RuleEval;
 }
 
@@ -330,6 +333,19 @@ function pairColumns(a: string | readonly string[], b: string | readonly string[
     });
   }
   return [la, lb];
+}
+
+/** 等しさの突合列（省けるもの）。両方省けば空、片方だけなら invalid_args */
+function optionalPairColumns(
+  a: string | readonly string[] | undefined,
+  b: string | readonly string[] | undefined,
+  nameA: string,
+  nameB: string,
+): [string[], string[]] {
+  const empty = (v: unknown) => v === undefined || (Array.isArray(v) && v.length === 0);
+  if (empty(a) && empty(b)) return [[], []];
+  if (empty(a) || empty(b)) throw new StoreError("invalid_args", `Give both ${nameA} and ${nameB}, or neither`, { [nameA]: a, [nameB]: b });
+  return pairColumns(a as string | readonly string[], b as string | readonly string[], nameA, nameB);
 }
 
 function mustRow(sheet: Sheet, rowKey: string): RowState {
@@ -538,6 +554,7 @@ export class Workspace {
       const phaseStats: PhaseStats | null =
         rule.kind === "phase" ? (phase[rule.col] = { past: 0, inProgress: 0, future: 0, noDate: 0, existing: 0, asOf: rule.asOf ?? "" }) : null;
       const values: Array<{ row: RowState; value: CellValue }> = [];
+      rule.prepare?.(rows);
       for (const row of rows) {
         const r = rule.evaluate(row);
         if (phaseStats && r.kind !== "ambiguous" && r.tag !== undefined) phaseStats[r.tag]++;
@@ -873,38 +890,30 @@ export class Workspace {
       throw new StoreError("invalid_args", `The rule for column ${col} must be one of const, copyFrom, lookup or phase`, { column: col });
     }
     const lk = rv.lookup;
-    const [matchCols, targetCols] = pairColumns(lk.matchCol, lk.targetMatchCol, "matchCol", "targetMatchCol");
-    for (const c of matchCols) if (!sheet.hasColumn(c)) throw columnNotFound(c, sheet.name);
+    const [matchCols, targetCols] = optionalPairColumns(lk.matchCol, lk.targetMatchCol, "matchCol", "targetMatchCol");
     const target = this.getSheet(lk.sheet);
-    for (const c of [...targetCols, lk.sourceCol]) if (!target.hasColumn(c)) throw columnNotFound(c, target.name);
-    const norm: readonly NormalizeOption[] = lk.normalize ?? [];
+    if (!target.hasColumn(lk.sourceCol)) throw columnNotFound(lk.sourceCol, target.name);
+    const { sheet: _sheet, matchCol: _matchCol, targetMatchCol: _targetMatchCol, sourceCol, normalize, ...conditions } = lk;
     // 参照元が親の列なら、同じ親の複数の行（子行）は同じ値なので 1 件として数える
-    const byParent = target.isParentColumn(lk.sourceCol);
-    const index = new Map<string, { ids: Set<string>; value: CellValue }>();
-    for (const t of target.viewRows("final")) {
-      const { id: key } = normalizeCompositeKey(
-        targetCols.map((c) => target.finalValue(t, c)),
-        norm,
-      );
-      if (key === null) continue;
-      const id = byParent ? t.parentKey : t.rowKey;
-      const hit = index.get(key);
-      if (hit) hit.ids.add(id);
-      else index.set(key, { ids: new Set([id]), value: target.finalValue(t, lk.sourceCol) });
-    }
+    const matcher = compileMatcher(
+      sheet,
+      target,
+      { cols: matchCols, targetCols, normalize: normalize ?? [], conditions, targetByParent: target.isParentColumn(sourceCol) },
+      (n) => this.getSheet(n),
+    );
+    let prepared: Map<RowState, RowMatch> | null = null;
     return {
       col,
       kind: "lookup",
+      prepare: (rows) => {
+        prepared = matcher.matchRows(rows);
+      },
       evaluate: (row) => {
         // どれか 1 列でも空なら突合しない（unmatched）
-        const { id: key } = normalizeCompositeKey(
-          matchCols.map((c) => sheet.finalValue(row, c)),
-          norm,
-        );
-        const hit = key === null ? undefined : index.get(key);
-        if (!hit) return { kind: "unmatched" };
-        if (hit.ids.size > 1) return { kind: "ambiguous" };
-        return { kind: "value", value: hit.value };
+        const m = prepared?.get(row) ?? matcher.matchRows([row]).get(row);
+        if (m === undefined || m.kind === "unmatched") return { kind: "unmatched" };
+        if (m.kind === "ambiguous") return { kind: "ambiguous" };
+        return { kind: "value", value: target.finalValue(matcher.targetRow(m.id), sourceCol) };
       },
     };
   }
@@ -1233,54 +1242,55 @@ export class Workspace {
   }
 
   /**
-   * 2 つのシートの最終ビューを正規化したキーで突合する。
-   * - 突合列は単一列か複合キー（同じ順・同じ個数の列の配列）。
+   * 2 つのシートの最終ビューを突合する（条件は matcher.ts。決まりは AI、照合はここ）。
+   * - 等しさの突合列は単一列か複合キー（同じ順・同じ個数の列の配列）。contains か dateWithin があれば省ける。
    * - キーが空（null・空文字・正規化後に空。複合キーはどれか 1 列でも空）の行は一致させず、その側の unmatched に数える。
-   * - 右側で同じキーの行が複数あれば ambiguous。
-   * - 突合列がすべて親の列なら、同じ親の複数の行（子行）は 1 件として数える（子の数だけ重複させない）。
-   * - サンプルの key は各列の正規化後の値を " | " で連結した文字列。
+   * - 右側の候補が複数あれば ambiguous。
+   * - 条件に使う列がすべて親の列なら、同じ親の複数の行（子行）は 1 件として数える（左右それぞれ）。
+   * - サンプルの key は、条件に使った左側の値（正規化と置き換えの後）を " | " で連結した文字列。
    */
   matchSheets(
     leftName: string,
     rightName: string,
-    leftCol: string | readonly string[],
-    rightCol: string | readonly string[],
+    leftCol: string | readonly string[] | undefined,
+    rightCol: string | readonly string[] | undefined,
     normalize: readonly NormalizeOption[],
     sampleSize: number,
+    extra: MatchConditions & { leftFilter?: TypedFilter[] } = {},
   ): MatchSummary {
     const left = this.getSheet(leftName);
     const right = this.getSheet(rightName);
-    const [leftCols, rightCols] = pairColumns(leftCol, rightCol, "leftCol", "rightCol");
-    for (const c of leftCols) if (!left.hasColumn(c)) throw columnNotFound(c, left.name);
-    for (const c of rightCols) if (!right.hasColumn(c)) throw columnNotFound(c, right.name);
+    const [leftCols, rightCols] = optionalPairColumns(leftCol, rightCol, "leftCol", "rightCol");
     if (!Number.isSafeInteger(sampleSize) || sampleSize < 0) {
       throw new StoreError("invalid_args", "sampleSize must be an integer of 0 or more", { sampleSize });
     }
-    const entities = (sheet: Sheet, cols: readonly string[]) => {
-      const byParent = cols.every((c) => sheet.isParentColumn(c));
-      const seen = new Set<string>();
-      const out: Array<{ rowKey: string; key: string | null; label: string }> = [];
-      for (const r of sheet.viewRows("final")) {
-        const id = byParent ? r.parentKey : r.rowKey;
-        if (seen.has(id)) continue;
-        seen.add(id);
-        const k = normalizeCompositeKey(
-          cols.map((c) => sheet.finalValue(r, c)),
-          normalize,
-        );
-        out.push({ rowKey: r.rowKey, key: k.id, label: k.label });
-      }
-      return out;
-    };
-
-    const rightIndex = new Map<string, string[]>();
-    const rightEntities = entities(right, rightCols);
-    for (const e of rightEntities) {
-      if (e.key === null) continue;
-      const list = rightIndex.get(e.key);
-      if (list) list.push(e.rowKey);
-      else rightIndex.set(e.key, [e.rowKey]);
+    const { leftFilter, ...conditions } = extra;
+    const { contains, dateWithin } = conditions;
+    const usedLeft = [...leftCols, ...(contains ? [contains.col] : []), ...(dateWithin ? [dateWithin.col] : [])];
+    const usedRight = [
+      ...rightCols,
+      ...(contains ? [contains.targetCol] : []),
+      ...(dateWithin ? [dateWithin.targetStart, ...(dateWithin.targetEnd ? [dateWithin.targetEnd] : [])] : []),
+    ];
+    const byParent = (sheet: Sheet, cols: readonly string[]) => cols.length > 0 && cols.every((c) => sheet.hasColumn(c) && sheet.isParentColumn(c));
+    const matcher = compileMatcher(
+      left,
+      right,
+      { cols: leftCols, targetCols: rightCols, normalize, conditions, targetByParent: byParent(right, usedRight) },
+      (n) => this.getSheet(n),
+    );
+    const leftPredicate = compileFilters(leftFilter ?? [], (c) => left.hasColumn(c));
+    const leftByParent = byParent(left, usedLeft);
+    const seen = new Set<string>();
+    const leftRows: RowState[] = [];
+    for (const r of left.viewRows("final")) {
+      if (!leftPredicate((c) => left.finalValue(r, c))) continue;
+      const id = leftByParent ? r.parentKey : r.rowKey;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      leftRows.push(r);
     }
+    const rightKey = (id: string) => matcher.targetRow(id).rowKey;
 
     const summary: MatchSummary = {
       matched: 0,
@@ -1289,30 +1299,29 @@ export class Workspace {
       ambiguous: 0,
       samples: { matched: [], unmatchedLeft: [], unmatchedRight: [], ambiguous: [] },
     };
-    const hitKeys = new Set<string>();
-    for (const e of entities(left, leftCols)) {
-      const candidates = e.key === null ? undefined : rightIndex.get(e.key);
-      if (e.key === null || candidates === undefined) {
+    const hit = new Set<string>();
+    for (const [r, m] of matcher.matchRows(leftRows)) {
+      if (m.kind === "unmatched") {
         summary.unmatchedLeft++;
-        if (summary.samples.unmatchedLeft.length < sampleSize) summary.samples.unmatchedLeft.push({ rowKey: e.rowKey, key: e.label });
-        continue;
-      }
-      hitKeys.add(e.key);
-      const [first] = candidates;
-      if (candidates.length === 1 && first !== undefined) {
+        if (summary.samples.unmatchedLeft.length < sampleSize) summary.samples.unmatchedLeft.push({ rowKey: r.rowKey, key: m.label });
+      } else if (m.kind === "matched") {
+        hit.add(m.id);
         summary.matched++;
-        if (summary.samples.matched.length < sampleSize) summary.samples.matched.push({ leftRowKey: e.rowKey, rightRowKey: first, key: e.label });
+        if (m.byGroup) summary.matchedByGroup = (summary.matchedByGroup ?? 0) + 1;
+        if (m.byAbove) summary.matchedByAbove = (summary.matchedByAbove ?? 0) + 1;
+        if (summary.samples.matched.length < sampleSize) summary.samples.matched.push({ leftRowKey: r.rowKey, rightRowKey: rightKey(m.id), key: m.label });
       } else {
+        for (const id of m.ids) hit.add(id);
         summary.ambiguous++;
         if (summary.samples.ambiguous.length < sampleSize) {
-          summary.samples.ambiguous.push({ leftRowKey: e.rowKey, key: e.label, candidates: candidates.slice(0, MAX_CANDIDATES) });
+          summary.samples.ambiguous.push({ leftRowKey: r.rowKey, key: m.label, candidates: m.ids.slice(0, MAX_CANDIDATES).map(rightKey) });
         }
       }
     }
-    for (const e of rightEntities) {
-      if (e.key !== null && hitKeys.has(e.key)) continue;
+    for (const id of matcher.targetIds) {
+      if (hit.has(id)) continue;
       summary.unmatchedRight++;
-      if (summary.samples.unmatchedRight.length < sampleSize) summary.samples.unmatchedRight.push({ rowKey: e.rowKey, key: e.label });
+      if (summary.samples.unmatchedRight.length < sampleSize) summary.samples.unmatchedRight.push({ rowKey: rightKey(id), key: matcher.targetLabel(id) });
     }
     return summary;
   }

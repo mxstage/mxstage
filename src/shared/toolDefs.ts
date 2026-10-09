@@ -20,16 +20,63 @@ const normalizeOption = z.enum(["trim", "upper", "lower", "nfkc", "removeSpaces"
 /** 突合列。複合キーは配列（相手側と同じ順・同じ個数） */
 const matchColumns = z.union([z.string().min(1), z.array(z.string().min(1)).min(1).max(5)]);
 
+/** 突合の追加の条件（match_sheets と apply_rule の lookup で共通）。col はこの側（左）、targetCol は相手側（右・参照先） */
+const matchConditionShape = {
+  rewrite: z
+    .array(z.strictObject({ find: z.string().min(1).max(200).describe("Regular expression (JavaScript)"), replace: z.string().max(200).describe("Replacement; $1 for groups") }))
+    .max(30)
+    .optional()
+    .describe(
+      "Rules that make nicknames and variant spellings the same, applied in order to the text of both sides after normalize (write them for the normalized text). Example: [{find:\"#(\\d)\",replace:\"UNIT $1\"}]. Keep each rule narrow",
+    ),
+  contains: z
+    .strictObject({
+      col: z.string().describe("Free-text column on this (left) side, e.g. the work done"),
+      targetCol: z.string().describe("Name column on the other side. With via, the column whose value is looked up in another sheet"),
+      via: z
+        .strictObject({ sheet: z.string(), matchCol: z.string(), sourceCol: z.string() })
+        .optional()
+        .describe("Take the name from another sheet, e.g. {sheet:\"Assets\",matchCol:\"ASSETNUM\",sourceCol:\"DESCRIPTION\"} for a work order's ASSETNUM"),
+    })
+    .optional()
+    .describe(`The text on this side contains the other side's name (both after normalize and rewrite; names shorter than 2 characters are not used)`),
+  dateWithin: z
+    .strictObject({
+      col: z.string().describe("Date column on this side"),
+      targetStart: z.string().describe("Start date column on the other side, e.g. ACTSTART"),
+      targetEnd: z.string().optional().describe("End date column on the other side, e.g. ACTFINISH. Blank: the start day only"),
+    })
+    .optional()
+    .describe("The date on this side falls within the other side's start to end (by day, inclusive)"),
+  targetFilter: z.array(typedFilter).max(20).optional().describe("Narrow the other side, e.g. WORKTYPE in CM,EM for repair rows"),
+  group: z
+    .string()
+    .optional()
+    .describe(
+      "Column on this side naming one document (e.g. a report number). Use it only when one document is about one record: if the rows that matched one record agree, every row of the document gets it; if they disagree, all its rows are ambiguous",
+    ),
+  followsAbove: z
+    .strictObject({
+      col: z.string().describe("Text column on this side"),
+      pattern: z.string().min(1).max(200).describe("Regular expression for ditto rows (a ditto mark or word at the start of the text), tested on the text as written"),
+    })
+    .optional()
+    .describe("A row whose text matches pattern and that has no single match of its own takes the record of the row directly above, when that row matched one record"),
+};
+
 const ruleValue = z.union([
   z.strictObject({ const: cellValue }),
   z.strictObject({ copyFrom: z.string().describe("Another column of the same row") }),
   z.strictObject({
     lookup: z.strictObject({
       sheet: z.string().describe("Sheet to look up"),
-      matchCol: matchColumns.describe('Match column(s) on this sheet. For a composite key use an array, e.g. ["SITEID","EXT_EQUIPTAG"]'),
-      targetMatchCol: matchColumns.describe("Match column(s) on the lookup sheet (same order and count as matchCol)"),
+      matchCol: matchColumns
+        .optional()
+        .describe('Match column(s) on this sheet (equal values). For a composite key use an array, e.g. ["SITEID","EXT_EQUIPTAG"]. May be omitted when contains or dateWithin is given'),
+      targetMatchCol: matchColumns.optional().describe("Match column(s) on the lookup sheet (same order and count as matchCol)"),
       sourceCol: z.string().describe("Column to take from the lookup sheet"),
       normalize: z.array(normalizeOption).optional(),
+      ...matchConditionShape,
     }),
   }),
   z.strictObject({
@@ -231,13 +278,15 @@ export const TOOL_DEFS = {
     name: "match_sheets",
     title: "Match sheets",
     description:
-      "Matches two sheets deterministically on column values and returns counts and samples of matched, left-only, right-only and ambiguous (several candidates) rows. Use it, for example, to investigate TAGNO mismatches.",
+      "Matches two sheets deterministically and returns counts and samples of matched (exactly one candidate), left-only, right-only and ambiguous (several candidates) rows. Conditions: equal columns, and for rows without a shared key (free-text reports, nicknames) contains, dateWithin, rewrite, targetFilter and group. You write the rules; the matching runs in the work screen. Try the rules here and show the counts and samples before writing anything with apply_rule lookup (same conditions). Use it, for example, to investigate TAGNO mismatches.",
     inputSchema: z.strictObject({
       left: sheetName,
       right: sheetName,
-      leftCol: matchColumns.describe("Match column(s) on the left sheet. Use an array for a composite key"),
-      rightCol: matchColumns.describe("Match column(s) on the right sheet (same order and count as leftCol)"),
+      leftCol: matchColumns.optional().describe("Match column(s) on the left sheet (equal values). Use an array for a composite key. May be omitted when contains or dateWithin is given"),
+      rightCol: matchColumns.optional().describe("Match column(s) on the right sheet (same order and count as leftCol)"),
       normalize: z.array(normalizeOption).default(["trim", "nfkc", "upper"]),
+      leftFilter: z.array(typedFilter).max(20).optional().describe("Narrow the left side (the same rows you will give apply_rule as filter)"),
+      ...matchConditionShape,
       sampleSize: z.number().int().min(0).max(50).default(10),
     }),
     annotations: RO,

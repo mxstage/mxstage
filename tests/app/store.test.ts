@@ -492,7 +492,7 @@ describe("applyRule", () => {
 
   it("lookup の列の誤りは型付きエラー", () => {
     const ws = setup();
-    const lk = (patch: Record<string, unknown>): RuleValue => ({ lookup: { ...(COMPOSITE_LOOKUP as { lookup: object }).lookup, ...patch } }) as RuleValue;
+    const lk = (patch: Record<string, unknown>): RuleValue => ({ lookup: { ...(COMPOSITE_LOOKUP as { lookup: object }).lookup, ...patch } }) as unknown as RuleValue;
     const opts = { author: "llm" as const };
     expectStoreError(() => ws.applyRule("req", [], { LOC: lk({ targetMatchCol: "TAGNO" }) }, opts), "invalid_args");
     expectStoreError(() => ws.applyRule("req", [], { LOC: lk({ matchCol: [], targetMatchCol: [] }) }, opts), "invalid_args");

@@ -128,6 +128,17 @@ const HEADER_CELLS_SHOWN = 15;
 export const PHASE_PAST_NOTE = (status: string): string =>
   `past was not given, so ${status} was used: the setting for past work of this connection (Settings > Maximo connection). Tell the user which status past rows got.`;
 
+/** add_rows の rows・children、patch_cells で AI が書いた件数がこれ以上なら、決まりで入れる方法を案内する */
+export const HAND_WRITTEN_ROWS = 10;
+export const HAND_WRITTEN_ROWS_NOTE = (n: number): string =>
+  `${n} rows were written by hand in the arguments. Values that are in another sheet go with add_rows from (child rows with from.parent), so row data does not pass through you. Codes decided from text and values written the customer's way go into the customer's dictionary first (create_dictionary, then apply_rule classify or replace), so that the next run applies them without reading the rows.`;
+export const HAND_WRITTEN_CELLS_NOTE = (n: number): string =>
+  `${n} cells were written one by one. Use apply_rule for many cells: a lookup in another sheet, classify with a words → codes dictionary, or replace with a value dictionary of the customer, so that the rule can be checked and used again.`;
+export const DICTIONARY_PROBLEMS_NOTE =
+  "These dictionary entries cannot be used and were skipped. Fix them in the dictionary sheet (patch_cells on FIND, MODE or the other columns) and apply again.";
+/** add_rows の from.parent で 1 回に足せる子行 */
+export const CHILD_ROWS_FROM_MAX = 500;
+
 export const IMPORT_SHEET_NOTE =
   "This sheet cannot be committed to Maximo (it is reference data for matching). Match it against a Maximo sheet with match_sheets and move differences to the Maximo sheet with a lookup in apply_rule.";
 export const IMPORT_ROW_KEY_NOTE = `rowKey and ${SOURCE_ROW_COLUMN} are row numbers in the original file. Refer to rows as "row N of the original file" when talking to the user.`;
@@ -322,7 +333,7 @@ async function dictionaryStatusView(dictionaries: NonNullable<ToolRegistryDeps["
       const s = open ? ws.summary(open.meta.name) : null;
       return { name: d.name, kind: d.kind, entries: d.count, ...(open ? { sheet: open.meta.name, unsavedChanges: s ? s.changedCells + s.addedRows + s.deletedRows : 0 } : {}) };
     }),
-    note: "Use these with open_dictionary and dictionaries in match_sheets and lookups.",
+    note: "Apply them before reading rows: names with dictionaries in match_sheets and lookups, words → codes with apply_rule classify, value replacement with apply_rule replace. open_dictionary shows the entries.",
   };
 }
 
@@ -451,6 +462,16 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
   }
 
   /** 辞書の名前のシートが開いていなければ開く（match_sheets・apply_rule の dictionaries の前に） */
+  /** 使った辞書の使えない項目（あれば結果に載せて直させる） */
+  function dictionaryProblemsOf(names: readonly string[]): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    for (const n of new Set(names)) {
+      const p = workspace.dictionaryProblems(n);
+      if (p.length > 0) out[n] = p.slice(0, 10);
+    }
+    return Object.keys(out).length > 0 ? { dictionaryProblems: out, dictionaryProblemsNote: DICTIONARY_PROBLEMS_NOTE } : {};
+  }
+
   async function ensureDictionaries(names: readonly string[]): Promise<void> {
     for (const name of names) {
       if (workspace.dictionarySheet(name) !== null) continue;
@@ -576,6 +597,7 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
 
   function editResult(sheet: string, res: ApplyResult, extra: Record<string, unknown> = {}): ToolOutcome {
     const columns = workspace.hasSheet(sheet) ? workspace.getSheet(sheet).meta.columns.map((c) => c.name) : [];
+    if (workspace.hasSheet(sheet) && workspace.getSheet(sheet).meta.source.kind === "dictionary") extra = { ...extra, ...dictionaryProblemsOf([sheet]) };
     const missing = Array.from(new Set(res.conflicts.filter((c) => c.reason === "column_not_found").map((c) => c.col)));
     const build = (n: number): Record<string, unknown> => {
       const v: Record<string, unknown> = { sheet, batchId: res.batchId, applied: res.applied, ...extra, conflictCount: res.conflicts.length, conflicts: res.conflicts.slice(0, n) };
@@ -1223,6 +1245,7 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
       await ensureDictionaries(dictionaries ?? []);
       const extra = { leftFilter, rewrite, contains, dateWithin, targetFilter, group, followsAbove, dictionaries };
       const m = workspace.matchSheets(args.left, args.right, args.leftCol, args.rightCol, args.normalize, args.sampleSize, extra);
+      const problems = dictionaryProblemsOf(dictionaries ?? []);
       // 作業画面の「突き合わせ先」の列と帯に出す（同じ条件で、辞書やシートが変われば突き合わせ直す）
       try {
         deps.matches?.record({ left: args.left, right: args.right, leftCol: args.leftCol, rightCol: args.rightCol, normalize: args.normalize, extra: stripUndefined(extra) });
@@ -1247,6 +1270,7 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
           unmatchedLeft: m.unmatchedLeft,
           unmatchedRight: m.unmatchedRight,
           ambiguous: m.ambiguous,
+          ...problems,
           dataNotice: DATA_NOTICE,
           samples: {
             matched: samples.matched.slice(0, n),
@@ -1264,14 +1288,15 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
     patch_cells: (args) => {
       assertNotBusy(args.sheet);
       const res = workspace.applyEdits(args.sheet, args.edits, { author: "llm", reason: args.reason, baseRevision: args.baseRevision });
-      return editResult(args.sheet, res);
+      return editResult(args.sheet, res, args.edits.length >= HAND_WRITTEN_ROWS ? { note: HAND_WRITTEN_CELLS_NOTE(args.edits.length) } : undefined);
     },
 
     apply_rule: async (args) => {
       assertNotBusy(args.sheet);
-      await ensureDictionaries(
-        Object.values(args.set).flatMap((rv) => ("lookup" in rv ? (rv.lookup.dictionaries ?? []) : "classify" in rv ? [rv.classify.dictionary] : "replace" in rv ? [rv.replace.dictionary] : [])),
+      const usedDictionaries = Object.values(args.set).flatMap((rv) =>
+        "lookup" in rv ? (rv.lookup.dictionaries ?? []) : "classify" in rv ? [rv.classify.dictionary] : "replace" in rv ? [rv.replace.dictionary] : [],
       );
+      await ensureDictionaries(usedDictionaries);
       // 言葉 → コード・値の置き換えを使ったら、辞書の「効いた行」に出す（dryRun でも）
       for (const [col, rv] of Object.entries(args.set)) {
         if ("classify" in rv) deps.matches?.recordUse({ kind: "code", dictionary: rv.classify.dictionary, sheet: args.sheet, col, textCols: Array.isArray(rv.classify.textCol) ? rv.classify.textCol : [rv.classify.textCol], field: rv.classify.field, ...(rv.classify.scopeCol !== undefined ? { scopeCol: rv.classify.scopeCol } : {}) });
@@ -1287,7 +1312,7 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
         }),
       ) as typeof args.set;
       const res = workspace.applyRule(args.sheet, args.filter, set, { author: "llm", reason: args.reason, baseRevision: args.baseRevision, dryRun: args.dryRun });
-      const extra: Record<string, unknown> = { dryRun: args.dryRun, matched: res.matched };
+      const extra: Record<string, unknown> = { dryRun: args.dryRun, matched: res.matched, ...dictionaryProblemsOf(usedDictionaries) };
       if (res.phase !== undefined) extra.phase = res.phase;
       if (pastDefault !== null) extra.phaseNote = PHASE_PAST_NOTE(pastDefault);
       return editResult(args.sheet, res, extra);
@@ -1303,12 +1328,32 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
         throw invalidArgs("from and children cannot be combined with parentRowKey (children names a parent for each group).");
       }
       let res: ApplyResult;
-      if (args.children !== undefined) {
+      const extra: Record<string, unknown> = {};
+      const written = args.rows?.length ?? args.children?.reduce((n, g) => n + g.rows.length, 0) ?? 0;
+      if (written >= HAND_WRITTEN_ROWS) extra.note = HAND_WRITTEN_ROWS_NOTE(written);
+      if (args.from?.parent === undefined && args.from?.onePerParent !== undefined) throw invalidArgs("from.onePerParent needs from.parent.");
+      if (args.from?.parent !== undefined) {
+        // 別のシートの行から子行を作る（行のデータは AI を通らない）
+        const { groups, stats } = workspace.childRowsFrom(args.sheet, {
+          sheet: args.from.sheet,
+          parent: args.from.parent,
+          columns: args.from.columns,
+          ...(args.from.values !== undefined ? { values: args.from.values } : {}),
+          ...(args.from.filter !== undefined ? { filter: args.from.filter } : {}),
+          ...(args.from.onePerParent !== undefined ? { onePerParent: args.from.onePerParent } : {}),
+        });
+        if (stats.added > CHILD_ROWS_FROM_MAX) throw invalidArgs(`${stats.added} child rows would be added; add up to ${CHILD_ROWS_FROM_MAX} per call (narrow from.filter).`);
+        extra.from = stats;
+        res =
+          groups.length === 0
+            ? { batchId: null, applied: 0, conflicts: [], revision: workspace.revision }
+            : workspace.addChildRows(args.sheet, groups, { author: "llm", reason: args.reason, baseRevision: args.baseRevision });
+      } else if (args.children !== undefined) {
         const total = args.children.reduce((n, g) => n + g.rows.length, 0);
         if (total > 200) throw invalidArgs(`children has ${total} rows; add up to 200 rows per call.`);
         res = workspace.addChildRows(args.sheet, args.children, { author: "llm", reason: args.reason, baseRevision: args.baseRevision });
       } else {
-        const rows = args.rows ?? workspace.rowsFrom(args.from!.sheet, args.from!.columns, args.from!.filter ?? []);
+        const rows = args.rows ?? workspace.rowsFrom(args.from!.sheet, args.from!.columns, args.from!.filter ?? [], 200, args.from!.values ?? {});
         res = workspace.addRows(args.sheet, rows, {
           author: "llm",
           reason: args.reason,
@@ -1318,7 +1363,7 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
       }
       const batch = res.batchId === null ? undefined : workspace.batches.find((b) => b.batchId === res.batchId);
       const rowKeys = (batch?.ops ?? []).flatMap((op) => (op.kind === "addRow" ? [op.rowKey] : []));
-      return editResult(args.sheet, res, { rowKeys });
+      return editResult(args.sheet, res, { rowKeys, ...extra });
     },
 
     delete_rows: (args) => {

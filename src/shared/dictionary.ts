@@ -133,7 +133,7 @@ export function entryProblem(
     if (to.trim() === "") return { code: "code_empty" };
   }
   if (mode === "regex") {
-    const pattern = find.normalize("NFKC");
+    const pattern = normalizeRegexPattern(find);
     let re: RegExp;
     try {
       re = new RegExp(pattern, "gi");
@@ -150,6 +150,22 @@ export function entryProblem(
 /** 正規表現の中で特別な意味を持つ文字を、そのままの文字として扱う形にする */
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+const REGEX_SYNTAX_CHAR = /^[.*+?^${}()|[\]\\/]$/;
+
+/**
+ * 正規表現の項目のパターンを、値と同じく NFKC にそろえる。
+ * 全角の記号（「（」「＄」「．」など）は書いた人にとってただの文字なので、半角にしたときに正規表現の記号になるものは「\」を付けて文字のままにする
+ * （「^(\d+)/(\d+)（」の「（」がグループの始まりにならないように）
+ */
+export function normalizeRegexPattern(pattern: string): string {
+  let out = "";
+  for (const ch of pattern) {
+    const n = ch.normalize("NFKC");
+    out += n !== ch && REGEX_SYNTAX_CHAR.test(n) ? `\\${n}` : n;
+  }
+  return out;
 }
 
 /** そのままの書き方を、空白の有無を問わずに見つけるパターン（「スートブロワ 5」と「スートブロワ5」を同じに扱う） */
@@ -186,7 +202,7 @@ export function compileAliases(entries: ReadonlyArray<Pick<DictionaryEntry, "id"
     const mode = parseEntryMode(e.mode) ?? "text";
     const item = { id: e.id, find: e.find.normalize("NFKC").trim(), to: (e.to ?? "").normalize("NFKC").trim() };
     if (mode === "text") texts.push(item);
-    else regexes.push({ ...item, find: e.find.normalize("NFKC") });
+    else regexes.push({ ...item, find: normalizeRegexPattern(e.find) });
   }
   texts.sort((a, b) => b.find.length - a.find.length);
   const rules: CompiledAlias[] = [];
@@ -257,7 +273,7 @@ export function compileCodes(entries: ReadonlyArray<Pick<DictionaryEntry, "id" |
       continue;
     }
     const mode = parseEntryMode(e.mode) ?? "text";
-    const re = mode === "text" ? new RegExp(literalPattern(e.find), "giu") : new RegExp(e.find.normalize("NFKC"), "gi");
+    const re = mode === "text" ? new RegExp(literalPattern(e.find), "giu") : new RegExp(normalizeRegexPattern(e.find), "gi");
     const scopeList = (e.scope ?? "")
       .split(/[,、，]/)
       .map(foldKey)
@@ -355,7 +371,7 @@ export function compileValues(entries: ReadonlyArray<Pick<DictionaryEntry, "id" 
       mode,
       exact: mode === "text" ? foldValue(e.find) : null,
       to: (e.to ?? "").normalize("NFKC").trim(),
-      re: mode === "regex" ? new RegExp(e.find.normalize("NFKC"), "gi") : null,
+      re: mode === "regex" ? new RegExp(normalizeRegexPattern(e.find), "gi") : null,
     });
   }
   return { rules, problems };

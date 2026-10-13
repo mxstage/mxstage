@@ -2,7 +2,7 @@
 name: mxstage-obj-asset
 description: "MX Stage object Skill for Maximo assets and their meters (MXAPIASSET): bulk corrections of the asset register, specifications, meters, and the traps of classification changes, moves and status."
 metadata:
-  version: "1.4.0"
+  version: "1.5.0"
   category: "object"
 ---
 
@@ -14,7 +14,7 @@ Key: SITEID and ASSETNUM (ASSETNUM is unique only within a site). Usual children
 
 | Task | How | Notes |
 |---|---|---|
-| Correct the register (description, manufacturer, vendor, serial number, priority, asset type, failure class, rotating item, installation date, owner fields) | apply_rule or patch_cells on the attributes | The most common task. Check variants with aggregate first (mxstage-core-analyze) |
+| Correct the register (description, manufacturer, vendor, serial number, priority, asset type, failure class, rotating item, installation date, owner fields) | apply_rule on the attributes (a lookup in the imported register, then replace with a value dictionary of the customer for names written in other ways, such as maker names to company codes) | The most common task. Check variants with aggregate first (mxstage-core-analyze) |
 | Fill or correct specifications | ASSETSPEC child rows: change values, add missing items with add_rows | See mxstage-obj-classification. Use the one-row-per-record view to see what is missing |
 | Add a meter to assets | ASSETMETER child rows with add_rows (METERNAME, and the attributes the meter type needs) | The meter must exist and be active |
 | Fix references (location, parent, GL account, calendar) | apply_rule with a lookup | Load the referenced master with load_master first. Changing LOCATION or PARENT is a move: read the traps |

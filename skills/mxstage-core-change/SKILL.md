@@ -2,7 +2,7 @@
 name: mxstage-core-change
 description: "MX Stage basic operation: change sheets in the work screen with apply_rule (dry run first), patch_cells, add_rows and delete_rows, with reasons, conflicts and undo. Maximo is not changed yet."
 metadata:
-  version: "1.5.0"
+  version: "1.6.0"
   category: "core"
 ---
 
@@ -30,10 +30,10 @@ set values:
 - A value looked up in another sheet: `{"LOCATION":{"lookup":{"sheet":"Tag list","matchCol":"ASSETNUM","targetMatchCol":"ASSETNUM","sourceCol":"LOCATION"}}}`
 - A value chosen by the row's dates (for statuses, see Statuses below): `{"STATUS":{"phase":{"finish":"ACTFINISH","start":"ACTSTART","planned":"TARGSTARTDATE","inProgress":"INPRG","future":"WAPPR"}}}`
 
-- A code decided from words in the text, with a words → codes dictionary of the customer (open_dictionary): `{"PROBLEM":{"classify":{"dictionary":"Failure words","textCol":"WORK","field":"PROBLEM","scopeCol":"FAILURECLASS"}}}`. A row gets a code only when the words found give one code.
+- A code decided from words in the text, with a words → codes dictionary of the customer (open_dictionary): `{"PROBLEM":{"classify":{"dictionary":"Failure words","textCol":"WORK","field":"PROBLEM","scopeCol":"FAILURECLASS"}}}`.
 - A value made correct with a value replacement dictionary: `{"MANUFACTURER":{"replace":{"dictionary":"Maker names"}}}`.
 
-For classify and replace, check dictionary in the result (matched, unmatched, ambiguous); ambiguous rows come back as lookup_ambiguous and are not changed. To get more rows decided, add or narrow dictionary entries (the work screen shows the rows each entry hit), never by writing codes row by row. For lookups, check lookup in the result. Rows that are unmatched (not in the lookup sheet) or ambiguous (several candidates) are **not changed**. Report the counts; never fill them by guessing. When one column cannot identify a match, use a composite key: arrays in the same order and count, for example `["SITEID","ASSETNUM"]` for both matchCol and targetMatchCol.
+Check dictionary (classify, replace) or lookup in the result: matched, unmatched, ambiguous. Unmatched rows (no entry, not in the lookup sheet, or an empty value there) and ambiguous rows (several codes, or candidates with different values) are **not changed**; candidates that agree on one value count as matched. Decide more rows by adding or narrowing dictionary entries (the work screen shows the rows each entry hit), never by writing values row by row or guessing. Report the counts. When one column cannot identify a match, use a composite key: arrays in the same order and count, for example `["SITEID","ASSETNUM"]` for both matchCol and targetMatchCol.
 
 ## Statuses
 
@@ -49,13 +49,14 @@ The right status depends on each record's phase, never on the kind of file or ta
 
 ## A few rows: patch_cells
 
-- For values decided row by row (up to 500 edits). Give reason, and put the reason for each row in the reason of each edits item (up to 500 characters) when they differ.
+- For values decided row by row (up to 500 edits). Give reason, and the reason of each edits item when they differ.
 - Use the rowKey from query_rows.
 
 ## Child rows: add_rows and delete_rows
 
 - add_rows adds rows to a sheet; for child rows (specifications, job plan tasks, PO lines, domain values) give parentRowKey of the parent row. Fill the attributes Maximo needs for the child (the object Skill lists them). Leave the child's own ID empty; Maximo assigns it.
-- For child rows under many parents (for example failure report lines for many work orders), use children instead of one call per parent: a list where each item has parentRowKey and rows (up to 200 rows per call, one undo batch).
+- **Child rows from another sheet** (such as failure report lines from codes decided in an import): from with parent, `{"from":{"sheet":"Report May","parent":{"WONUM":"WONUM"},"columns":{"FAILUREREPORT.FAILURECODE":"PROBLEM"},"values":{"FAILUREREPORT.TYPE":"PROBLEM"},"onePerParent":true}}`. Same values make one row and rows already there are skipped; with onePerParent, parents whose rows disagree (split) or that have another value already (differs) are left out. Report the counts in from.
+- A few child rows you decide yourself under many parents: children, a list of parentRowKey and rows (up to 200 rows, one undo batch).
 - delete_rows marks child rows for deletion. Top-level records cannot be deleted.
 - Deleting more than 10 child rows under one record, or more than 50 in a commit, needs the user's extra confirmation in the commit panel. Explain why the rows go before asking.
 
@@ -63,9 +64,9 @@ The right status depends on each record's phase, never on the kind of file or ta
 
 add_rows without parentRowKey adds a new record, which is created in Maximo when the user commits. A created record cannot be removed by MX Stage, so agree on the list first.
 
-1. **Check they are new.** Load the records that may already exist (for example a where with in on the keys) or match the list against a loaded sheet (mxstage-core-match). Records that exist are changed, not created. When the file has no shared number (for example repairs in a daily report), compare by asset or location and date, and search Maximo around each date, not only the range you loaded first (Matching work records in mxstage-obj-workorder).
-2. **Have a sheet of the structure** with every column you will fill: load_sheet with those columns (a where that matches the records you compare with, or none).
-3. **Fill the keys and required attributes.** Every key column is needed (for example SITEID and ASSETNUM); MX Stage does not use Maximo's automatic numbering, so if the customer numbers automatically, ask for the numbers or let the user create those records in Maximo. Find required attributes with describe_object_structure, and the rules of the object in its object Skill.
+1. **Check they are new.** Load or match the records that may already exist (mxstage-core-match); those are changed, not created. Without a shared number (repairs in a daily report), compare by asset or location and date, searching Maximo around each date (mxstage-obj-workorder).
+2. **Have a sheet of the structure** with every column you will fill (load_sheet).
+3. **Fill the keys and required attributes.** Records listed in another sheet go with add_rows from (values for constants such as SITEID). Every key column is needed (for example SITEID and ASSETNUM); MX Stage does not use Maximo's automatic numbering, so if the customer numbers automatically, ask for the numbers or let the user create those records in Maximo. Find required attributes with describe_object_structure, and the rules of the object in its object Skill.
 4. **Add children** with add_rows and parentRowKey set to the rowKey of the new row.
 5. **Order**: records that others refer to come first, in an earlier commit (classifications before assets, parent locations before child locations, items before inventory).
 6. **After the commit**, the sheet shows the record as Maximo created it, including defaults Maximo filled (status, child IDs, specification rows from the classification). Check them with the user.

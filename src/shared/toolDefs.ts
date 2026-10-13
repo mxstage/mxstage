@@ -83,7 +83,9 @@ const ruleValue = z.union([
         .optional()
         .describe('Match column(s) on this sheet (equal values). For a composite key use an array, e.g. ["SITEID","EXT_EQUIPTAG"]. May be omitted when contains or dateWithin is given'),
       targetMatchCol: matchColumns.optional().describe("Match column(s) on the lookup sheet (same order and count as matchCol)"),
-      sourceCol: z.string().describe("Column to take from the lookup sheet"),
+      sourceCol: z
+        .string()
+        .describe("Column to take from the lookup sheet. An empty value there leaves the cell as it is; several matching rows with one value (empty ones aside) count as one match"),
       normalize: z.array(normalizeOption).optional(),
       ...matchConditionShape,
     }),
@@ -360,18 +362,30 @@ export const TOOL_DEFS = {
     title: "Add rows",
     description:
       "Adds rows to a sheet. To add child rows under a parent row, give parentRowKey. Without parentRowKey, each row is a new record that is created in Maximo when a person commits: give every key column (for example SITEID and ASSETNUM) and the attributes Maximo requires, then add its child rows with parentRowKey set to the new row's key. Records that already exist in Maximo are not created again. " +
-      "Give one of rows (a few rows you write), from (rows taken inside the work screen from another sheet, such as an imported file, so that row data never passes through the AI) or children (child rows under several parents in one call and one undo batch).",
+      "Give one of rows (a few rows you write), from (rows taken inside the work screen from another sheet, such as an imported file, so that row data never passes through the AI) or children (child rows under several parents in one call and one undo batch). " +
+      "Values that are in another sheet (an import, or codes decided there with apply_rule) go with from, never copied into rows or children.",
     inputSchema: z.strictObject({
       sheet: sheetName,
       rows: z.array(z.record(z.string(), cellValue)).min(1).max(200).optional(),
       from: z
         .strictObject({
           sheet: sheetName.describe("Sheet to take the rows from (for example an imported file)"),
-          columns: z.record(z.string(), z.string()).describe('Column of this sheet → column of the source sheet (e.g. {"ASSETNUM":"Asset No."})'),
-          filter: z.array(typedFilter).max(20).optional().describe("Rows of the source sheet to take (up to 200 rows)"),
+          columns: z.record(z.string(), z.string()).describe('Column of this sheet → column of the source sheet (e.g. {"ASSETNUM":"Asset No."}, or for child rows {"FAILUREREPORT.FAILURECODE":"PROBLEM"})'),
+          values: z.record(z.string(), cellValue).optional().describe('Constants for every added row (e.g. {"SITEID":"KITA"}, or {"FAILUREREPORT.TYPE":"PROBLEM"})'),
+          parent: z
+            .record(z.string(), z.string())
+            .optional()
+            .describe(
+              'Child rows: parent column of this sheet → column of the source sheet with its value (e.g. {"WONUM":"WONUM"}). Each source row goes under the one parent with that value; source rows with the same values make one child row, and child rows already there are not added again. Without parent, each source row is a new record (up to 200)',
+            ),
+          onePerParent: z
+            .boolean()
+            .optional()
+            .describe("With parent: at most one child row with these values per parent. A parent whose source rows give different values, or that already has such a child row with other values, is left out and counted (split, differs)"),
+          filter: z.array(typedFilter).max(20).optional().describe("Rows of the source sheet to take"),
         })
         .optional()
-        .describe("New records from another sheet (without parentRowKey)"),
+        .describe("Rows from another sheet: new records, or child rows with parent (without parentRowKey)"),
       children: z
         .array(z.strictObject({ parentRowKey: z.string(), rows: z.array(z.record(z.string(), cellValue)).min(1).max(50) }))
         .min(1)

@@ -2,7 +2,7 @@
 name: mxstage-workbench
 description: "Index of the MX Stage Skills and the rules for every task: which basic operation, Maximo object and user Skill to read when. Read first, before any other MX Stage Skill."
 metadata:
-  version: "2.2.0"
+  version: "2.3.0"
   category: "index"
 ---
 
@@ -25,12 +25,12 @@ Names starting with mxstage are reserved for the built-in Skills. The list of al
 
 ## Which Skills to read
 
-1. **Start**: get_status (it also lists the customer's dictionaries of names for this connection). Then look at the user Skills. If one matches the task or the customer, read it with get_skill first.
+1. **Start**: get_status (it also lists the customer's dictionaries for this connection: names, words → codes, value replacement). Then look at the user Skills. If one matches the task or the customer, read it with get_skill first.
 2. **Before each step**, read the basic operation Skill for it (once per conversation):
    - finding a structure, agreeing on the range, loading: mxstage-core-load
    - reading rows, distributions, data quality: mxstage-core-analyze
    - changing cells, adding or deleting rows, undo: mxstage-core-change
-   - comparing two sheets, lookups between sheets, the customer's dictionaries of names (open_dictionary): mxstage-core-match
+   - comparing two sheets, lookups between sheets, the customer's dictionaries (open_dictionary): mxstage-core-match
    - Excel or CSV files: mxstage-core-import
    - diff, commit request, commit results: mxstage-core-commit
    - questions about what the user sees on screen: mxstage-core-screen
@@ -42,6 +42,16 @@ Names starting with mxstage are reserved for the built-in Skills. The list of al
 ## Overall flow
 
 get_status → find the object structure → agree on the range (scope_options) → load → understand → change in the work screen → check the diff → request the commit → the user commits → report the results. Steps that need judgement (range, rule, values that cannot be decided) go back to the user.
+
+## Rules first, rows last
+
+The AI writes rules; the work screen applies them to the rows. Read rows only to write the rules and to check the rows the rules leave undecided.
+
+- Names written the customer's way (nicknames, abbreviations): a dictionary of names, used by match_sheets and lookups.
+- Codes decided from words in text (failure codes, work types, categories): a words → codes dictionary, applied with apply_rule classify.
+- Values written the customer's way (makers, vendors, departments, people, units): a value replacement dictionary, applied with apply_rule replace.
+- Values that are in another sheet: apply_rule lookup, or add_rows from (new records, or child rows with from.parent).
+- If get_status lists dictionaries for the customer, apply them first and read only the rows they leave undecided. For those rows, add entries (short words, not whole sentences, so that they also fit other days and files) and apply again, instead of writing their values. The user saves the dictionary; saved entries are used again next time and by the other members.
 
 ## What MX Stage can change
 

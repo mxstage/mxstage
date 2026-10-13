@@ -242,6 +242,11 @@ function exampleProblems(code: string): string[] {
     const r = TOOL_DEFS.load_sheet.inputSchema.safeParse({ name: "例", os: "MXAPIWO", select: ["WONUM"], where: [value] });
     return r.success ? [] : [`TypedFilter として不正: ${r.error.message}`];
   }
+  if ("from" in value) {
+    // add_rows の from（別のシートの行から新しいレコード・子行を作る）
+    const r = TOOL_DEFS.add_rows.inputSchema.safeParse({ sheet: "例", ...value, baseRevision: 0, reason: "例" });
+    return r.success ? [] : [`add_rows として不正: ${r.error.message}`];
+  }
   const r = TOOL_DEFS.apply_rule.inputSchema.safeParse({ sheet: "例", set: value, baseRevision: 0, reason: "例" });
   if (!r.success) return [`apply_rule の set として不正: ${r.error.message}`];
   const problems: string[] = [];

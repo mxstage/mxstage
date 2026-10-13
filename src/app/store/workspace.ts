@@ -75,6 +75,43 @@ export interface AddRowsOptions extends EditOptions {
   childName?: string;
 }
 
+/** add_rows の from に parent を付けたとき（別のシートの行から子行を作る） */
+export interface ChildRowsFromSpec {
+  sheet: string;
+  /** このシートの親の列 → 元のシートの列 */
+  parent: Readonly<Record<string, string>>;
+  /** 子の列 → 元のシートの列 */
+  columns: Readonly<Record<string, string>>;
+  /** すべての子行に入れる定数 */
+  values?: Readonly<Record<string, CellValue>>;
+  filter?: readonly TypedFilter[];
+  onePerParent?: boolean;
+}
+
+export interface ChildRowsFromStats {
+  /** filter に合った元の行 */
+  sourceRows: number;
+  /** 写す列がすべて空 */
+  noValue: number;
+  /** 親の列の値が空 */
+  noParent: number;
+  parentNotFound: number;
+  /** 同じ値の親が複数（キーを足して絞る） */
+  parentAmbiguous: number;
+  /** 子行を足す候補になった親 */
+  parents: number;
+  added: number;
+  /** 同じ値の子行がすでにある */
+  alreadyThere: number;
+  /** onePerParent: 元の行で値が分かれた親 */
+  split: number;
+  /** onePerParent: values が同じ子行に違う値がすでにある親 */
+  differs: number;
+  parentNotFoundSamples?: string[];
+  splitSamples?: string[];
+  differsSamples?: string[];
+}
+
 export interface UndoOptions {
   /** 取り消しを実行する人（省略時は利用者）。llm なら利用者が編集中のセル・行は取り消さず user_editing にする */
   author?: BatchAuthor;
@@ -934,8 +971,18 @@ export class Workspace {
         // どれか 1 列でも空なら突合しない（unmatched）
         const m = prepared?.get(row) ?? matcher.matchRows([row]).get(row);
         if (m === undefined || m.kind === "unmatched") return { kind: "unmatched" };
-        if (m.kind === "ambiguous") return { kind: "ambiguous" };
-        return { kind: "value", value: target.finalValue(matcher.targetRow(m.id), sourceCol) };
+        if (m.kind === "ambiguous") {
+          // 候補が複数でも、写す値が 1 つ（空は除く）なら決まる（同じ作業指示の日報の行がどれも NOISE、など）
+          const values = new Map<string, CellValue>();
+          for (const id of m.ids) {
+            const v = target.finalValue(matcher.targetRow(id), sourceCol);
+            if (!isBlank(v)) values.set(String(v), v);
+          }
+          return values.size === 1 ? { kind: "value", value: [...values.values()][0]! } : values.size === 0 ? { kind: "unmatched" } : { kind: "ambiguous" };
+        }
+        // 相手の値が空なら、決まらなかったものとして今の値を残す（空で上書きしない）
+        const value = target.finalValue(matcher.targetRow(m.id), sourceCol);
+        return isBlank(value) ? { kind: "unmatched" } : { kind: "value", value };
       },
     };
   }
@@ -1259,7 +1306,13 @@ export class Workspace {
    * columns は「追加先の列 → 元のシートの列」。filter は元のシートの最終ビューに当てる。親の行（1 行に 1 件）だけを返す。
    * 元のシートが子の行を持つなら、同じ親の子の行は 1 件にまとめず、そのまま返す（追加先で同じキーは衝突として返る）
    */
-  rowsFrom(sourceName: string, columns: Readonly<Record<string, string>>, filter: readonly TypedFilter[] = [], max = 200): Record<string, CellValue>[] {
+  rowsFrom(
+    sourceName: string,
+    columns: Readonly<Record<string, string>>,
+    filter: readonly TypedFilter[] = [],
+    max = 200,
+    constants: Readonly<Record<string, CellValue>> = {},
+  ): Record<string, CellValue>[] {
     const source = this.getSheet(sourceName);
     const pairs = Object.entries(columns);
     if (pairs.length === 0) throw new StoreError("invalid_args", "from.columns needs at least one column");
@@ -1270,10 +1323,136 @@ export class Workspace {
       throw new StoreError("invalid_args", `${matched.length} rows of ${source.name} match; add up to ${max} at a time (narrow from.filter)`, { matched: matched.length, max });
     }
     return matched.map((r) => {
-      const values: Record<string, CellValue> = {};
+      const values: Record<string, CellValue> = { ...constants };
       for (const [target, src] of pairs) values[target] = source.finalValue(r, src);
       return values;
     });
+  }
+
+  /**
+   * 別のシートの行から、このシートの子行を作る計画（add_rows の from に parent を付けたとき）。行のデータは AI を通らない。
+   * - parent: このシートの親の列 → 元のシートの列。値が 1 つの親に決まる元の行だけを使う
+   * - columns: 子の列 → 元のシートの列。values: すべての子行に入れる定数
+   * - 写す列がすべて空の元の行は使わない。同じ親で同じ値の行は 1 行にまとめ、親にすでに同じ値の子行があれば足さない
+   * - onePerParent: 親ごとに 1 行まで。元の行で値が分かれた親（split）と、values が同じ子行に違う値がすでにある親（differs）は足さない
+   */
+  childRowsFrom(sheetName: string, spec: ChildRowsFromSpec): { groups: Array<{ parentRowKey: string; rows: Record<string, CellValue>[] }>; stats: ChildRowsFromStats } {
+    const sheet = this.getSheet(sheetName);
+    const source = this.getSheet(spec.sheet);
+    const parentPairs = Object.entries(spec.parent);
+    const pairs = Object.entries(spec.columns);
+    const constants = spec.values ?? {};
+    if (parentPairs.length === 0) throw new StoreError("invalid_args", "from.parent needs at least one column");
+    if (pairs.length === 0) throw new StoreError("invalid_args", "from.columns needs at least one column");
+    for (const [, src] of [...parentPairs, ...pairs]) if (!source.hasColumn(src)) throw columnNotFound(src, source.name);
+    for (const [col] of parentPairs) {
+      const schema = sheet.column(col);
+      if (!schema) throw columnNotFound(col, sheet.name);
+      if (schema.child) throw new StoreError("invalid_args", `from.parent needs parent columns of ${sheet.name}; ${col} is a child column`, { col });
+    }
+    const childNames = new Set<string>();
+    for (const col of [...pairs.map(([c]) => c), ...Object.keys(constants)]) {
+      const schema = sheet.column(col);
+      if (!schema) throw columnNotFound(col, sheet.name);
+      if (!schema.child) throw new StoreError("invalid_args", `from.columns and from.values need child columns of ${sheet.name} (such as FAILUREREPORT.FAILURECODE) when from.parent is given; ${col} is a parent column`, { col });
+      childNames.add(schema.child);
+    }
+    if (childNames.size !== 1) throw new StoreError("invalid_args", "from.columns and from.values must be columns of one child object", { childNames: [...childNames] });
+    const childName = [...childNames][0]!;
+
+    // 列の型に合わせてから比べる（"148700" と 148700、null と空文字は同じ値）
+    const norm = (col: string, v: CellValue): CellValue => {
+      const schema = sheet.column(col)!;
+      const c = coerceValue(schema, v, this.coerceOptions(sheet, schema));
+      const out = c.ok ? c.value : typeof v === "string" ? v.trim() : v;
+      return isBlank(out) ? null : out;
+    };
+    const keyOf = (vals: CellValue[]) => JSON.stringify(vals.map((v) => (v === null ? null : String(v))));
+
+    // このシートの親（削除の印の無い親）を、parent の列の値で引けるようにする
+    const parents = new Map<string, string[]>();
+    const firstRowOf = new Map<string, RowState>();
+    for (const r of sheet.viewRows("final")) {
+      if (firstRowOf.has(r.parentKey)) continue;
+      firstRowOf.set(r.parentKey, r);
+      if (sheet.group(r.parentKey).some((x) => x.childName === null && x.deleted !== null)) continue;
+      const k = keyOf(parentPairs.map(([col]) => norm(col, sheet.finalValue(r, col))));
+      parents.set(k, [...(parents.get(k) ?? []), r.parentKey]);
+    }
+
+    const stats: ChildRowsFromStats = { sourceRows: 0, noValue: 0, noParent: 0, parentNotFound: 0, parentAmbiguous: 0, parents: 0, added: 0, alreadyThere: 0, split: 0, differs: 0 };
+    const notFoundSamples: string[] = [];
+    const splitSamples: string[] = [];
+    const differsSamples: string[] = [];
+    // 親キー → 写す値の組（同じ組は 1 つ）
+    const wanted = new Map<string, Map<string, Record<string, CellValue>>>();
+    const predicate = compileFilters(spec.filter ?? [], (c) => source.hasColumn(c));
+    for (const r of source.viewRows("final")) {
+      if (!predicate((c) => source.finalValue(r, c))) continue;
+      stats.sourceRows++;
+      const vals: Record<string, CellValue> = {};
+      for (const [col, src] of pairs) vals[col] = norm(col, source.finalValue(r, src));
+      if (pairs.every(([col]) => vals[col] === null)) {
+        stats.noValue++;
+        continue;
+      }
+      const pv = parentPairs.map(([col, src]) => norm(col, source.finalValue(r, src)));
+      if (pv.some((v) => v === null)) {
+        stats.noParent++;
+        continue;
+      }
+      const found = parents.get(keyOf(pv)) ?? [];
+      if (found.length === 0) {
+        stats.parentNotFound++;
+        if (notFoundSamples.length < 10) notFoundSamples.push(pv.map(String).join("|"));
+        continue;
+      }
+      if (found.length > 1) {
+        stats.parentAmbiguous++;
+        continue;
+      }
+      for (const [col, v] of Object.entries(constants)) vals[col] = norm(col, v);
+      const byValue = wanted.get(found[0]!) ?? new Map<string, Record<string, CellValue>>();
+      byValue.set(keyOf(Object.keys(vals).sort().map((c) => vals[c] ?? null)), vals);
+      wanted.set(found[0]!, byValue);
+    }
+
+    const groups: Array<{ parentRowKey: string; rows: Record<string, CellValue>[] }> = [];
+    const constantCols = Object.keys(constants);
+    const same = (x: RowState, vals: Record<string, CellValue>, cols: string[]) => cols.every((c) => sameCellValue(norm(c, sheet.finalValue(x, c)), vals[c] ?? null));
+    for (const [parentKey, byValue] of wanted) {
+      stats.parents++;
+      const existing = sheet.group(parentKey).filter((x) => x.childName === childName && x.deleted === null);
+      let candidates = [...byValue.values()];
+      if (spec.onePerParent === true) {
+        if (candidates.length > 1) {
+          stats.split++;
+          if (splitSamples.length < 10) splitSamples.push(parentKey);
+          continue;
+        }
+        const slot = existing.filter((x) => same(x, candidates[0]!, constantCols));
+        if (slot.length > 0) {
+          if (slot.some((x) => same(x, candidates[0]!, Object.keys(candidates[0]!)))) stats.alreadyThere++;
+          else {
+            stats.differs++;
+            if (differsSamples.length < 10) differsSamples.push(parentKey);
+          }
+          continue;
+        }
+      }
+      candidates = candidates.filter((vals) => {
+        const there = existing.some((x) => same(x, vals, Object.keys(vals)));
+        if (there) stats.alreadyThere++;
+        return !there;
+      });
+      if (candidates.length === 0) continue;
+      stats.added += candidates.length;
+      groups.push({ parentRowKey: firstRowOf.get(parentKey)!.rowKey, rows: candidates });
+    }
+    if (notFoundSamples.length > 0) stats.parentNotFoundSamples = notFoundSamples;
+    if (splitSamples.length > 0) stats.splitSamples = splitSamples;
+    if (differsSamples.length > 0) stats.differsSamples = differsSamples;
+    return { groups, stats };
   }
 
   /** 最終ビューを列の値でグループ化して件数を数える。null と空文字は同じグループ（null）にする */
@@ -1427,6 +1606,20 @@ export class Workspace {
   /** 開いている値の置き換えの辞書の項目 */
   valueRules(name: string): CompiledValue[] {
     return compileValues(this.dictionaryEntries(name, "value")).rules;
+  }
+
+  /**
+   * 開いている辞書の、使えない項目（正規表現の誤り・要る欄が空など）。AI に結果で伝え、直させる。
+   * 辞書でないシート・開いていない辞書は空
+   */
+  dictionaryProblems(name: string): Array<{ rowKey: string; find: string; problem: string; detail?: string }> {
+    const sheet = this.dictionarySheet(name);
+    if (sheet === null || sheet.meta.source.kind !== "dictionary") return [];
+    const kind = sheet.meta.source.dictKind;
+    const entries = this.dictionaryEntries(name, kind);
+    const problems = kind === "code" ? compileCodes(entries).problems : kind === "value" ? compileValues(entries).problems : compileAliases(entries).problems;
+    const findOf = new Map(entries.map((e) => [e.id, e.find]));
+    return problems.map((p) => ({ rowKey: p.id, find: findOf.get(p.id) ?? "", problem: p.problem.code, ...(p.problem.detail !== undefined ? { detail: p.problem.detail } : {}) }));
   }
 
   /** 辞書のシートの項目（ID は行キー）。開いていない・種類が違えば invalid_args */

@@ -929,6 +929,39 @@ describe("変更のツール", () => {
     expect((await h.fail("undo_batch", { batchId: "b999-abcdef" })).code).toBe(RelayErrorCode.INVALID_ARGS);
   });
 
+  it("add_rows の from に parent: 別のシートの行から子行を作り、数を返す。手で 10 行以上書くと決まりを案内する", async () => {
+    const h = harness();
+    await loadPermits(h);
+    h.workspace.createSheet(
+      { name: "届出の一覧", source: { kind: "excel", importId: "i", fileName: "f.xlsx", sheetName: "s", headerRow: 1 }, columns: ["WONUM", "WHO"].map((n) => ({ name: n, type: "string" as const })), keyColumns: [], childIdAttrs: {} },
+      [
+        { rowKey: "1", parentKey: "1", childName: null, values: { WONUM: "WO2002", WHO: "市" } },
+        { rowKey: "2", parentKey: "2", childName: null, values: { WONUM: "WO2002", WHO: "市" } },
+        { rowKey: "3", parentKey: "3", childName: null, values: { WONUM: "WO9", WHO: "県" } },
+      ],
+    );
+    const add = await h.call("add_rows", {
+      sheet: PERMIT_SHEET,
+      from: { sheet: "届出の一覧", parent: { WONUM: "WONUM" }, columns: { "EXT_WOPERMIT.EXT_AUTHORITY": "WHO" }, values: { "EXT_WOPERMIT.EXT_PERMITTYPE": "届出" } },
+      baseRevision: h.workspace.revision,
+      reason: "届出を足す",
+    });
+    expect(add).toMatchObject({ applied: 1, from: { sourceRows: 3, parents: 1, added: 1, parentNotFound: 1, parentNotFoundSamples: ["WO9"] } });
+    expect(add.note).toBeUndefined();
+    expect((await h.fail("add_rows", { sheet: PERMIT_SHEET, from: { sheet: "届出の一覧", columns: { WONUM: "WONUM" }, onePerParent: true }, baseRevision: h.workspace.revision, reason: "x" })).code).toBe(
+      RelayErrorCode.INVALID_ARGS,
+    );
+
+    const many = await h.call("add_rows", {
+      sheet: PERMIT_SHEET,
+      parentRowKey: ck("WO2002", 1003),
+      rows: Array.from({ length: 10 }, (_, i) => ({ "EXT_WOPERMIT.EXT_MEMO": `m${i}` })),
+      baseRevision: h.workspace.revision,
+      reason: "手で書く",
+    });
+    expect(many.note).toContain("add_rows from");
+  });
+
   it("反映中のシートへの編集系ツールは BUSY（読み取りは通る）", async () => {
     const running = new Set<string>();
     const h = harness({ commits: stubCommits(running) });

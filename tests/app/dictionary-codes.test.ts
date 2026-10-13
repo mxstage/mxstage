@@ -3,9 +3,10 @@ import { describe, expect, it } from "vitest";
 import { MatchViewStore } from "../../src/app/match/views";
 import { Workspace } from "../../src/app/store";
 import { StoreError } from "../../src/app/store/errors";
-import { classifyText, compileCodes, compileValues, entryProblem, replaceValue } from "../../src/shared/dictionary";
+import { classifyText, compileCodes, compileValues, entryProblem, normalizeRegexPattern, replaceValue } from "../../src/shared/dictionary";
 import { DICT_COLUMN, DICT_FIELD, DICT_FIND, DICT_MODE, DICT_SCOPE, DICT_TO } from "../../src/shared/dictionarySheet";
 import type { CellValue } from "../../src/shared/model";
+import { makeChildRowKey, makeParentKey } from "../../src/shared/sheet";
 
 const code = (id: string, find: string, field: string, to: string, scope?: string, mode: "text" | "regex" = "text") => ({ id, find, field, to, mode, ...(scope ? { scope } : {}) });
 
@@ -136,5 +137,111 @@ describe("apply_rule の classify と replace", () => {
     }
     expect(err).toBeInstanceOf(StoreError);
     expect((err as StoreError).message).toContain("alias dictionary");
+  });
+});
+
+// 日報で決めたコードを、作業指示の故障報告（子行）に写す（add_rows の from に parent）
+const FR = "FAILUREREPORT";
+function woSheet(ws: Workspace) {
+  const cols = [
+    { name: "SITEID", type: "string" as const },
+    { name: "WONUM", type: "string" as const },
+    { name: "DESCRIPTION", type: "string" as const },
+    { name: `${FR}.FAILUREREPORTID`, type: "integer" as const, child: FR },
+    { name: `${FR}.TYPE`, type: "string" as const, child: FR },
+    { name: `${FR}.FAILURECODE`, type: "string" as const, child: FR },
+  ];
+  const p = (wonum: string) => ({ SITEID: "KITA", WONUM: wonum, DESCRIPTION: wonum });
+  const pk = (wonum: string) => makeParentKey(["KITA", wonum]);
+  const empty = { [`${FR}.FAILUREREPORTID`]: null, [`${FR}.TYPE`]: null, [`${FR}.FAILURECODE`]: null };
+  ws.createSheet(
+    { name: "作業指示", source: { kind: "maximo", os: "MXAPIWODETAIL", select: ["*"], where: [] }, columns: cols, keyColumns: ["SITEID", "WONUM"], childIdAttrs: { [FR]: "FAILUREREPORTID" } },
+    [
+      { rowKey: pk("100"), parentKey: pk("100"), childName: null, values: { ...p("100"), ...empty } },
+      { rowKey: pk("200"), parentKey: pk("200"), childName: null, values: { ...p("200"), ...empty } },
+      // 300 には問題の行がもうある（LEAK）
+      { rowKey: makeChildRowKey(pk("300"), FR, 1), parentKey: pk("300"), childName: FR, values: { ...p("300"), [`${FR}.FAILUREREPORTID`]: 1, [`${FR}.TYPE`]: "PROBLEM", [`${FR}.FAILURECODE`]: "LEAK" } },
+      { rowKey: pk("400"), parentKey: pk("400"), childName: null, values: { ...p("400"), ...empty } },
+    ],
+  );
+}
+function linkedReport(ws: Workspace) {
+  const cols = ["ROW", "WONUM", "PROBLEM", "REMEDY"];
+  const data: Array<Record<string, CellValue>> = [
+    { ROW: "1", WONUM: "100", PROBLEM: "LEAK", REMEDY: "RETIGHT" },
+    { ROW: "2", WONUM: "100", PROBLEM: "LEAK", REMEDY: null }, // 同じ作業指示・同じ問題は 1 行にまとめる
+    { ROW: "3", WONUM: 200, PROBLEM: "NOISE", REMEDY: null }, // 数の 200 も文字の 200 と同じ
+    { ROW: "4", WONUM: "200", PROBLEM: "VIBR", REMEDY: null }, // 200 は問題が分かれる
+    { ROW: "5", WONUM: "300", PROBLEM: "CLOG", REMEDY: null }, // 300 は違う問題がもうある
+    { ROW: "6", WONUM: "999", PROBLEM: "LEAK", REMEDY: null }, // 作業指示が無い
+    { ROW: "7", WONUM: null, PROBLEM: "LEAK", REMEDY: null }, // 結べていない行
+    { ROW: "8", WONUM: "400", PROBLEM: null, REMEDY: null }, // コードが決まらなかった行
+  ];
+  ws.createSheet(
+    { name: "日報", source: { kind: "excel", importId: "i", fileName: "f.xlsx", sheetName: "5月", headerRow: 1 }, columns: cols.map((n) => ({ name: n, type: "string" as const })), keyColumns: ["ROW"], childIdAttrs: {} },
+    data.map((v) => ({ rowKey: String(v.ROW), parentKey: String(v.ROW), childName: null, values: v })),
+  );
+}
+
+describe("add_rows の from に parent: 別のシートの行から子行を作る", () => {
+  it("親ごとにまとめ、1 つに決まる親だけに足す。もうある行・分かれた親・違う値がある親は足さずに数える", () => {
+    const ws = new Workspace("作業");
+    woSheet(ws);
+    linkedReport(ws);
+    const spec = { sheet: "日報", parent: { WONUM: "WONUM" }, columns: { [`${FR}.FAILURECODE`]: "PROBLEM" }, values: { [`${FR}.TYPE`]: "PROBLEM" }, onePerParent: true };
+    const { groups, stats } = ws.childRowsFrom("作業指示", spec);
+    expect(stats).toMatchObject({ sourceRows: 8, noValue: 1, noParent: 1, parentNotFound: 1, parents: 3, added: 1, split: 1, differs: 1, alreadyThere: 0 });
+    expect(stats.parentNotFoundSamples).toEqual(["999"]);
+    expect(groups).toEqual([{ parentRowKey: makeParentKey(["KITA", "100"]), rows: [{ [`${FR}.FAILURECODE`]: "LEAK", [`${FR}.TYPE`]: "PROBLEM" }] }]);
+    const res = ws.addChildRows("作業指示", groups, { author: "llm", reason: "問題コード" });
+    expect(res.applied).toBe(1);
+    // 2 回目は、もうあるので足さない
+    expect(ws.childRowsFrom("作業指示", spec).stats).toMatchObject({ added: 0, alreadyThere: 1 });
+    // onePerParent が無ければ、分かれた値も 1 行ずつ足す（同じ値はまとめる）
+    const each = ws.childRowsFrom("作業指示", { ...spec, onePerParent: false });
+    expect(each.stats).toMatchObject({ added: 3, alreadyThere: 1 });
+  });
+
+  it("親の列・子の列の取り違えは invalid_args", () => {
+    const ws = new Workspace("作業");
+    woSheet(ws);
+    linkedReport(ws);
+    expect(() => ws.childRowsFrom("作業指示", { sheet: "日報", parent: { WONUM: "WONUM" }, columns: { DESCRIPTION: "PROBLEM" } })).toThrow(/child columns/);
+    expect(() => ws.childRowsFrom("作業指示", { sheet: "日報", parent: { [`${FR}.TYPE`]: "WONUM" }, columns: { [`${FR}.FAILURECODE`]: "PROBLEM" } })).toThrow(/parent columns/);
+    expect(() => ws.childRowsFrom("作業指示", { sheet: "日報", parent: { WONUM: "WONUM" }, columns: { [`${FR}.FAILURECODE`]: "なし" } })).toThrow(StoreError);
+  });
+});
+
+describe("lookup: 候補が複数でも、写す値が 1 つなら決まる", () => {
+  it("同じ作業指示の日報の行がどれも同じコードなら入れ、分かれたら入れない（空の行は数えない）", () => {
+    const ws = new Workspace("作業");
+    woSheet(ws);
+    linkedReport(ws);
+    const res = ws.applyRule("作業指示", [], { DESCRIPTION: { lookup: { sheet: "日報", matchCol: "WONUM", targetMatchCol: "WONUM", sourceCol: "PROBLEM" } } }, { author: "llm", reason: "問題コードを写す" });
+    const wo = ws.getSheet("作業指示");
+    const v = (wonum: string) => wo.finalValue(wo.group(makeParentKey(["KITA", wonum]))[0]!, "DESCRIPTION");
+    expect([v("100"), v("200"), v("300")]).toEqual(["LEAK", "200", "CLOG"]);
+    expect(v("400")).toBe("400"); // 相手の値が空なら変えない
+    expect(res.lookup).toEqual({ DESCRIPTION: { matched: 2, unmatched: 1, ambiguous: 1 } });
+  });
+});
+
+describe("正規表現の項目の全角の記号", () => {
+  it("全角の「（」は文字のまま（半角にしてもグループの始まりにしない）", () => {
+    expect(normalizeRegexPattern("^(\\d{1,2})/(\\d{1,2})（")).toBe("^(\\d{1,2})/(\\d{1,2})\\(");
+    expect(normalizeRegexPattern("Ｎｏ．(\\d)")).toBe("No\\.(\\d)");
+    expect(entryProblem({ find: "^(\\d{1,2})/(\\d{1,2})（", to: "令和8年$1月$2日（", mode: "regex" }, "value")).toBe(null);
+    const { rules } = compileValues([{ id: "d", find: "^(\\d{1,2})/(\\d{1,2})（", to: "令和8年$1月$2日（", mode: "regex", column: "WORKDATE" }]);
+    expect(replaceValue(rules, "WORKDATE", "5/22（金）")).toEqual({ kind: "value", value: "令和8年5月22日(金)", applied: ["d"] });
+  });
+
+  it("使えない項目は dictionaryProblems で分かる", () => {
+    const ws = new Workspace("作業");
+    dictionarySheet(ws, "日付", "value", [
+      { [DICT_FIND]: "(a+)+", [DICT_MODE]: "regex", [DICT_TO]: "x" },
+      { [DICT_FIND]: "5/22", [DICT_TO]: "2026-05-22" },
+    ]);
+    expect(ws.dictionaryProblems("日付")).toEqual([{ rowKey: "e_1", find: "(a+)+", problem: "regex_slow" }]);
+    expect(ws.dictionaryProblems("無い辞書")).toEqual([]);
   });
 });

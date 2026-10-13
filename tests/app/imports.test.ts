@@ -402,6 +402,9 @@ describe("describe_import / apply_mapping", () => {
       values: { サイト: "BEDFORD", "機器 番号": "A5001", タグ: "P-101", 設置日: "2024-01-01", 定格: 0.3, 備考: "吸込側 & 吐出側", 備考_G: "行1\r\n行2", "Column H": "X", 点検済: true },
     });
     expect(list.headerCandidates[0]).toMatchObject({ row: 3 });
+    // 見出しより上の表題・注記（凡例や単位が書かれる所）
+    expect(list.textAboveHeader).toEqual([{ row: 1, text: "機器一覧（2024年度）" }]);
+    expect(r.next).toContain("textAboveHeader");
     expect(mx).toMatchObject({ name: "MX", headerRow: 2, mxloader: { objectStructure: "MXASSET", action: "AddChange", headerRow: 2 } });
     expect(hidden).toMatchObject({ name: "設定", hidden: true });
   });

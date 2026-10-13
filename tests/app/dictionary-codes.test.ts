@@ -245,3 +245,58 @@ describe("正規表現の項目の全角の記号", () => {
     expect(ws.dictionaryProblems("無い辞書")).toEqual([]);
   });
 });
+
+describe("別のシートから写す日付は、台帳の書き方（和暦・年月だけ）でも読む", () => {
+  function sheets(ws: Workspace) {
+    ws.createSheet(
+      { name: "資産", source: { kind: "maximo", os: "MXAPIASSET", select: ["*"], where: [] }, columns: [{ name: "ASSETNUM", type: "string" }, { name: "INSTALLDATE", type: "date" }], keyColumns: ["ASSETNUM"], childIdAttrs: {} },
+      ["A1", "A2", "A3"].map((a) => ({ rowKey: a, parentKey: a, childName: null, values: { ASSETNUM: a, INSTALLDATE: null } })),
+    );
+    ws.createSheet(
+      { name: "台帳", source: { kind: "excel", importId: "i", fileName: "f.xlsx", sheetName: "北部", headerRow: 1 }, columns: [{ name: "ASSETNUM", type: "string" }, { name: "設置年月", type: "string" }], keyColumns: ["ASSETNUM"], childIdAttrs: {} },
+      [
+        { rowKey: "1", parentKey: "1", childName: null, values: { ASSETNUM: "A1", 設置年月: "H17.11" } },
+        { rowKey: "2", parentKey: "2", childName: null, values: { ASSETNUM: "A2", 設置年月: "平成18年2月" } },
+        { rowKey: "3", parentKey: "3", childName: null, values: { ASSETNUM: "A3", 設置年月: "2005/11" } },
+      ],
+    );
+  }
+
+  it("lookup で写すと YYYY-MM-DD（日が無ければ 1 日）。AI が直接書く値は今までどおりの書き方だけ", () => {
+    const ws = new Workspace("作業");
+    sheets(ws);
+    const res = ws.applyRule("資産", [], { INSTALLDATE: { lookup: { sheet: "台帳", matchCol: "ASSETNUM", targetMatchCol: "ASSETNUM", sourceCol: "設置年月" } } }, { author: "llm" });
+    expect(res.conflicts).toEqual([]);
+    const a = ws.getSheet("資産");
+    expect(["A1", "A2", "A3"].map((k) => a.finalValue(a.row(k)!, "INSTALLDATE"))).toEqual(["2005-11-01", "2006-02-01", "2005-11-01"]);
+    const direct = ws.applyEdits("資産", [{ rowKey: "A1", col: "INSTALLDATE", value: "H17.12" }], { author: "llm" });
+    expect(direct.conflicts).toEqual([{ rowKey: "A1", col: "INSTALLDATE", reason: "invalid_value" }]);
+  });
+});
+
+describe("別のシートから写す金額・有無は、帳票の書き方でも読む", () => {
+  it("lookup で写すと ¥・カンマ・千円・万円を数に、○・× を真偽に。AI が直接書く値は今までどおり", () => {
+    const ws = new Workspace("作業");
+    ws.createSheet(
+      { name: "作業指示", source: { kind: "maximo", os: "MXAPIWO", select: ["*"], where: [] }, columns: [{ name: "WONUM", type: "string" }, { name: "EXT_ORDERAMT", type: "number" }, { name: "EXT_LEGAL", type: "boolean" }], keyColumns: ["WONUM"], childIdAttrs: {} },
+      ["W1", "W2", "W3"].map((w) => ({ rowKey: w, parentKey: w, childName: null, values: { WONUM: w, EXT_ORDERAMT: null, EXT_LEGAL: null } })),
+    );
+    ws.createSheet(
+      { name: "発注一覧", source: { kind: "excel", importId: "i", fileName: "f.xlsx", sheetName: "s", headerRow: 1 }, columns: ["WONUM", "発注額", "法規"].map((n) => ({ name: n, type: "string" as const })), keyColumns: ["WONUM"], childIdAttrs: {} },
+      [
+        { rowKey: "1", parentKey: "1", childName: null, values: { WONUM: "W1", 発注額: "137.0万円", 法規: "○" } },
+        { rowKey: "2", parentKey: "2", childName: null, values: { WONUM: "W2", 発注額: "¥220,000", 法規: "×" } },
+        { rowKey: "3", parentKey: "3", childName: null, values: { WONUM: "W3", 発注額: "180千円", 法規: "-" } },
+      ],
+    );
+    const lk = (sourceCol: string) => ({ lookup: { sheet: "発注一覧", matchCol: "WONUM", targetMatchCol: "WONUM", sourceCol } });
+    const res = ws.applyRule("作業指示", [], { EXT_ORDERAMT: lk("発注額"), EXT_LEGAL: lk("法規") }, { author: "llm" });
+    const s = ws.getSheet("作業指示");
+    const v = (w: string, c: string) => s.finalValue(s.row(w)!, c);
+    expect([v("W1", "EXT_ORDERAMT"), v("W2", "EXT_ORDERAMT"), v("W3", "EXT_ORDERAMT")]).toEqual([1370000, 220000, 180000]);
+    expect([v("W1", "EXT_LEGAL"), v("W2", "EXT_LEGAL")]).toEqual([true, false]);
+    // 「-」は有無として読めない
+    expect(res.conflicts).toEqual([{ rowKey: "W3", col: "EXT_LEGAL", reason: "invalid_value" }]);
+    expect(ws.applyEdits("作業指示", [{ rowKey: "W1", col: "EXT_ORDERAMT", value: "12万円" }], { author: "llm" }).conflicts).toHaveLength(1);
+  });
+});

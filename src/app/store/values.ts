@@ -140,6 +140,78 @@ function normalizeOffset(tz: string): string | null {
   return `${sign}${pad2(oh)}:${pad2(om)}`;
 }
 
+/** 和暦の元年の前の年（令和 1 年 = 2019 年） */
+const ERA_BASE: Record<string, number> = { R: 2018, 令和: 2018, H: 1988, 平成: 1988, S: 1925, 昭和: 1925 };
+/** 和暦（R8.5.4・令和8年5月22日・H17.11・平成17年11月）。日が無ければ 1 日 */
+const ERA_DATE_RE = /^(令和|平成|昭和|R|H|S)\s*(元|\d{1,2})\s*[-/.年]\s*(\d{1,2})\s*(?:[-/.月]\s*(?:(\d{1,2})\s*日?)?)?$/i;
+/** 西暦の 2005年11月(1日)・2005.11.1・年と月だけの 2005/11・2005-11 */
+const WESTERN_LOOSE_RE = /^(\d{4})\s*(?:年\s*(\d{1,2})\s*月\s*(?:(\d{1,2})\s*日)?|[-/.]\s*(\d{1,2})\s*(?:\.\s*(\d{1,2}))?)$/;
+
+/**
+ * 台帳や帳票の日付の書き方（和暦、年月だけ、2005年11月）を日付として読む。時刻は持たない。
+ * 曜日の「（金）」は読み飛ばす。日が書かれていなければ 1 日（年月までの台帳の設置日など）。
+ * 別のシート（取り込んだファイル）から写す値だけに使う。AI や利用者が書く値は parseDateInput の書き方に限る
+ */
+export function parseLooseDate(text: string): DateParts | null {
+  const t = text.normalize("NFKC").trim().replace(/\s*\((?:[月火水木金土日]|mon|tue|wed|thu|fri|sat|sun)\)$/i, "");
+  let y: number, mo: number, d: number;
+  const e = ERA_DATE_RE.exec(t);
+  const w = e ? null : WESTERN_LOOSE_RE.exec(t);
+  if (e) {
+    const base = ERA_BASE[e[1]!.length === 1 ? e[1]!.toUpperCase() : e[1]!];
+    if (base === undefined) return null;
+    [y, mo, d] = [base + (e[2] === "元" ? 1 : Number(e[2])), Number(e[3]), e[4] !== undefined ? Number(e[4]) : 1];
+  } else if (w) {
+    [y, mo, d] = [Number(w[1]), Number(w[2] ?? w[4]), Number(w[3] ?? w[5] ?? 1)];
+  } else {
+    return null;
+  }
+  if (mo < 1 || mo > 12 || d < 1 || d > daysInMonth(y, mo)) return null;
+  return { y, mo, d, hh: 0, mi: 0, ss: 0, frac: "", hasTime: false, tz: null };
+}
+
+/** 金額・数量の単位（大きい順に見る） */
+const NUMBER_UNITS: ReadonlyArray<[string, number]> = [
+  ["百万円", 1e6],
+  ["億円", 1e8],
+  ["万円", 1e4],
+  ["千円", 1e3],
+  ["百万", 1e6],
+  ["億", 1e8],
+  ["万", 1e4],
+  ["千", 1e3],
+  ["円", 1],
+  ["k", 1e3],
+];
+
+/**
+ * 帳票の金額・数量の書き方を数として読む（¥220,000・1,234円・137.0万円・180千円・$12,340・12.3k）。
+ * 別のシートから写す値だけに使う。読めなければ null
+ */
+export function parseLooseNumber(text: string): number | null {
+  let t = text.normalize("NFKC").trim().replace(/\s+/g, "");
+  t = t.replace(/^[¥$\\]/, "");
+  let mul = 1;
+  for (const [unit, m] of NUMBER_UNITS) {
+    if (t.toLowerCase().endsWith(unit)) {
+      t = t.slice(0, t.length - unit.length);
+      mul = m;
+      break;
+    }
+  }
+  if (!/^-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?$/.test(t)) return null;
+  const n = Number(t.replace(/,/g, "")) * mul;
+  return Number.isFinite(n) ? Math.round(n * 1e6) / 1e6 : null;
+}
+
+/** 帳票の有無の書き方（○・×・有・無・あり・なし・はい・いいえ・Y・N）。別のシートから写す値だけに使う */
+export function parseLooseBoolean(text: string): boolean | null {
+  const t = text.normalize("NFKC").trim().toLowerCase();
+  if (["○", "◯", "〇", "有", "あり", "はい", "y", "yes"].includes(t)) return true;
+  if (["×", "✕", "✗", "無", "なし", "いいえ", "n", "no"].includes(t)) return false;
+  return null;
+}
+
 /** 利用者が書いた日付・日時を読む（上の書き方）。読めない・ありえない日付なら null */
 export function parseDateInput(text: string): DateParts | null {
   const m = DATE_INPUT_RE.exec(text.trim());
@@ -242,6 +314,11 @@ export type CoerceResult = { ok: true; value: CellValue } | { ok: false; message
 export interface CoerceOptions {
   /** 日時にオフセットが書かれていないときに付けるオフセット（DateOffsetHint）。省略時はブラウザのタイムゾーン */
   dateOffset?: DateOffsetHint;
+  /**
+   * 別のシート（取り込んだファイル）から写す値: 帳票の書き方も読む。
+   * 日付は和暦・年月だけ・2005年11月（parseLooseDate）、数は ¥・円・カンマ・千円・万円（parseLooseNumber）、真偽は ○・×・有・無（parseLooseBoolean）
+   */
+  fileValues?: boolean;
 }
 
 /** 日付の書き方の案内（LLM にも返すので英語だけ） */
@@ -281,11 +358,11 @@ export function coerceValue(col: ColumnSchema, v: CellValue, opts: CoerceOptions
   if (typeof v === "string" && v.trim() === "") return { ok: true, value: null };
   switch (col.type) {
     case "number": {
-      const n = toNumber(v);
+      const n = toNumber(v) ?? (opts.fileValues === true && typeof v === "string" ? parseLooseNumber(v) : null);
       return n === null || typeof v === "boolean" ? { ok: false, message: "Not a number" } : { ok: true, value: n };
     }
     case "integer": {
-      const n = toNumber(v);
+      const n = toNumber(v) ?? (opts.fileValues === true && typeof v === "string" ? parseLooseNumber(v) : null);
       if (n === null || typeof v === "boolean" || !Number.isSafeInteger(n)) return { ok: false, message: "Not an integer" };
       return { ok: true, value: n };
     }
@@ -294,12 +371,18 @@ export function coerceValue(col: ColumnSchema, v: CellValue, opts: CoerceOptions
       const s = String(v).trim().toLowerCase();
       if (s === "true" || s === "1") return { ok: true, value: true };
       if (s === "false" || s === "0") return { ok: true, value: false };
+      const loose = opts.fileValues === true ? parseLooseBoolean(String(v)) : null;
+      if (loose !== null) return { ok: true, value: loose };
       return { ok: false, message: "Not a boolean" };
     }
     case "date":
     case "datetime": {
       if (typeof v !== "string") return { ok: false, message: DATE_FORMAT_MESSAGE };
-      const s = normalizeDateInput(v, opts.dateOffset);
+      let s = normalizeDateInput(v, opts.dateOffset);
+      if (s === null && opts.fileValues === true) {
+        const p = parseLooseDate(v);
+        if (p !== null) s = formatIsoDate(p, opts.dateOffset);
+      }
       if (s === null) return { ok: false, message: DATE_FORMAT_MESSAGE };
       return { ok: true, value: s };
     }

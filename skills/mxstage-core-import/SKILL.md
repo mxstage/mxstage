@@ -2,7 +2,7 @@
 name: mxstage-core-import
 description: "MX Stage basic operation: receive Excel or CSV files (MXLoader sheets, printed forms, merged cells, years across columns), read them into a sheet, map columns and reconcile with Maximo."
 metadata:
-  version: "1.5.0"
+  version: "1.6.0"
   category: "core"
 ---
 
@@ -19,8 +19,9 @@ An imported file becomes a reference sheet. It cannot be committed itself; its v
 
 describe_import shows each sheet (or the CSV table): row count, likely header rows, columns with letters and types, sample rows, merged cells, whether it is an MXLoader file, and formHint when the same labels repeat (one printed form after another).
 
-- Confirm the header row with the user (row 2 in MXLoader files; title rows and notes are common above the header).
+- Confirm the header row with the user (row 2 in MXLoader files; title rows and notes are common above the header). Read textAboveHeader: legends of marks, units (tax included, thousands of yen) and what the file leaves out are written there.
 - Check Excel damage: dates turned into numbers, leading zeros lost in codes, long numbers in exponent form, merged cells, totals rows at the bottom.
+- Values written the file's way are read when a lookup or add_rows from copies them into a typed column: dates in the Japanese era (R8.5.4, H17.11) or with year and month only (the 1st when no day is given), amounts with currency signs, separators or Japanese units of thousand and ten thousand yen, and yes/no marks such as ○ and ×. Do not write a dictionary for them.
 
 ## 3. Make a sheet
 

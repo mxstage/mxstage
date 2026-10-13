@@ -68,7 +68,12 @@ export interface RuleOptions extends EditOptions {
   dryRun?: boolean;
 }
 
+/** apply_rule が作る変更。fileValue は別のシート・ファイルから写した値（日付を和暦・年月だけでも読む） */
+type PlannedEdit = CellEdit & { fileValue?: boolean };
+
 export interface AddRowsOptions extends EditOptions {
+  /** 別のシート（取り込んだファイル）から写した行（add_rows の from）。日付を和暦・年月だけでも読む */
+  fileValues?: boolean;
   /** 子行として追加するときの親の行キー（親行・子行のどちらでもよい） */
   parentRowKey?: string;
   /** 子オブジェクト名。省略時は parentRowKey の子行・シートの子が 1 種類ならそれ・入力の子の列から決める */
@@ -625,8 +630,10 @@ export class Workspace {
           values.push({ row, value: r.value });
         }
       }
+      // 別のシート・ファイルの値（lookup・replace・copyFrom）は、和暦や年月だけの日付も読む
+      const fileValue = rule.kind === "lookup" || rule.kind === "replace" || rule.kind === "copyFrom";
       for (const v of this.dropParentDisagreements(sheet, rule, values, conflicts)) {
-        edits.push({ rowKey: v.row.rowKey, col: rule.col, value: v.value });
+        edits.push({ rowKey: v.row.rowKey, col: rule.col, value: v.value, ...(fileValue ? { fileValue } : {}) });
       }
     }
     const ops = this.planSets(sheet, edits, opts, conflicts);
@@ -685,7 +692,7 @@ export class Workspace {
     if (opts.parentRowKey === undefined) {
       const pendingKeys = new Set<string>();
       rows.forEach((values, i) => {
-        const plan = this.planParentRow(sheet, values, i, pendingKeys, base);
+        const plan = this.planParentRow(sheet, values, i, pendingKeys, base, opts.fileValues === true);
         if ("op" in plan) pendingKeys.add(plan.op.rowKey);
         push(plan);
       });
@@ -702,7 +709,7 @@ export class Workspace {
   addChildRows(
     sheetName: string,
     groups: ReadonlyArray<{ parentRowKey: string; rows: ReadonlyArray<Readonly<Record<string, CellValue>>> }>,
-    opts: EditOptions & { childName?: string },
+    opts: EditOptions & { childName?: string; fileValues?: boolean },
   ): ApplyResult {
     const sheet = this.getSheet(sheetName);
     checkEditOptions(opts, this._revision);
@@ -714,7 +721,7 @@ export class Workspace {
     };
     let offset = 0;
     for (const g of groups) {
-      this.planChildren(sheet, g.parentRowKey, g.rows, offset, opts.childName, opts.baseRevision, push, conflicts);
+      this.planChildren(sheet, g.parentRowKey, g.rows, offset, opts.childName, opts.baseRevision, push, conflicts, opts.fileValues === true);
       offset += g.rows.length;
     }
     return this.finish(sheet, opts, ops, conflicts, "rows_added");
@@ -730,6 +737,7 @@ export class Workspace {
     base: number | undefined,
     push: (plan: RowPlan) => void,
     conflicts: ConflictInfo[],
+    fileValues = false,
   ): void {
     const parent = sheet.row(parentRowKey);
     // 親だけの行に削除の印が付いた親（親の削除）にも子を追加しない
@@ -749,7 +757,7 @@ export class Workspace {
       conflicts.push({ rowKey: parentRowKey, col: "", reason: "changed_since_read" });
       return;
     }
-    rows.forEach((values, i) => push(this.planChildRow(sheet, parent, values, offset + i, childName)));
+    rows.forEach((values, i) => push(this.planChildRow(sheet, parent, values, offset + i, childName, fileValues)));
   }
 
   deleteRows(sheetName: string, rowKeys: readonly string[], opts: EditOptions): ApplyResult {
@@ -872,7 +880,7 @@ export class Workspace {
    * セル変更を検査して set 操作にする（まだ適用しない）。
    * 親の列は同じ親の全行（削除の印が付いた行を含む）に同じ値を入れる。applied はこの展開後の件数になる。
    */
-  private planSets(sheet: Sheet, edits: readonly CellEdit[], opts: EditOptions, conflicts: ConflictInfo[]): PlannedOp[] {
+  private planSets(sheet: Sheet, edits: readonly PlannedEdit[], opts: EditOptions, conflicts: ConflictInfo[]): PlannedOp[] {
     const ops: PlannedOp[] = [];
     const pending = new Map<RowState, Map<string, CellValue>>();
     const current = (row: RowState, col: string): CellValue => {
@@ -897,7 +905,7 @@ export class Workspace {
         conflicts.push({ rowKey: e.rowKey, col: e.col, reason: "read_only_column" });
         continue;
       }
-      const coerced = coerceValue(schema, e.value, this.coerceOptions(sheet, schema, row));
+      const coerced = coerceValue(schema, e.value, { ...this.coerceOptions(sheet, schema, row), ...(e.fileValue === true ? { fileValues: true } : {}) });
       if (!coerced.ok) {
         conflicts.push({ rowKey: e.rowKey, col: e.col, reason: "invalid_value" });
         continue;
@@ -1069,13 +1077,14 @@ export class Workspace {
     index: number,
     pendingKeys: ReadonlySet<string>,
     base: number | undefined,
+    fileValues = false,
   ): RowPlan {
     const where = `#${index}`;
     const out: Record<string, CellValue> = {};
     for (const [col, v] of Object.entries(values)) {
       const schema = sheet.column(col);
       if (!schema) return { conflict: { rowKey: where, col, reason: "column_not_found" } };
-      const c = coerceValue(schema, v, this.coerceOptions(sheet, schema));
+      const c = coerceValue(schema, v, { ...this.coerceOptions(sheet, schema), ...(fileValues ? { fileValues: true } : {}) });
       // 親の行に子の列の値は入れられない（子の行として追加する）
       if (!c.ok || (schema.child && !isBlank(c.value))) return { conflict: { rowKey: where, col, reason: "invalid_value" } };
       // 読み取り専用の列（キー列を除く）は新しい行でも Maximo が決めるので値を入れさせない
@@ -1109,6 +1118,7 @@ export class Workspace {
     values: Readonly<Record<string, CellValue>>,
     index: number,
     childNameOpt: string | undefined,
+    fileValues = false,
   ): RowPlan {
     const where = `#${index}`;
     let childName = childNameOpt ?? parent.childName;
@@ -1128,7 +1138,7 @@ export class Workspace {
     for (const [col, v] of Object.entries(values)) {
       const schema = sheet.column(col);
       if (!schema) return { conflict: { rowKey: where, col, reason: "column_not_found" } };
-      const c = coerceValue(schema, v, this.coerceOptions(sheet, schema, schema.child ? undefined : parent));
+      const c = coerceValue(schema, v, { ...this.coerceOptions(sheet, schema, schema.child ? undefined : parent), ...(fileValues ? { fileValues: true } : {}) });
       if (!c.ok) return { conflict: { rowKey: where, col, reason: "invalid_value" } };
       if (!schema.child) {
         // 親の列は親の現在の値と同じでなければならない（null と空文字は同じ）

@@ -123,6 +123,8 @@ export function scopeSheetName(os: string): string {
 export const DESCRIBE_IMPORT_MAX_COLUMNS = 100;
 /** 見出しの候補に載せるセルの数 */
 const HEADER_CELLS_SHOWN = 15;
+/** 見出しより上の表題・注記を見せる行数 */
+const TEXT_ABOVE_ROWS = 6;
 
 /** phase の past を接続先の設定で埋めたときに LLM に伝えること */
 export const PHASE_PAST_NOTE = (status: string): string =>
@@ -179,6 +181,16 @@ function importView(a: ImportAnalysis, samples: number, columnLimit: number): Re
     v.formHint = form;
     const titles = form.titles ? ` The first rows also hold ${form.titles.map((x) => `${x.text} (${x.count})`).join(", ")}: if these are titles, give all of them as start, or use a label on the first row that every form has.` : "";
     v.formNote = `The same ${form.labels.length} labels repeat ${form.forms} times: the sheet likely holds ${form.forms} forms (first rows ${form.firstRows.join(", ")}). Read it with form in apply_mapping (start = text on the first row of each form, fields = header labels, items = the item table) instead of a header row.${titles}`;
+  }
+  if (a.headerRow !== null && form === null) {
+    // 見出しより上の表題・注記（凡例、「※金額は税込」など）。表の読み方を決める手がかりなので見せる
+    const above = t.rows
+      .filter((r) => r.row < a.headerRow!)
+      .map((r) => ({ row: r.row, text: r.cells.filter((c) => c !== null && String(c).trim() !== "").map((c) => String(c).trim()).join(" | ") }))
+      .filter((r) => r.text !== "")
+      .slice(0, TEXT_ABOVE_ROWS)
+      .map((r) => ({ row: r.row, text: clipString(r.text) ?? r.text }));
+    if (above.length > 0) v.textAboveHeader = above;
   }
   if (a.headerRow !== null) {
     v.dataRowCount = a.rows.length;
@@ -1347,7 +1359,7 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
         res =
           groups.length === 0
             ? { batchId: null, applied: 0, conflicts: [], revision: workspace.revision }
-            : workspace.addChildRows(args.sheet, groups, { author: "llm", reason: args.reason, baseRevision: args.baseRevision });
+            : workspace.addChildRows(args.sheet, groups, { author: "llm", reason: args.reason, baseRevision: args.baseRevision, fileValues: true });
       } else if (args.children !== undefined) {
         const total = args.children.reduce((n, g) => n + g.rows.length, 0);
         if (total > 200) throw invalidArgs(`children has ${total} rows; add up to 200 rows per call.`);
@@ -1358,6 +1370,7 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
           author: "llm",
           reason: args.reason,
           baseRevision: args.baseRevision,
+          ...(args.from !== undefined ? { fileValues: true } : {}),
           ...(args.parentRowKey !== undefined ? { parentRowKey: args.parentRowKey } : {}),
         });
       }
@@ -1482,7 +1495,7 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
       base.sheetCount = workbook.tables.length;
       base.dataNotice = DATA_NOTICE;
       base.next =
-        "Confirm with the user which sheet and which row hold the headers, then turn it into a sheet with apply_mapping (ask if there is more than one candidate). Renaming columns to Maximo attribute names with rename makes matching easier. For repeated forms (formHint) use form; for merged or ditto cells use fillDown; for years or months across columns use unpivot.";
+        "Confirm with the user which sheet and which row hold the headers, then turn it into a sheet with apply_mapping (ask if there is more than one candidate). Renaming columns to Maximo attribute names with rename makes matching easier. For repeated forms (formHint) use form; for merged or ditto cells use fillDown; for years or months across columns use unpivot. Read textAboveHeader: titles and notes often give the meaning of marks (a legend), units, and what the file leaves out.";
       // シートを指定しないときは、同じ形（見出しの列か帳票のラベルが同じ）のシートは最初の 1 枚だけを詳しく返す（月ごとのシートなど）
       const firstOfLayout = new Map<string, number>();
       const sameAs = analyses.map((a, i) => {

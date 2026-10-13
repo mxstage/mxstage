@@ -131,6 +131,22 @@ describe("辞書の保存と読み込み", () => {
     expect(s.folderInfo(SCOPE).path).toBe(null);
   });
 
+  it("言葉 → コードの辞書: 項目・絞り込みを保存して読み、項目の無い項目は断る", async () => {
+    const s = store();
+    const meta = await s.create(SCOPE, { name: "故障の言葉", kind: "code" });
+    expect(meta.kind).toBe("code");
+    const saved = await s.save(SCOPE, meta.id, [{ op: "put", entry: { find: "漏れ", to: "LEAK", mode: "text", note: "", field: "PROBLEM", scope: "PUMP, VALVE" } }]);
+    expect(saved.state.entries).toEqual([expect.objectContaining({ find: "漏れ", to: "LEAK", field: "PROBLEM", scope: "PUMP, VALVE" })]);
+    await expect(s.save(SCOPE, meta.id, [{ op: "put", entry: { find: "異音", to: "NOISE", mode: "text", note: "" } }])).rejects.toMatchObject({ code: "invalid_entry" });
+    const v = await s.create(SCOPE, { name: "メーカー名", kind: "value" });
+    const vs = await s.save(SCOPE, v.id, [{ op: "put", entry: { find: "三菱電機(株)", to: "三菱電機", mode: "text", note: "", column: "MANUFACTURER" } }]);
+    expect(vs.state.entries[0]).toMatchObject({ column: "MANUFACTURER" });
+    expect(s.list(SCOPE).map((d) => [d.name, d.kind])).toEqual([
+      ["メーカー名", "value"],
+      ["故障の言葉", "code"],
+    ]);
+  });
+
   it("接続先のキーと、同期の仕組みの見分け", () => {
     expect(scopeKeyOf(SCOPE)).toBe(SCOPE);
     expect(scopeKeyOf("demo-ja")).toBe("demo-ja");

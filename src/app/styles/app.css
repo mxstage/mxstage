@@ -1845,3 +1845,7 @@ body.resizing-row * {
   gap: var(--cds-spacing-03);
   max-width: 560px;
 }
+
+.dictionary-kind {
+  margin-top: var(--cds-spacing-06);
+}

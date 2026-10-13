@@ -2,7 +2,8 @@
 // アイコンだけにせず、文字の付いたボタンにする。保存していない変更があれば件数を出す。
 
 import { Book } from "@carbon/icons-react";
-import { Button, TextInput } from "@carbon/react";
+import { Button, RadioButton, RadioButtonGroup, TextInput } from "@carbon/react";
+import type { DictionaryKind } from "../../shared/dictionary";
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { dictionaryMessages } from "../dictionaries/messages";
 import type { DictionaryService } from "../dictionaries/service";
@@ -118,8 +119,8 @@ export function DictionaryMenu({ service, unsaved, connectionName, onOpened, onM
       {creating && (
         <NewDictionaryDialog
           onClose={() => setCreating(false)}
-          onCreate={async (name) => {
-            const res = await service.createDictionary(name);
+          onCreate={async (name, kind) => {
+            const res = await service.createDictionary(name, undefined, kind);
             if (!res.ok) return res.message;
             setCreating(false);
             setOpen(false);
@@ -133,10 +134,11 @@ export function DictionaryMenu({ service, unsaved, connectionName, onOpened, onM
   );
 }
 
-function NewDictionaryDialog({ onClose, onCreate }: { onClose: () => void; onCreate: (name: string) => Promise<string | null> }) {
+function NewDictionaryDialog({ onClose, onCreate }: { onClose: () => void; onCreate: (name: string, kind: DictionaryKind) => Promise<string | null> }) {
   const t = dictionaryMessages().newDialog;
   const id = useId();
   const [name, setName] = useState("");
+  const [kind, setKind] = useState<DictionaryKind>("alias");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const submit = async () => {
@@ -145,7 +147,7 @@ function NewDictionaryDialog({ onClose, onCreate }: { onClose: () => void; onCre
       return;
     }
     setBusy(true);
-    const err = await onCreate(name.trim());
+    const err = await onCreate(name.trim(), kind);
     setBusy(false);
     if (err !== null) setError(err);
   };
@@ -179,9 +181,11 @@ function NewDictionaryDialog({ onClose, onCreate }: { onClose: () => void; onCre
           if (e.key === "Enter") void submit();
         }}
       />
-      <p className="muted small dictionary-kind-note">
-        {t.kindLabel}: {t.kindAlias}
-      </p>
+      <RadioButtonGroup legendText={t.kindLabel} name={`${id}-kind`} orientation="vertical" valueSelected={kind} onChange={(v) => setKind((v as DictionaryKind) ?? "alias")} className="dictionary-kind">
+        <RadioButton labelText={t.kindAlias} value="alias" id={`${id}-alias`} />
+        <RadioButton labelText={t.kindCode} value="code" id={`${id}-code`} />
+        <RadioButton labelText={t.kindValue} value="value" id={`${id}-value`} />
+      </RadioButtonGroup>
     </Dialog>
   );
 }

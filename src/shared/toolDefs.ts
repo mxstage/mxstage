@@ -89,6 +89,26 @@ const ruleValue = z.union([
     }),
   }),
   z.strictObject({
+    classify: z
+      .strictObject({
+        dictionary: z.string().min(1).max(64).describe("A words → codes dictionary (open_dictionary)"),
+        textCol: matchColumns.describe("Text column(s) to read the words from (several are joined with a space)"),
+        field: z.string().min(1).max(64).describe("Which entries to use, by their FIELD (for example PROBLEM, CAUSE or REMEDY)"),
+        scopeCol: z.string().optional().describe("Column whose value an entry's SCOPE must equal (for example the failure class, or the problem code for causes). Entries without SCOPE apply to every row"),
+      })
+      .describe(
+        "Decide a code from the words in the text. A row gets a code only when the words found give exactly one code; several codes are returned as lookup_ambiguous, no words as unmatched. A word inside a longer word that was found is not counted",
+      ),
+  }),
+  z.strictObject({
+    replace: z
+      .strictObject({
+        dictionary: z.string().min(1).max(64).describe("A value replacement dictionary (open_dictionary)"),
+        fromCol: z.string().optional().describe("Column to read (default: the column being set)"),
+      })
+      .describe("Replace the value with the correct value from the dictionary (whole values for MODE text, parts for MODE regex). Rows that match no entry are not changed"),
+  }),
+  z.strictObject({
     phase: z
       .strictObject({
         finish: z.string().optional().describe("End date column (e.g. ACTFINISH, TARGCOMPDATE). On or before asOf: past"),
@@ -447,7 +467,7 @@ export const TOOL_DEFS = {
     name: "open_dictionary",
     title: "Open a customer dictionary",
     description:
-      "Opens a customer dictionary (names written in the customer's own way → the names in Maximo) as a sheet in the work screen, so that the people can see it and match_sheets and lookups can use it (dictionaries). Columns: FIND (how it is written; for MODE regex a JavaScript regular expression), TO (the correct name; $1 for groups with regex), MODE (text or regex; text matches as written, ignoring full-width or half-width and spaces), NOTE (why). Add entries with add_rows, change them with patch_cells and remove them with delete_rows, each with a reason. Keep entries narrow and general (no unit numbers that differ from row to row). Entries are not shared until the user presses Save in the work screen: when you have added entries, tell the user to check them and press Save. Changes to a dictionary never go to Maximo.",
+      "Opens a customer dictionary as a sheet in the work screen, so that the people can see it and the work screen can apply it. Columns of every kind: FIND (as written; for MODE regex a JavaScript regular expression), MODE (text or regex; text ignores full-width or half-width, case and spaces), TO, NOTE (why). alias: TO is the name in Maximo ($1 for regex groups); use with dictionaries in match_sheets and lookups. code: FIND is a word in the text, FIELD the field (for example PROBLEM, CAUSE, REMEDY), TO the code, SCOPE optional values of the row (for example failure classes, comma separated) the entry is limited to; use with classify in apply_rule. value: COLUMN optional column name, TO the correct value; use with replace in apply_rule. Add entries with add_rows, change them with patch_cells and remove them with delete_rows, each with a reason. Keep entries narrow and general (no unit numbers that differ from row to row). Entries are not shared until the user presses Save in the work screen: when you have added entries, tell the user to check them and press Save. Changes to a dictionary never go to Maximo.",
     inputSchema: z.strictObject({
       name: z.string().min(1).max(64).describe("Dictionary name (from dictionaries in get_status)"),
     }),
@@ -458,9 +478,10 @@ export const TOOL_DEFS = {
     name: "create_dictionary",
     title: "Create a customer dictionary",
     description:
-      "Creates an empty customer dictionary of names for the current Maximo connection and opens it as a sheet (see open_dictionary). Create one only when no dictionary in get_status fits, and tell the user its name. It is kept in the connection's shared folder (shared with the project members) or, without one, on this PC.",
+      "Creates an empty customer dictionary for the current Maximo connection and opens it as a sheet (see open_dictionary). Kinds: alias (how the customer writes a name → the name in Maximo; used by dictionaries in match_sheets and lookups), code (words in the text → a code such as a failure problem, cause or remedy; used by classify in apply_rule), value (how a value is written → the correct value; used by replace in apply_rule). Create one only when no dictionary in get_status fits, and tell the user its name. It is kept in the connection's shared folder (shared with the project members) or, without one, on this PC.",
     inputSchema: z.strictObject({
-      name: z.string().min(1).max(64).describe("Name the user will recognize, e.g. Equipment names"),
+      name: z.string().min(1).max(64).describe("Name the user will recognize, e.g. Equipment names or Failure words"),
+      kind: z.enum(["alias", "code", "value"]).default("alias"),
       description: z.string().max(500).optional(),
     }),
     annotations: EDIT,
@@ -480,6 +501,11 @@ export const TOOL_DEFS = {
       name: sheetName.describe("Name of the new sheet (e.g. Inspection results)"),
       rename: z.record(z.string(), z.string()).optional().describe('Column name from describe_import → column name in the sheet (e.g. {"Asset No.":"ASSETNUM"})'),
       keyColumns: z.array(z.string()).max(5).optional().describe("Key columns pinned on screen (names after rename; default SOURCE_ROW, or SOURCE_CELL with unpivot)"),
+      addColumns: z
+        .array(z.string().min(1).max(64))
+        .max(20)
+        .optional()
+        .describe("Empty columns to add, to be filled later by apply_rule in the work screen (for example WONUM from a lookup, or PROBLEM, CAUSE and REMEDY from a classify rule)"),
       form: z
         .strictObject({
           start: z.array(z.string().min(1).max(50)).min(1).max(5).describe("Text of a cell on the first row of each form, such as its title (spaces are ignored; the cell must equal it, optionally followed by a note in brackets). Give every title used in the file"),

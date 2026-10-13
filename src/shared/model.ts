@@ -64,7 +64,7 @@ export type SheetSource =
       kind: "dictionary";
       dictionaryId: string;
       dictionaryName: string;
-      dictKind: "alias";
+      dictKind: "alias" | "code" | "value";
       /** 辞書のある接続先（保存した接続先の ID・デモの ID・保存していない接続先の Maximo の URL） */
       scope: string;
     };
@@ -102,6 +102,25 @@ export type RuleValue =
         sourceCol: string;
         normalize?: NormalizeOption[];
       } & MatchConditions;
+    }
+  | {
+      /**
+       * 言葉 → コードの辞書で、文に出てくる言葉からコードを決める（1 つに決まる行だけ。2 つ以上は ambiguous）。
+       * textCol の文（複数なら空白でつなぐ）に当て、field の項目の項目だけを使う。scopeCol があれば、その値の行だけに当てる項目も使う
+       */
+      classify: {
+        dictionary: string;
+        textCol: string | string[];
+        field: string;
+        scopeCol?: string;
+      };
+    }
+  | {
+      /** 値の置き換えの辞書で、列の値を正しい値にする（fromCol を省くとその列の値。当たらない行は変えない） */
+      replace: {
+        dictionary: string;
+        fromCol?: string;
+      };
     }
   | {
       /**
@@ -194,6 +213,8 @@ export interface ApplyResult {
   lookup?: Record<string, LookupStats>;
   /** apply_rule で phase を使った列ごとの内訳 */
   phase?: Record<string, PhaseStats>;
+  /** apply_rule で classify・replace を使った列ごとの件数（matched は値を決めた行、unmatched は当たらなかった行、ambiguous は 2 つ以上に分かれた行） */
+  dictionary?: Record<string, LookupStats>;
 }
 
 export interface DiffEntry {

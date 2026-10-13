@@ -320,10 +320,24 @@ async function dictionaryStatusView(dictionaries: NonNullable<ToolRegistryDeps["
     list: listing.dictionaries.map((d) => {
       const open = ws.dictionarySheet(d.name);
       const s = open ? ws.summary(open.meta.name) : null;
-      return { name: d.name, kind: "names", entries: d.count, ...(open ? { sheet: open.meta.name, unsavedChanges: s ? s.changedCells + s.addedRows + s.deletedRows : 0 } : {}) };
+      return { name: d.name, kind: d.kind, entries: d.count, ...(open ? { sheet: open.meta.name, unsavedChanges: s ? s.changedCells + s.addedRows + s.deletedRows : 0 } : {}) };
     }),
     note: "Use these with open_dictionary and dictionaries in match_sheets and lookups.",
   };
+}
+
+/** 取り込んだシートに空の列を足す（あとで apply_rule で埋める。既にある名前は足さない・断る） */
+function addEmptyColumns(built: { meta: { columns: ColumnSchema[] }; rows: SheetRow[] }, names: readonly string[] | undefined): void {
+  if (names === undefined || names.length === 0) return;
+  const have = new Set(built.meta.columns.map((c) => c.name));
+  for (const raw of names) {
+    const name = raw.trim();
+    if (name === "" || name === "__proto__") throw invalidArgs(`${JSON.stringify(raw)} in addColumns cannot be used as a column name`);
+    if (have.has(name)) throw invalidArgs(`Column ${name} in addColumns is already in the sheet`);
+    have.add(name);
+    built.meta.columns.push({ name, type: "string" });
+    for (const r of built.rows) r.values[name] = null;
+  }
 }
 
 /** undefined の欄を落とす（覚えておく引数を小さくする） */
@@ -457,14 +471,22 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
     const s = workspace.summary(sheet);
     const open = deps.dictionaries?.openOf(sheet) ?? null;
     const folder = deps.dictionaries?.snapshot().listing?.folder ?? null;
+    const kind = workspace.getSheet(sheet).meta.source.kind === "dictionary" ? (workspace.getSheet(sheet).meta.source as { dictKind: "alias" | "code" | "value" }).dictKind : "alias";
+    const columns =
+      kind === "code"
+        ? { FIND: "word in the text", MODE: "text or regex", FIELD: "field, e.g. PROBLEM, CAUSE, REMEDY", TO: "code", SCOPE: "only rows with these values (optional, comma separated)", NOTE: "why" }
+        : kind === "value"
+          ? { COLUMN: "column (optional)", FIND: "as written", MODE: "text or regex", TO: "correct value", NOTE: "why" }
+          : { FIND: "how it is written", TO: "correct name", MODE: "text or regex", NOTE: "why" };
     return toolResult(
       {
         sheet,
         dictionary: open?.name ?? sheet,
-        kind: "names",
+        kind,
+        usedBy: kind === "code" ? "classify in apply_rule" : kind === "value" ? "replace in apply_rule" : "dictionaries in match_sheets and lookups",
         entries: s.rowCount,
         unsavedChanges: s.changedCells + s.addedRows + s.deletedRows,
-        columns: { FIND: "how it is written", TO: "correct name", MODE: "text or regex", NOTE: "why" },
+        columns,
         sharing: folder === null ? "unknown" : folder.path === null ? "this PC only" : "shared folder (project members)",
         note: DICTIONARY_NOTE,
       },
@@ -559,6 +581,7 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
       const v: Record<string, unknown> = { sheet, batchId: res.batchId, applied: res.applied, ...extra, conflictCount: res.conflicts.length, conflicts: res.conflicts.slice(0, n) };
       if (n < res.conflicts.length) v.conflictsNote = `Only the first ${n} conflicts were returned because there are many`;
       if (res.lookup !== undefined) v.lookup = res.lookup;
+      if (res.dictionary !== undefined) v.dictionary = res.dictionary;
       if (missing.length > 0) v.columnSuggestions = Object.fromEntries(missing.map((col) => [col, suggestNames(col, columns)]));
       return v;
     };
@@ -809,6 +832,7 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
       throw e;
     }
     if (built.rows.length === 0) throw invalidArgs("The import produced no rows. Check form.start, items.header and the columns with describe_import");
+    addEmptyColumns(built, args.addColumns);
     const replaced = workspace.hasSheet(args.name);
     const summary = workspace.createSheet(built.meta, built.rows);
     const value: Record<string, unknown> = {
@@ -1245,7 +1269,14 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
 
     apply_rule: async (args) => {
       assertNotBusy(args.sheet);
-      await ensureDictionaries(Object.values(args.set).flatMap((rv) => ("lookup" in rv ? (rv.lookup.dictionaries ?? []) : [])));
+      await ensureDictionaries(
+        Object.values(args.set).flatMap((rv) => ("lookup" in rv ? (rv.lookup.dictionaries ?? []) : "classify" in rv ? [rv.classify.dictionary] : "replace" in rv ? [rv.replace.dictionary] : [])),
+      );
+      // 言葉 → コード・値の置き換えを使ったら、辞書の「効いた行」に出す（dryRun でも）
+      for (const [col, rv] of Object.entries(args.set)) {
+        if ("classify" in rv) deps.matches?.recordUse({ kind: "code", dictionary: rv.classify.dictionary, sheet: args.sheet, col, textCols: Array.isArray(rv.classify.textCol) ? rv.classify.textCol : [rv.classify.textCol], field: rv.classify.field, ...(rv.classify.scopeCol !== undefined ? { scopeCol: rv.classify.scopeCol } : {}) });
+        if ("replace" in rv) deps.matches?.recordUse({ kind: "value", dictionary: rv.replace.dictionary, sheet: args.sheet, col, fromCol: rv.replace.fromCol ?? col });
+      }
       // phase で past を省いたら、接続先の設定（過去の作業のステータス。既定 COMP）を使う
       let pastDefault: string | null = null;
       const set = Object.fromEntries(
@@ -1386,7 +1417,7 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
 
     create_dictionary: async (args) => {
       if (deps.dictionaries === undefined) throw toolError("Dictionaries are not available in this work screen.");
-      const res = await deps.dictionaries.createDictionary(args.name, args.description);
+      const res = await deps.dictionaries.createDictionary(args.name, args.description, args.kind);
       if (!res.ok) {
         if (res.error === "not_connected") throw toolError(notConnected);
         if (res.error === "name_taken") throw toolError(`A dictionary named ${args.name} already exists. Open it with open_dictionary.`);
@@ -1479,6 +1510,7 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
         if (e instanceof ImportError) throw invalidArgs(e.message);
         throw e;
       }
+      addEmptyColumns(built, args.addColumns);
       const replaced = workspace.hasSheet(args.name);
       const summary = workspace.createSheet(built.meta, built.rows);
       const value: Record<string, unknown> = {

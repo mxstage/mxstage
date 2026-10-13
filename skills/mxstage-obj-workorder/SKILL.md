@@ -2,7 +2,7 @@
 name: mxstage-obj-workorder
 description: "MX Stage object Skill for Maximo work orders and service requests (MXAPIWODETAIL, MXAPISR): correcting open work orders, planned labor and materials, status rules, and closed history."
 metadata:
-  version: "1.6.0"
+  version: "1.7.0"
   category: "object"
 ---
 
@@ -51,6 +51,7 @@ Work records give the day of the work, not the day the work order was reported. 
 - Load the work orders by the work dates: ACTSTART (or ACTFINISH) in the period with a few days of margin, in any status. Never limit them by REPORTDATE.
 - Match by site, asset (or location) and work date; the wording differs (nicknames, abbreviations, line numbers written in other ways).
 - Do the matching with rules in match_sheets, not by reading the rows (mxstage-core-match, Rows without a shared key): contains with via to the asset names, dateWithin on ACTSTART and ACTFINISH, the customer's dictionary of names for the nicknames, and targetFilter on WORKTYPE so repair rows meet corrective work orders and inspection rows meet the others. Repair reports are about one work order each: match them in their own pass with group on the report (BLOCK), and the daily reports in another pass without group. Link with an apply_rule lookup only the rows with one candidate.
+- Failure codes from the text: read the failure classes, problems, causes and remedies (failure code and failure list structures, mxstage-obj-reference) and put the customer's words for them into a words → codes dictionary (FIELD PROBLEM, CAUSE or REMEDY; SCOPE the failure class for problems and the problem for causes, so that only valid combinations are made). Import with addColumns WONUM, ASSETNUM, FAILURECLASS, PROBLEM, CAUSE and REMEDY. Fill WONUM with the matching lookup, ASSETNUM with a lookup on the work orders (by WONUM) and FAILURECLASS with a lookup on the assets (FAILURECODE by ASSETNUM). Then fill PROBLEM with classify scoped by FAILURECLASS, CAUSE scoped by PROBLEM and REMEDY scoped by CAUSE. Rows left empty or ambiguous are decided with the user. Then copy the codes to the work orders (FAILURECODE from the asset, PROBLEMCODE and the PROBLEM, CAUSE and REMEDY failure report rows).
 - A repair is missing from Maximo only when no work order exists for the same asset or location within a few days of its date. Before adding new work orders, load the work orders for those assets around those dates (where with in on ASSETNUM and an ACTSTART window). Report near matches to the user instead of creating them.
 - Agree with the user on the work order numbers for new ones (MX Stage does not use automatic numbering).
 

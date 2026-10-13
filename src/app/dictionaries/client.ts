@@ -122,7 +122,7 @@ export class DictionaryClient {
     return this.call(`${DICTIONARY_ENDPOINTS.get}?scope=${encodeURIComponent(scope)}&id=${encodeURIComponent(id)}`);
   }
 
-  create(scope: string, name: string, kind: "alias" = "alias", description?: string): Promise<BridgeResult<DictionaryState>> {
+  create(scope: string, name: string, kind: "alias" | "code" | "value" = "alias", description?: string): Promise<BridgeResult<DictionaryState>> {
     return this.call(DICTIONARY_ENDPOINTS.create, { body: { scope, name, kind, ...(description !== undefined ? { description } : {}) } });
   }
 

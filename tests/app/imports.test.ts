@@ -531,6 +531,24 @@ describe("describe_import / apply_mapping", () => {
     const r = await h.call("apply_mapping", { importId: "c1", sourceSheet: "点検.csv", headerRow: 1, name: "点検", keyColumns: ["機器番号"] });
     expect(r).toMatchObject({ rowCount: 2, keyColumns: ["機器番号"] });
   });
+
+  it("addColumns で、あとで埋める空の列を足せる（既にある名前は断る）", async () => {
+    const h = harness();
+    h.imports.add({ importId: "c1", fileName: "点検.csv", contentType: "text/csv", bytes: enc.encode("機器番号,結果\nA5001,良\nA5002,否\n"), sha256: "" });
+    const r = await h.call("apply_mapping", { importId: "c1", sourceSheet: "点検.csv", headerRow: 1, name: "点検", addColumns: ["ASSETNUM", "PROBLEM"] });
+    expect(r.columns).toEqual(expect.arrayContaining(["ASSETNUM", "PROBLEM"]));
+    const rows = await h.call("query_rows", { sheet: "点検", columns: ["機器番号", "ASSETNUM"] });
+    expect(rows.rows.map((x: unknown[]) => x.slice(1))).toEqual([
+      ["A5001", null],
+      ["A5002", null],
+    ]);
+    // 足した列は apply_rule で埋められる
+    const st = await h.call("get_status", {});
+    const filled = await h.call("apply_rule", { sheet: "点検", set: { ASSETNUM: { copyFrom: "機器番号" } }, baseRevision: st.revision, reason: "試し" });
+    expect(filled.applied).toBe(2);
+    const e = await h.fail("apply_mapping", { importId: "c1", sourceSheet: "点検.csv", headerRow: 1, name: "点検2", addColumns: ["結果"] });
+    expect(e.message).toContain("already in the sheet");
+  });
 });
 
 // ---------------------------------------------------------------------------

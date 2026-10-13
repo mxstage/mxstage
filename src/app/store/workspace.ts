@@ -26,8 +26,8 @@ import { StoreError } from "./errors";
 import { compileFilters } from "./filters";
 import { randomHex } from "./ids";
 import { JobRegistry } from "./jobs";
-import { compileAliases, type CompiledAlias } from "../../shared/dictionary";
-import { DICT_FIND, DICT_MODE, DICT_TO } from "../../shared/dictionarySheet";
+import { classifyText, compileAliases, compileCodes, compileValues, replaceValue, type CompiledAlias, type CompiledCode, type CompiledValue } from "../../shared/dictionary";
+import { DICT_COLUMN, DICT_FIELD, DICT_FIND, DICT_MODE, DICT_SCOPE, DICT_TO } from "../../shared/dictionarySheet";
 import { compileMatcher, type RowMatch } from "./matcher";
 import { checkLimit, paginate } from "./paging";
 import { Sheet, type CellInfo, type CellOverlay, type RowMark, type RowState, type RowStatus, type SheetJSON, type ViewKind } from "./sheet";
@@ -275,7 +275,7 @@ function localDay(ms: number): string {
 
 interface CompiledRule {
   col: string;
-  kind: "const" | "copyFrom" | "lookup" | "phase";
+  kind: "const" | "copyFrom" | "lookup" | "phase" | "classify" | "replace";
   /** phase の比べる日 */
   asOf?: string;
   /** 対象の行をまとめて先に評価する（lookup の group は、同じ帳票の行をまとめて見る） */
@@ -561,9 +561,15 @@ export class Workspace {
     const conflicts: ConflictInfo[] = [];
     const edits: CellEdit[] = [];
     const lookup: Record<string, LookupStats> = {};
+    const dictionary: Record<string, LookupStats> = {};
     const phase: Record<string, PhaseStats> = {};
     for (const rule of rules) {
-      const stats: LookupStats | null = rule.kind === "lookup" ? (lookup[rule.col] = { matched: 0, unmatched: 0, ambiguous: 0 }) : null;
+      const stats: LookupStats | null =
+        rule.kind === "lookup"
+          ? (lookup[rule.col] = { matched: 0, unmatched: 0, ambiguous: 0 })
+          : rule.kind === "classify" || rule.kind === "replace"
+            ? (dictionary[rule.col] = { matched: 0, unmatched: 0, ambiguous: 0 })
+            : null;
       const phaseStats: PhaseStats | null =
         rule.kind === "phase" ? (phase[rule.col] = { past: 0, inProgress: 0, future: 0, noDate: 0, existing: 0, asOf: rule.asOf ?? "" }) : null;
       const values: Array<{ row: RowState; value: CellValue }> = [];
@@ -587,8 +593,9 @@ export class Workspace {
       }
     }
     const ops = this.planSets(sheet, edits, opts, conflicts);
-    const extra: Pick<RuleResult, "matched" | "lookup" | "phase"> = { matched: rows.length };
+    const extra: Pick<RuleResult, "matched" | "lookup" | "phase" | "dictionary"> = { matched: rows.length };
     if (rules.some((r) => r.kind === "lookup")) extra.lookup = lookup;
+    if (rules.some((r) => r.kind === "classify" || r.kind === "replace")) extra.dictionary = dictionary;
     if (rules.some((r) => r.kind === "phase")) extra.phase = phase;
     if (opts.dryRun) return { batchId: null, applied: ops.length, conflicts, revision: this._revision, ...extra };
     return { ...this.finish(sheet, opts, ops, conflicts, "cells_changed"), ...extra };
@@ -899,8 +906,10 @@ export class Workspace {
       return { col, kind: "copyFrom", evaluate: (row) => ({ kind: "value", value: sheet.finalValue(row, src) }) };
     }
     if ("phase" in rv) return this.compilePhase(sheet, col, rv.phase);
+    if ("classify" in rv) return this.compileClassify(sheet, col, rv.classify);
+    if ("replace" in rv) return this.compileReplace(sheet, col, rv.replace);
     if (!("lookup" in rv) || rv.lookup === null || typeof rv.lookup !== "object") {
-      throw new StoreError("invalid_args", `The rule for column ${col} must be one of const, copyFrom, lookup or phase`, { column: col });
+      throw new StoreError("invalid_args", `The rule for column ${col} must be one of const, copyFrom, lookup, phase, classify or replace`, { column: col });
     }
     const lk = rv.lookup;
     const [matchCols, targetCols] = optionalPairColumns(lk.matchCol, lk.targetMatchCol, "matchCol", "targetMatchCol");
@@ -927,6 +936,49 @@ export class Workspace {
         if (m === undefined || m.kind === "unmatched") return { kind: "unmatched" };
         if (m.kind === "ambiguous") return { kind: "ambiguous" };
         return { kind: "value", value: target.finalValue(matcher.targetRow(m.id), sourceCol) };
+      },
+    };
+  }
+
+  /** 言葉 → コードの辞書で、文からコードを決める */
+  private compileClassify(sheet: Sheet, col: string, c: Extract<RuleValue, { classify: unknown }>["classify"]): CompiledRule {
+    if (c === null || typeof c !== "object") throw new StoreError("invalid_args", `The classify rule for column ${col} must be an object`, { column: col });
+    const textCols = columnList(c.textCol, "textCol");
+    for (const t of textCols) if (!sheet.hasColumn(t)) throw columnNotFound(t, sheet.name);
+    if (c.scopeCol !== undefined && !sheet.hasColumn(c.scopeCol)) throw columnNotFound(c.scopeCol, sheet.name);
+    if (typeof c.field !== "string" || c.field.trim() === "") throw new StoreError("invalid_args", `Give the field (for example PROBLEM) in the classify rule for column ${col}`, { column: col });
+    const rules = this.codeRules(c.dictionary);
+    const scopeCol = c.scopeCol;
+    return {
+      col,
+      kind: "classify",
+      evaluate: (row) => {
+        const text = textCols.map((t) => String(sheet.finalValue(row, t) ?? "")).join(" ");
+        const scope = scopeCol === undefined ? null : String(sheet.finalValue(row, scopeCol) ?? "");
+        const r = classifyText(rules, text, c.field, scope);
+        if (r.kind === "code") return { kind: "value", value: r.code };
+        if (r.kind === "ambiguous") return { kind: "ambiguous" };
+        return { kind: "unmatched" };
+      },
+    };
+  }
+
+  /** 値の置き換えの辞書で、列の値を正しい値にする */
+  private compileReplace(sheet: Sheet, col: string, c: Extract<RuleValue, { replace: unknown }>["replace"]): CompiledRule {
+    if (c === null || typeof c !== "object") throw new StoreError("invalid_args", `The replace rule for column ${col} must be an object`, { column: col });
+    const from = c.fromCol ?? col;
+    if (!sheet.hasColumn(from)) throw columnNotFound(from, sheet.name);
+    const rules = this.valueRules(c.dictionary);
+    return {
+      col,
+      kind: "replace",
+      evaluate: (row) => {
+        const v = sheet.finalValue(row, from);
+        if (v === null || v === undefined || v === "") return { kind: "unmatched" };
+        const r = replaceValue(rules, col, String(v));
+        if (r.kind === "value") return { kind: "value", value: r.value };
+        if (r.kind === "ambiguous") return { kind: "ambiguous" };
+        return { kind: "unmatched" };
       },
     };
   }
@@ -1363,18 +1415,40 @@ export class Workspace {
    */
   aliasRules(names: readonly string[]): CompiledAlias[] {
     const out: CompiledAlias[] = [];
-    for (const name of names) {
-      const sheet = this.dictionarySheet(name);
-      if (sheet === null) throw new StoreError("invalid_args", `The dictionary ${name} is not open in the work screen. Open it with open_dictionary first`, { dictionary: name });
-      const entries = sheet.viewRows("final").map((r) => ({
-        id: r.rowKey,
-        find: String(sheet.finalValue(r, DICT_FIND) ?? ""),
-        to: String(sheet.finalValue(r, DICT_TO) ?? ""),
-        mode: sheet.finalValue(r, DICT_MODE) as "text",
-      }));
-      out.push(...compileAliases(entries).rules);
-    }
+    for (const name of names) out.push(...compileAliases(this.dictionaryEntries(name, "alias")).rules);
     return out;
+  }
+
+  /** 開いている言葉 → コードの辞書の項目 */
+  codeRules(name: string): CompiledCode[] {
+    return compileCodes(this.dictionaryEntries(name, "code")).rules;
+  }
+
+  /** 開いている値の置き換えの辞書の項目 */
+  valueRules(name: string): CompiledValue[] {
+    return compileValues(this.dictionaryEntries(name, "value")).rules;
+  }
+
+  /** 辞書のシートの項目（ID は行キー）。開いていない・種類が違えば invalid_args */
+  private dictionaryEntries(name: string, kind: "alias" | "code" | "value") {
+    const sheet = this.dictionarySheet(name);
+    if (sheet === null) throw new StoreError("invalid_args", `The dictionary ${name} is not open in the work screen. Open it with open_dictionary first`, { dictionary: name });
+    const src = sheet.meta.source;
+    const actual = src.kind === "dictionary" ? src.dictKind : "alias";
+    if (actual !== kind) {
+      const use = { alias: "dictionaries of match_sheets or a lookup", code: "a classify rule of apply_rule", value: "a replace rule of apply_rule" } as const;
+      throw new StoreError("invalid_args", `The dictionary ${name} is a ${actual} dictionary; use it with ${use[actual]}`, { dictionary: name });
+    }
+    const str = (r: RowState, c: string) => (sheet.hasColumn(c) ? String(sheet.finalValue(r, c) ?? "") : "");
+    return sheet.viewRows("final").map((r) => ({
+      id: r.rowKey,
+      find: str(r, DICT_FIND),
+      to: str(r, DICT_TO),
+      mode: sheet.finalValue(r, DICT_MODE) as "text",
+      field: str(r, DICT_FIELD),
+      scope: str(r, DICT_SCOPE),
+      column: str(r, DICT_COLUMN),
+    }));
   }
 
   /** 辞書のシート（辞書の名前かシートの名前で探す）。無ければ null */

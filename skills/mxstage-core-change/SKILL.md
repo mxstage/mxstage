@@ -2,7 +2,7 @@
 name: mxstage-core-change
 description: "MX Stage basic operation: change sheets in the work screen with apply_rule (dry run first), patch_cells, add_rows and delete_rows, with reasons, conflicts and undo. Maximo is not changed yet."
 metadata:
-  version: "1.4.0"
+  version: "1.5.0"
   category: "core"
 ---
 
@@ -30,7 +30,10 @@ set values:
 - A value looked up in another sheet: `{"LOCATION":{"lookup":{"sheet":"Tag list","matchCol":"ASSETNUM","targetMatchCol":"ASSETNUM","sourceCol":"LOCATION"}}}`
 - A value chosen by the row's dates (for statuses, see Statuses below): `{"STATUS":{"phase":{"finish":"ACTFINISH","start":"ACTSTART","planned":"TARGSTARTDATE","inProgress":"INPRG","future":"WAPPR"}}}`
 
-For lookups, check lookup in the result. Rows that are unmatched (not in the lookup sheet) or ambiguous (several candidates) are **not changed**. Report the counts; never fill them by guessing. When one column cannot identify a match, use a composite key: arrays in the same order and count, for example `["SITEID","ASSETNUM"]` for both matchCol and targetMatchCol.
+- A code decided from words in the text, with a words → codes dictionary of the customer (open_dictionary): `{"PROBLEM":{"classify":{"dictionary":"Failure words","textCol":"WORK","field":"PROBLEM","scopeCol":"FAILURECLASS"}}}`. A row gets a code only when the words found give one code.
+- A value made correct with a value replacement dictionary: `{"MANUFACTURER":{"replace":{"dictionary":"Maker names"}}}`.
+
+For classify and replace, check dictionary in the result (matched, unmatched, ambiguous); ambiguous rows come back as lookup_ambiguous and are not changed. To get more rows decided, add or narrow dictionary entries (the work screen shows the rows each entry hit), never by writing codes row by row. For lookups, check lookup in the result. Rows that are unmatched (not in the lookup sheet) or ambiguous (several candidates) are **not changed**. Report the counts; never fill them by guessing. When one column cannot identify a match, use a composite key: arrays in the same order and count, for example `["SITEID","ASSETNUM"]` for both matchCol and targetMatchCol.
 
 ## Statuses
 

@@ -2,7 +2,7 @@
 name: mxstage-core-import
 description: "MX Stage basic operation: receive Excel or CSV files (MXLoader sheets, printed forms, merged cells, years across columns), read them into a sheet, map columns and reconcile with Maximo."
 metadata:
-  version: "1.3.0"
+  version: "1.4.0"
   category: "core"
 ---
 
@@ -37,6 +37,7 @@ apply_mapping with the sheet and headerRow for an ordinary table. Agree with the
 - Show the user a few rows next to the original file (SOURCE_ROW, SOURCE_CELL) before using them.
 
 - rename columns so they equal the Maximo attribute names you will match or copy (for example Asset No. to ASSETNUM). The original headers stay as display names.
+- addColumns adds empty columns to fill later in the work screen: the key of the matched record (WONUM from a lookup) and codes decided from the text (PROBLEM, CAUSE, REMEDY from classify). Then move them to the Maximo sheet with a lookup on that key.
 - keyColumns pins columns on screen; the default is SOURCE_ROW.
 - Check that the row count equals the original. rowKey and SOURCE_ROW are row numbers in the file, so the user can find each row in the file.
 

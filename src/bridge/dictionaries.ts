@@ -20,8 +20,11 @@ import {
   DICTIONARY_ID_RE,
   DICTIONARY_KINDS,
   DICTIONARY_NAME_MAX,
+  ENTRY_COLUMN_MAX,
+  ENTRY_FIELD_MAX,
   ENTRY_FIND_MAX,
   ENTRY_ID_RE,
+  ENTRY_SCOPE_MAX,
   ENTRY_NOTE_MAX,
   ENTRY_TO_MAX,
   entryProblem,
@@ -224,7 +227,17 @@ function parseChangeLine(raw: unknown): ChangeLine | null {
   if (!e || typeof e !== "object") return null;
   const mode = parseEntryMode(e.mode);
   if (mode === null || !isString(e.find, ENTRY_FIND_MAX) || !isString(e.to ?? "", ENTRY_TO_MAX) || !isString(e.note ?? "", ENTRY_NOTE_MAX)) return null;
-  return { v: 1, op: "put", id: v.id, rev: v.rev, at: v.at, save: v.save, ...n, entry: { find: e.find, to: (e.to as string | undefined) ?? "", mode, note: (e.note as string | undefined) ?? "" } };
+  if (!isString(e.field ?? "", ENTRY_FIELD_MAX) || !isString(e.scope ?? "", ENTRY_SCOPE_MAX) || !isString(e.column ?? "", ENTRY_COLUMN_MAX)) return null;
+  return { v: 1, op: "put", id: v.id, rev: v.rev, at: v.at, save: v.save, ...n, entry: entryInputOf(e, mode) };
+}
+
+/** 変更の行・保存の要求の項目を、決まった形にする（空の欄は持たない） */
+function entryInputOf(e: Record<string, unknown>, mode: DictionaryEntryInput["mode"]): DictionaryEntryInput {
+  const out: DictionaryEntryInput = { find: String(e.find ?? ""), to: typeof e.to === "string" ? e.to : "", mode, note: typeof e.note === "string" ? e.note : "" };
+  if (typeof e.field === "string" && e.field.trim() !== "") out.field = e.field.trim();
+  if (typeof e.scope === "string" && e.scope.trim() !== "") out.scope = e.scope.trim();
+  if (typeof e.column === "string" && e.column.trim() !== "") out.column = e.column.trim();
+  return out;
 }
 
 /** 同じ項目の変更のどちらが新しいか（通し番号 → 日時 → メンバーID の順に比べる。どの PC でも同じ答えになる） */
@@ -538,9 +551,9 @@ export class DictionaryStore {
         }
         if (op?.op !== "put" || !op.entry || typeof op.entry !== "object") throw new DictionaryError("invalid_request", `Change #${index} must be put or delete.`, { index });
         const e = op.entry as Record<string, unknown>;
-        const problem = entryProblem({ find: e.find, to: e.to ?? "", mode: e.mode, note: e.note ?? "" });
+        const problem = entryProblem({ find: e.find, to: e.to ?? "", mode: e.mode, note: e.note ?? "", field: e.field, scope: e.scope, column: e.column }, meta.kind);
         if (problem !== null) throw new DictionaryError("invalid_entry", `Change #${index} cannot be used (${problem.code}).`, { index, problem });
-        const entry: DictionaryEntryInput = { find: String(e.find), to: typeof e.to === "string" ? e.to : "", mode: parseEntryMode(e.mode) ?? "text", note: typeof e.note === "string" ? e.note : "" };
+        const entry = entryInputOf(e, parseEntryMode(e.mode) ?? "text");
         let entryId: string;
         if (typeof op.id === "string") {
           if (!ENTRY_ID_RE.test(op.id)) throw new DictionaryError("invalid_request", `Change #${index} has an invalid id.`, { index });

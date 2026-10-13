@@ -5,6 +5,7 @@
 // - 15 秒ごと（画面が見えている間だけ）に一覧の印を確かめ、ほかのメンバーが保存していれば、開いている辞書を新しくする。
 //   保存前の変更があるシートは作り直さず、「新しい保存が届いています」と出す（保存すると橋渡しが合わせる）。
 
+import type { DictionaryKind } from "../../shared/dictionary";
 import type { ConnectionProvider } from "../runtime/contracts";
 import type { Workspace } from "../store";
 import { DictionaryClient, type BridgeResult, type DictionaryListing, type DictionaryProblem, type DictionaryState, type HistoryItem, type ProjectInfo } from "./client";
@@ -238,7 +239,8 @@ export class DictionaryService {
     if (scope === null) return { ok: false, error: "not_connected", message: dictionaryMessages().menu.notConnected, status: 0 };
     for (const od of this.open.values()) {
       if (od.scope === scope && (od.id === nameOrId || od.name === nameOrId) && this.workspace.hasSheet(od.sheet)) {
-        return { ok: true, value: { sheet: od.sheet, state: { dictionary: { id: od.id, name: od.name, kind: "alias", description: "", createdAt: "", createdBy: "" }, entries: [], history: od.history, problems: od.problems, version: od.version } } };
+        const kind = this.workspace.getSheet(od.sheet).meta.source.kind === "dictionary" ? (this.workspace.getSheet(od.sheet).meta.source as { dictKind: DictionaryKind }).dictKind : "alias";
+        return { ok: true, value: { sheet: od.sheet, state: { dictionary: { id: od.id, name: od.name, kind, description: "", createdAt: "", createdBy: "" }, entries: [], history: od.history, problems: od.problems, version: od.version } } };
       }
     }
     const res = await this.client.get(scope, nameOrId);
@@ -248,10 +250,10 @@ export class DictionaryService {
     return { ok: true, value: { sheet, state: res.value } };
   }
 
-  async createDictionary(name: string, description?: string): Promise<BridgeResult<{ sheet: string; state: DictionaryState }>> {
+  async createDictionary(name: string, description?: string, kind: DictionaryKind = "alias"): Promise<BridgeResult<{ sheet: string; state: DictionaryState }>> {
     const scope = this.currentScope();
     if (scope === null) return { ok: false, error: "not_connected", message: dictionaryMessages().menu.notConnected, status: 0 };
-    const res = await this.client.create(scope, name, "alias", description);
+    const res = await this.client.create(scope, name, kind, description);
     if (!res.ok) return res;
     const sheet = this.sheetNameFor(res.value.dictionary.name, res.value.dictionary.id);
     this.load(sheet, scope, res.value);

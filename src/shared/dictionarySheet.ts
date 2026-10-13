@@ -11,5 +11,16 @@ export const DICT_MODE = "MODE";
 export const DICT_NOTE = "NOTE";
 /** 最後に変えた人と日時（読み取り専用） */
 export const DICT_UPDATED = "UPDATED";
+/** 言葉 → コード: 項目（PROBLEM・CAUSE・REMEDY など） */
+export const DICT_FIELD = "FIELD";
+/** 言葉 → コード: この値の行だけ（例 故障クラス） */
+export const DICT_SCOPE = "SCOPE";
+/** 値の置き換え: この列だけ */
+export const DICT_COLUMN = "COLUMN";
 
-export const DICT_COLUMNS = [DICT_FIND, DICT_TO, DICT_MODE, DICT_NOTE, DICT_UPDATED] as const;
+/** 種類ごとの列（シートの並び。最後に変えた人はどれも最後） */
+export const DICT_COLUMNS_OF = {
+  alias: [DICT_FIND, DICT_TO, DICT_MODE, DICT_NOTE, DICT_UPDATED],
+  code: [DICT_FIND, DICT_MODE, DICT_FIELD, DICT_TO, DICT_SCOPE, DICT_NOTE, DICT_UPDATED],
+  value: [DICT_COLUMN, DICT_FIND, DICT_MODE, DICT_TO, DICT_NOTE, DICT_UPDATED],
+} as const;

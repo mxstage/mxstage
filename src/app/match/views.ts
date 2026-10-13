@@ -4,6 +4,7 @@
 //   辞書を直すと、その場で一致の数と「効いた行」が変わる。
 // - シートの値ではない（差分・反映には入らない）。作業を終えると消える。
 
+import { classifyText, replaceValue } from "../../shared/dictionary";
 import type { MatchConditions, NormalizeOption, TypedFilter } from "../../shared/model";
 import type { Workspace } from "../store";
 import type { RowMatch } from "../store/matcher";
@@ -42,11 +43,18 @@ export interface EntryHits {
   ambiguous: number;
 }
 
+/** apply_rule で言葉 → コード・値の置き換えの辞書を使ったところ（効いた行を数えるため、最後の使い方を覚える） */
+export type DictionaryUse =
+  | { kind: "code"; dictionary: string; sheet: string; col: string; textCols: string[]; field: string; scopeCol?: string }
+  | { kind: "value"; dictionary: string; sheet: string; col: string; fromCol: string };
+
 const RERUN_DELAY_MS = 400;
 
 export class MatchViewStore {
   private readonly workspace: Workspace;
   private readonly views = new Map<string, MatchView>();
+  /** 辞書の名前 + シート + 列 → 使い方 */
+  private readonly uses = new Map<string, DictionaryUse>();
   private readonly listeners = new Set<() => void>();
   private readonly pending = new Set<string>();
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -126,10 +134,55 @@ export class MatchViewStore {
     return this.record(args);
   }
 
-  /** 辞書の項目ごとの効いた行（その辞書を使った突き合わせの結果から数える） */
+  /** apply_rule で言葉 → コード・値の置き換えの辞書を使った（効いた行に出す） */
+  recordUse(use: DictionaryUse): void {
+    this.uses.set(`${use.dictionary}\u0000${use.sheet}\u0000${use.col}`, use);
+    this.emit();
+  }
+
+  /**
+   * 辞書の項目ごとの効いた行。呼び名はその辞書を使った突き合わせの結果から、
+   * 言葉 → コード・値の置き換えは最後に使ったシートの今の値から数える
+   */
   hitsFor(dictionaryName: string): { used: boolean; hits: Map<string, EntryHits> } {
     const hits = new Map<string, EntryHits>();
     let used = false;
+    const add = (ids: readonly string[], ambiguous: boolean) => {
+      for (const id of ids) {
+        const h = hits.get(id) ?? { hits: 0, ambiguous: 0 };
+        h.hits++;
+        if (ambiguous) h.ambiguous++;
+        hits.set(id, h);
+      }
+    };
+    for (const use of this.uses.values()) {
+      if (use.dictionary !== dictionaryName || !this.workspace.hasSheet(use.sheet)) continue;
+      const sheet = this.workspace.getSheet(use.sheet);
+      try {
+        if (use.kind === "code") {
+          const rules = this.workspace.codeRules(use.dictionary);
+          used = true;
+          for (const r of sheet.viewRows("final")) {
+            const text = use.textCols.map((c) => (sheet.hasColumn(c) ? String(sheet.finalValue(r, c) ?? "") : "")).join(" ");
+            const scope = use.scopeCol !== undefined && sheet.hasColumn(use.scopeCol) ? String(sheet.finalValue(r, use.scopeCol) ?? "") : null;
+            const res = classifyText(rules, text, use.field, scope);
+            add(res.applied, res.kind === "ambiguous");
+          }
+        } else {
+          const rules = this.workspace.valueRules(use.dictionary);
+          used = true;
+          if (!sheet.hasColumn(use.fromCol)) continue;
+          for (const r of sheet.viewRows("final")) {
+            const v = sheet.finalValue(r, use.fromCol);
+            if (v === null || v === "") continue;
+            const res = replaceValue(rules, use.col, String(v));
+            if (res.kind !== "none") add(res.applied, res.kind === "ambiguous");
+          }
+        }
+      } catch {
+        // 辞書が閉じられた・種類が違う: 数えない
+      }
+    }
     for (const v of this.views.values()) {
       if (!(v.args.extra.dictionaries ?? []).includes(dictionaryName)) continue;
       used = true;

@@ -37,6 +37,7 @@ import { headerLines } from "../../shared/columnLabel";
 import { conflictSummary, storeErrorMessage } from "./edits";
 import { gridMessages } from "./messages";
 import { applyGridFilters, changeCounts, matchRange, rowCountLabel, setFilter, type ChangeKind, type GridFilter } from "./filters";
+export type { GridFilter } from "./filters";
 import { defaultColumnWidth, freezeCountForWidth, frozenColumnsFor, headerHeightFor, orderForFreeze, togglePinned } from "./layout";
 import { scopeColumns, scopeRows, type PaneScope } from "../pages/panes";
 import { RowDetail } from "./RowDetail";
@@ -62,7 +63,46 @@ export interface SheetGridProps {
   renderHeader?: (h: GridHeaderInfo) => ReactNode;
   /** Maximo の値の一覧（getlist）。無ければ一覧は引いて読み込んだマスタのシートからだけ出す */
   valueLists?: ValueListService;
+  /** 表示だけの列（突き合わせ先・辞書の効いた行など）。シートの値ではなく、編集・差分・反映には入らない */
+  extraColumns?: readonly ExtraColumn[];
+  /** 外から絞り込みを掛ける（token が変わったときだけ掛ける。帯の「見つからない行だけ」など） */
+  requestFilter?: { col: string; filter: GridFilter | null; token: number } | null;
+  /** 見出しと絞り込みの札の下に出すもの（突き合わせの帯など） */
+  banner?: ReactNode;
 }
+
+/** 表示だけの列のセル */
+export interface ExtraCell {
+  text: string;
+  /** 先頭の印: ok（緑の丸）・warn（黄の三角）・none（灰の線）・error（赤い文字） */
+  tone?: "ok" | "warn" | "none" | "error" | "muted";
+  /** 文字の右に青で出す操作の名前（押すと onClick） */
+  action?: string;
+  /** 指したときに出す説明（1 行ずつ） */
+  hover?: string[];
+}
+
+export interface ExtraColumn {
+  /** 列の ID（シートの列名と重ならないもの） */
+  id: string;
+  title: string;
+  width: number;
+  /** この列の右に置く（無ければ末尾）。"start" なら固定の列のすぐ右（最初に見える所） */
+  after?: string | "start";
+  cell(row: RowState): ExtraCell | null;
+  onClick?(row: RowState, bounds: { x: number; y: number; width: number; height: number }): void;
+}
+
+/** 表示だけの列の印と文字の色（Carbon の support の色） */
+const EXTRA_TONE = {
+  ok: "#24a148",
+  warn: "#b28600",
+  none: "#8d8d8d",
+  error: "#da1e28",
+  muted: "#6f6f6f",
+  text: "#161616",
+  action: "#0f62fe",
+} as const;
 
 export interface GridHeaderInfo {
   /** 「25 行」または「1 / 12」 */
@@ -199,7 +239,7 @@ function booleanCellData(v: CellValue): boolean | null | undefined {
   return booleanFromText(String(v));
 }
 
-export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessage, scope, linkFilter, onSelectRow, renderHeader, valueLists }: SheetGridProps) {
+export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessage, scope, linkFilter, onSelectRow, renderHeader, valueLists, extraColumns, requestFilter, banner }: SheetGridProps) {
   const sheet = workspace.sheets.get(sheetName);
   const [widths, setWidths] = useState<Record<string, number>>({});
   const [selection, setSelection] = useState<GridSelection>(EMPTY_SELECTION);
@@ -231,8 +271,21 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
   // 利用者が選んだ固定の列（null は自動: キー列のうち行を見分ける列）
   const [pinned, setPinned] = useState<string[] | null>(null);
   const paneScope: PaneScope = scope ?? { kind: "all" };
+  // 表示だけの列（ID → 列）
+  const extraById = useMemo(() => new Map((extraColumns ?? []).map((e) => [e.id, e] as const)), [extraColumns]);
+  const extraText = useCallback((e: ExtraColumn, row: RowState) => {
+    const c = e.cell(row);
+    return c === null ? "" : c.text;
+  }, []);
   // 画面に出す文字（日付は読みやすい形）。絞り込み・行の詳細もこれを使う
-  const displayValue = useCallback((row: RowState, col: string) => (sheet ? formatColumnValue(sheet.column(col), sheet.viewValue(row, col, view)) : ""), [sheet, view]);
+  const displayValue = useCallback(
+    (row: RowState, col: string) => {
+      const extra = extraById.get(col);
+      if (extra) return extraText(extra, row);
+      return sheet ? formatColumnValue(sheet.column(col), sheet.viewValue(row, col, view)) : "";
+    },
+    [sheet, view, extraById, extraText],
+  );
   // 連動は値そのもので比べる（AppPage は選んだ行の値を formatCellValue で渡す）
   const rawValue = useCallback((row: RowState, col: string) => (sheet ? formatCellValue(sheet.viewValue(row, col, view)) : ""), [sheet, view]);
   const scopedRows = useMemo(() => (sheet ? scopeRows(sheet.viewRows(view), paneScope) : EMPTY_ROWS), [sheet, view, version, paneScope.kind, (paneScope as { name?: string }).name]);
@@ -246,7 +299,25 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
     const present = new Set(scopedColumns.map((c) => c.name));
     return frozenColumnsFor(sheet?.meta.keyColumns ?? [], pinned).filter((n) => present.has(n));
   }, [scopedColumns, sheet, pinned]);
-  const { columns, freeze } = useMemo(() => orderForFreeze(scopedColumns, frozen), [scopedColumns, frozen]);
+  const ordered = useMemo(() => orderForFreeze(scopedColumns, frozen), [scopedColumns, frozen]);
+  const freeze = ordered.freeze;
+  // 表示だけの列を、指定の列の右（無ければ末尾）に入れる
+  const columns = useMemo(() => {
+    // 取り込んだシートの内部の列（元の行・帳票など）は、今の言語の短い見出しにして列名は出さない
+    const internal = gridMessages().internalColumns as Record<string, string>;
+    const out: ColumnSchema[] = ordered.columns.map((c) => (Object.hasOwn(internal, c.name) && sheet?.meta.source.kind === "excel" ? { ...c, title: internal[c.name], hideName: true } : c));
+    for (const e of extraColumns ?? []) {
+      const col: ColumnSchema = { name: e.id, title: e.title, type: "string", readOnly: true, hideName: true };
+      if (e.after === "start") {
+        out.splice(Math.min(freeze, out.length), 0, col);
+        continue;
+      }
+      const at = e.after === undefined ? -1 : out.findIndex((c) => c.name === e.after);
+      if (at < 0) out.push(col);
+      else out.splice(at + 1, 0, col);
+    }
+    return out;
+  }, [ordered.columns, extraColumns, sheet, freeze]);
   // 他のペインで選ばれた行に連動して絞る（連動は絞り込みの札には出さない）
   const allRows = useMemo(() => {
     if (!linkFilter) return scopedRows;
@@ -274,6 +345,14 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
     setMenu(null);
     setPinned(null);
   }, [sheetName]);
+  // 外からの絞り込み（帯の「見つからない行だけ」など）
+  const requestToken = requestFilter?.token ?? null;
+  useEffect(() => {
+    if (requestFilter === null || requestFilter === undefined) return;
+    setFilters((f) => setFilter(f, requestFilter.filter, requestFilter.col));
+    // token が変わったときだけ掛ける
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestToken]);
   // LLM が行を消した直後は、選択が無くなった行を指しうる。今の行数・列数に収めてから使う
   const safeSelection = useMemo(() => clampSelection(selection, rows.length, columns.length), [selection, rows.length, columns.length]);
   // コールバックからは描画した時点の行・列を参照する（利用者が見ている並びと一致させる）
@@ -283,6 +362,9 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
   columnsRef.current = columns;
   const selectionRef = useRef(safeSelection);
   selectionRef.current = safeSelection;
+  // 表示だけの列の操作の名前を出す行（選んだ行）
+  const selectedRowRef = useRef<number | null>(null);
+  const selectedRowForDraw = safeSelection.current?.cell[1] ?? null;
   const editingRef = useRef<EditingTarget | null>(null);
   // 開いている編集部品に渡す情報（列・開いたときの表示・値の一覧）
   const editorTargetRef = useRef<CellEditorTarget | null>(null);
@@ -299,8 +381,14 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
 
   // 選んでいたセルをもう一度押したら、選択を外す（行の塗りと、他のペインの連動も外れる）。
   // ダブルクリック（編集を開く）の 1 回目と区別するため、少し待ってから外す
+  const extraByIdRef = useRef(extraById);
+  extraByIdRef.current = extraById;
   const onCellClicked = useCallback(
     (cell: Item, args: CellClickedEventArgs) => {
+      // 表示だけの列の操作（読み替えを足す・候補を見るなど）
+      const extra = extraByIdRef.current.get(columnsRef.current[cell[0]]?.name ?? "");
+      const clickedRow = rowsRef.current[cell[1]];
+      if (extra?.onClick && clickedRow) extra.onClick(clickedRow, args.bounds);
       cancelDeselect();
       const before = pressedOnRef.current;
       pressedOnRef.current = null;
@@ -329,12 +417,12 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
   const gridColumns = useMemo<GridColumn[]>(
     () =>
       columns.map((c) => {
-        const width = widths[c.name] ?? defaultColumnWidth(c);
+        const width = widths[c.name] ?? extraById.get(c.name)?.width ?? (c.hideName && c.type === "integer" ? 84 : defaultColumnWidth(c));
         // 見出しは日本語ラベル（属性名は drawHeader で下に小さく出す）。▾ から列ごとの絞り込みを開く。
         // 読み取り専用の列は見出しに印を付けず、セルの文字の薄さで示す
         return { id: c.name, title: headerLines(c).main, width, hasMenu: true };
       }),
-    [columns, widths],
+    [columns, widths, extraById],
   );
 
   // 見出しの 2 段目（属性名）。ラベルだけでは Maximo のどの属性か分からないので添える
@@ -408,6 +496,53 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
   const drawCell = useCallback<DrawCellCallback>(
     (args, drawContent) => {
       drawContent();
+      const extra = extraById.get(columnsRef.current[args.col]?.name ?? "");
+      if (extra) {
+        // 表示だけの列: 先頭の印・文字・操作の名前（青）を描く（セルの文字は空にしてある）
+        const row = rowsRef.current[args.row];
+        const c = row ? extra.cell(row) : null;
+        if (c === null) return;
+        const { ctx, rect, theme } = args;
+        const pad = theme.cellHorizontalPadding;
+        const midY = rect.y + rect.height / 2;
+        let x = rect.x + pad;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(rect.x, rect.y, rect.width, rect.height);
+        ctx.clip();
+        if (c.tone === "ok") {
+          ctx.fillStyle = EXTRA_TONE.ok;
+          ctx.beginPath();
+          ctx.arc(x + 4, midY, 4, 0, Math.PI * 2);
+          ctx.fill();
+          x += 14;
+        } else if (c.tone === "warn") {
+          ctx.fillStyle = EXTRA_TONE.warn;
+          ctx.beginPath();
+          ctx.moveTo(x, midY + 4);
+          ctx.lineTo(x + 5, midY - 5);
+          ctx.lineTo(x + 10, midY + 4);
+          ctx.closePath();
+          ctx.fill();
+          x += 15;
+        } else if (c.tone === "none") {
+          ctx.fillStyle = EXTRA_TONE.none;
+          ctx.fillRect(x, midY - 1, 9, 2);
+          x += 15;
+        }
+        ctx.textBaseline = "middle";
+        ctx.font = `${theme.baseFontStyle} ${theme.fontFamily}`;
+        ctx.fillStyle = c.tone === "error" ? EXTRA_TONE.error : c.tone === "none" || c.tone === "muted" ? EXTRA_TONE.muted : EXTRA_TONE.text;
+        ctx.fillText(c.text, x, midY);
+        // 操作の名前は選んだ行にだけ出す（全部の行に並べると目に付きすぎる。セルを押せばどの行でも開く）
+        if (c.action && selectedRowRef.current === args.row) {
+          x += ctx.measureText(c.text).width + 10;
+          ctx.fillStyle = EXTRA_TONE.action;
+          ctx.fillText(c.action, x, midY);
+        }
+        ctx.restore();
+        return;
+      }
       if (!sheet || args.cell.kind !== GridCellKind.Text) return;
       const text = args.cell.displayData.split("\n")[0] ?? "";
       if (text === "") return;
@@ -448,7 +583,8 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
       ctx.stroke();
       ctx.restore();
     },
-    [sheet, view, filterByCol],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sheet, view, filterByCol, extraById, selectedRowForDraw],
   );
 
   const getCellContent = useCallback(
@@ -457,6 +593,12 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
       const col = columnsRef.current[c];
       if (!sheet || !row || !col) return EMPTY_CELL;
       const name = col.name;
+      const extra = extraById.get(name);
+      if (extra) {
+        // 文字は drawCell が描く（印と操作の名前を付けるため）。写したときは文字が入る
+        const text = extraText(extra, row);
+        return { kind: GridCellKind.Text, data: text, displayData: "", allowOverlay: false, readonly: true };
+      }
       const status = sheet.rowStatus(row);
       const changed = view !== "base" && sheet.isCellChanged(row, name);
       const protectedColumn = sheet.isProtectedColumn(name);
@@ -491,7 +633,7 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
     },
     // version: ストアの変更で内容が変わったことを Glide に伝えるため、関数を作り直す
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sheet, view, busy, version],
+    [sheet, view, busy, version, extraById],
   );
 
   const onCellsEdited = useCallback(
@@ -518,7 +660,7 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
           rowKey = rowsRef.current[r]?.rowKey;
           col = columnsRef.current[c]?.name;
         }
-        if (rowKey === undefined || col === undefined) continue;
+        if (rowKey === undefined || col === undefined || extraById.has(col)) continue;
         edits.push({ rowKey, col, value });
       }
       if (edits.length === 0) return true;
@@ -531,7 +673,7 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
       }
       return true;
     },
-    [sheet, sheetName, workspace, isBusy, onMessage],
+    [sheet, sheetName, workspace, isBusy, onMessage, extraById],
   );
 
   // 値の一覧の出どころ（引いて読み込んだマスタのシート → Maximo の getlist）。一覧が無いと分かっている列は null
@@ -627,6 +769,12 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
         return;
       }
       const name = col.name;
+      const extra = extraById.get(name);
+      if (extra) {
+        const lines = extra.cell(row)?.hover;
+        setHover(lines && lines.length > 0 ? { x: args.bounds.x, y: args.bounds.y + args.bounds.height, lines } : null);
+        return;
+      }
       const changed = view !== "base" && sheet.isCellChanged(row, name);
       const tone = cellTone({ view, rowStatus: sheet.rowStatus(row), changed, author: cellAuthor(row, name), protectedColumn: sheet.isProtectedColumn(name) });
       if (tone === "normal") {
@@ -648,7 +796,7 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
       const lines = hoverLines({ tone, author, reason, before: sheet.baseValue(row, name), after: sheet.finalValue(row, name) });
       setHover(lines ? { x: args.bounds.x, y: args.bounds.y + args.bounds.height, lines } : null);
     },
-    [sheet, sheetName, view, workspace],
+    [sheet, sheetName, view, workspace, extraById],
   );
 
   const onColumnResize = useCallback((column: GridColumn, newSize: number) => {
@@ -658,6 +806,7 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
 
   // 選んだセルと同じ行の他のセルを薄く塗る（どの行を読んでいるか分かるように）
   const selectedRowIndex = safeSelection.current?.cell[1];
+  selectedRowRef.current = selectedRowIndex ?? null;
   const highlightRegions = useMemo<readonly Highlight[] | undefined>(
     () =>
       selectedRowIndex === undefined || columns.length === 0
@@ -700,6 +849,7 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
         onRemove={(col) => setFilters((f) => setFilter(f, null, col))}
         onClearAll={() => setFilters([])}
       />
+      {banner}
       <div
         className="grid-body"
         onPointerDownCapture={() => {

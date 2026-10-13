@@ -26,6 +26,7 @@ import { CodeFingerprint, checkUpdates, isDefaultAppDir } from "./freshness.ts";
 import { migrateLegacyFiles } from "./legacy.ts";
 import { LicenseStore, licenseTestKeysAllowed, readDevLicenses } from "./license.ts";
 import { ConnectionStore } from "./connections.ts";
+import { DictionaryStore } from "./dictionaries.ts";
 import { DemoManager } from "./demo.ts";
 import { UpdateManager, revealInFolder } from "./updates.ts";
 import { createBridgeLogger } from "./logFile.ts";
@@ -143,6 +144,8 @@ export async function main(argv: readonly string[]): Promise<number> {
     }),
     // 保存した Maximo の接続先（API キーは OS の保護付きで暗号化する。src/bridge/connections.ts）
     connections: new ConnectionStore({ dir: dirname(keyPath) }),
+    // 客先の辞書と共有フォルダ（共有フォルダの設定と、共有フォルダが無い接続先の辞書は状態フォルダに置く）
+    dictionaries: new DictionaryStore({ stateDir: dirname(keyPath) }),
     updates: updater,
     // Maximo が無くても試せるデモ。データは利用者が設定の「デモ」で選んだときだけ落とし、状態フォルダの demo に置く
     demo: opts.demo ? new DemoManager({ dir: join(dirname(keyPath), "demo"), log: record }) : null,

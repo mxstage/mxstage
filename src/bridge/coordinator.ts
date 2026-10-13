@@ -25,6 +25,7 @@ import type { HealthBody, TicketIssuer } from "./peer.ts";
 import { isPortInUseError, startBridgeServer } from "./server.ts";
 import type { LicenseStore } from "./license.ts";
 import type { ConnectionStore } from "./connections.ts";
+import type { DictionaryStore } from "./dictionaries.ts";
 import type { UpdateManager } from "./updates.ts";
 import type { DemoManager } from "./demo.ts";
 import type { BridgeServer } from "./server.ts";
@@ -79,6 +80,8 @@ export interface BridgeCoordinatorOptions {
   updates?: UpdateManager | null;
   /** Maximo が無くても試せるデモ（primary のとき /_mxstage/demo と、デモの接続先の /mx で使う） */
   demo?: DemoManager | null;
+  /** 客先の辞書と共有フォルダ（primary のとき /_mxstage/dictionaries で使う） */
+  dictionaries?: DictionaryStore | null;
 }
 
 export class BridgeCoordinator {
@@ -259,6 +262,7 @@ export class BridgeCoordinator {
       connections: this.opts.connections ?? null,
       updates: this.opts.updates ?? null,
       demo: this.opts.demo ?? null,
+      dictionaries: this.opts.dictionaries ?? null,
     });
   }
 

@@ -63,7 +63,10 @@ export function panesFor(metas: readonly SheetMeta[], current: string, max: numb
 }
 
 function sourceLabel(meta: SheetMeta): string {
-  return meta.source.kind === "maximo" ? meta.source.os : meta.source.kind === "excel" ? meta.source.fileName : pagesMessages().panes.sheet;
+  if (meta.source.kind === "maximo") return meta.source.os;
+  if (meta.source.kind === "excel") return meta.source.fileName;
+  if (meta.source.kind === "dictionary") return pagesMessages().panes.dictionary;
+  return pagesMessages().panes.sheet;
 }
 
 /** ペインに出す列（親のペインは親の列だけ、子のペインはキー列とその子の列だけ） */

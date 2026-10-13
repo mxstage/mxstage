@@ -2,7 +2,7 @@
 name: mxstage-workbench
 description: "Index of the MX Stage Skills and the rules for every task: which basic operation, Maximo object and user Skill to read when. Read first, before any other MX Stage Skill."
 metadata:
-  version: "2.1.0"
+  version: "2.2.0"
   category: "index"
 ---
 
@@ -25,12 +25,12 @@ Names starting with mxstage are reserved for the built-in Skills. The list of al
 
 ## Which Skills to read
 
-1. **Start**: get_status. Then look at the user Skills. If one matches the task or the customer, read it with get_skill first.
+1. **Start**: get_status (it also lists the customer's dictionaries of names for this connection). Then look at the user Skills. If one matches the task or the customer, read it with get_skill first.
 2. **Before each step**, read the basic operation Skill for it (once per conversation):
    - finding a structure, agreeing on the range, loading: mxstage-core-load
    - reading rows, distributions, data quality: mxstage-core-analyze
    - changing cells, adding or deleting rows, undo: mxstage-core-change
-   - comparing two sheets, lookups between sheets: mxstage-core-match
+   - comparing two sheets, lookups between sheets, the customer's dictionaries of names (open_dictionary): mxstage-core-match
    - Excel or CSV files: mxstage-core-import
    - diff, commit request, commit results: mxstage-core-commit
    - questions about what the user sees on screen: mxstage-core-screen

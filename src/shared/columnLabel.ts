@@ -11,9 +11,10 @@ export interface HeaderLines {
 }
 
 /** 見出しの 2 行。子の列は属性名に子オブジェクト名を残す（MULTIASSETLOCCI.ASSETNUM） */
-export function headerLines(c: Pick<ColumnSchema, "name" | "title">): HeaderLines {
+export function headerLines(c: Pick<ColumnSchema, "name" | "title"> & { hideName?: boolean }): HeaderLines {
   const title = (c.title ?? "").trim();
   if (title === "" || title === c.name) return { main: c.name, sub: null };
+  if (c.hideName === true) return { main: title, sub: null };
   return { main: title, sub: c.name };
 }
 

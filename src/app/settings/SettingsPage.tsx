@@ -4,6 +4,7 @@
 // 節はタブに分ける（接続・デモ・ライセンス・AI アシスタント・Skill・更新・言語）。選んだタブは URL のハッシュ（/settings#license）に出す。
 // タブを切り替えても各節は描いたまま（隠すだけ）にして、入力途中の値を失わない。
 
+import { SharedFolderField } from "./SharedFolderField";
 import { Button, Checkbox, Form, Layer, RadioButton, RadioButtonGroup, Select, SelectItem, Tab, TabList, TabPanel, TabPanels, Tabs, TextInput } from "@carbon/react";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from "react";
 import { LOCALES, getLocale, isLocale, subscribeLocale } from "../../shared/i18n";
@@ -542,6 +543,10 @@ function MaximoSection({ vault, view, storage, passwordCredential, replaceUrl, l
       <section className="card">
         <h2>{t.title}</h2>
         <ConnectedInfo info={view.info} license={license} onReconnect={() => setShowForm(true)} onDisconnect={disconnect} />
+        <SharedFolderField
+          scope={view.info.savedId ?? view.info.baseUrl}
+          project={{ name: view.info.connectionName, connections: [{ name: view.info.connectionName, baseUrl: view.info.baseUrl, environment: license?.environmentOf(view.info.baseUrl) ?? null }] }}
+        />
         <PastStatusField baseUrl={view.info.baseUrl} storage={storage} />
         {savedList}
       </section>
@@ -706,6 +711,7 @@ function SavedConnections(p: {
                   {hostOf(c.baseUrl)}
                   {c.environment !== null ? ` · ${c.environment === "production" ? env.production : env.test}` : ""}
                 </span>
+                {p.currentId !== c.id && <SharedFolderField compact scope={c.id} project={{ name: c.name, connections: [{ name: c.name, baseUrl: c.baseUrl, environment: c.environment }] }} />}
               </div>
               <div className="saved-actions">
                 {p.currentId === c.id ? (

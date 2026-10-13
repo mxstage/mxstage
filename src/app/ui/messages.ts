@@ -7,6 +7,7 @@ export const uiMessages = defineMessages(
     workEnded: "Work ended. A new session has started.",
     /** 作業の既定の名前（上部バーの ○ のツールチップと get_status に出る） */
     workspaceName: (when: string) => `Session ${when}`,
+    scopeSheet: (os: string) => `Scope ${os}`,
     close: "Close",
     status: { error: "Error", warning: "Warning", success: "Success", info: "Information" },
     drop: {
@@ -41,6 +42,7 @@ export const uiMessages = defineMessages(
   {
     workEnded: "作業を終了しました。新しい作業を始めます。",
     workspaceName: (when) => `作業 ${when}`,
+    scopeSheet: (os) => `範囲の確認 ${os}`,
     close: "閉じる",
     status: { error: "エラー", warning: "注意", success: "完了", info: "お知らせ" },
     drop: {

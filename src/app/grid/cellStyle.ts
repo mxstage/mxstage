@@ -89,8 +89,9 @@ export function formatCellValue(v: CellValue): string {
  * 列の型に合わせた表示。日付・日時は読みやすい形（2026-10-01 / 2026-10-01 09:00。オフセットは出さない）にそろえる。
  * 表示だけで、値（Maximo に送る ISO 8601）は変えない
  */
-export function formatColumnValue(col: Pick<ColumnSchema, "type"> | undefined, v: CellValue): string {
+export function formatColumnValue(col: (Pick<ColumnSchema, "type"> & { valueLabels?: Record<string, string> }) | undefined, v: CellValue): string {
   if (col && (col.type === "date" || col.type === "datetime")) return formatDateForDisplay(col.type, v);
+  if (col?.valueLabels && typeof v === "string" && Object.hasOwn(col.valueLabels, v)) return col.valueLabels[v] as string;
   return formatCellValue(v);
 }
 

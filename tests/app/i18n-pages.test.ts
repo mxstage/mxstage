@@ -87,7 +87,7 @@ describe("作業画面の英語の文言", () => {
     expect(pagesMessages().topBar.structures).toBe("Object structures");
     expect(pagesMessages().app.emptyTitle).toBe("No sheets yet.");
     expect(filterLabel({ col: "STATUS", kind: "notEmpty" })).toBe("STATUS: not empty");
-    expect(filterLabel({ col: "STATUS", kind: "change", changes: ["llm", "user"] })).toBe("STATUS: Changed by LLM, Changed by you");
+    expect(filterLabel({ col: "STATUS", kind: "change", changes: ["llm", "user"] })).toBe("STATUS: Changed by the AI, Changed by you");
     expect(filterLabel({ col: "DESCRIPTION", kind: "contains", text: "leak" })).toBe('DESCRIPTION: contains "leak"');
     expect(rowCountLabel({ shown: 1, total: 1, narrowed: false })).toBe("1 row");
     expect(rowCountLabel({ shown: 120, total: 120, narrowed: false })).toBe("120 rows");

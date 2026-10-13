@@ -60,6 +60,8 @@ export const pagesMessages = defineMessages(
       viewSwitch: "View",
       originMaximo: (os: string, host: string | null) => `Loaded from ${os}${host ? ` (${host})` : ""}`,
       originExcel: (fileName: string, sheetName: string) => `Imported from ${sheetName} in ${fileName}`,
+      originDictionary: (name: string) => `Customer dictionary “${name}” (saved to the shared folder, never committed to Maximo)`,
+      confirmEndWorkDictionary: (n: number) => `${n} change${n === 1 ? " to dictionaries is" : "s to dictionaries are"} not saved. Ending work discards ${n === 1 ? "it" : "them"}. Continue?`,
       confirmReload: "Reloading will discard the work data and API key in this tab. Reload?",
       confirmReloadKeep: "Reload this tab? Your work is kept by MX Stage on this PC while the tab reloads and comes back afterwards.",
       reloadKeepFailed: "Could not keep the work for the reload. Reloading will discard the work data in this tab. Reload anyway?",
@@ -97,6 +99,7 @@ export const pagesMessages = defineMessages(
     },
     panes: {
       sheet: "Sheet",
+      dictionary: "Dictionary",
       childOf: (parent: string) => `Child of ${parent}`,
       tooMany: (max: number) => `Up to ${max} tables can be shown at once. Hide another table first.`,
     },
@@ -108,6 +111,7 @@ export const pagesMessages = defineMessages(
     sheetTabs: {
       label: "Sheets",
       changes: "Number of changes",
+      unsaved: "Changes not saved yet",
       close: "Close sheet",
       closeNamed: (name: string) => `Close sheet ${name}`,
       running: (name: string) => `Sheet ${name} is being committed to Maximo and cannot be closed. Close it after the commit finishes.`,
@@ -116,6 +120,7 @@ export const pagesMessages = defineMessages(
     },
     history: {
       title: "Change history",
+      unsavedTitle: "Changes not saved yet",
       empty: "No changes yet.",
       ops: (n: number) => `${n} change${n === 1 ? "" : "s"}`,
       undo: "Undo",
@@ -181,6 +186,8 @@ export const pagesMessages = defineMessages(
       viewSwitch: "表示",
       originMaximo: (os, host) => `${os}${host ? `（${host}）` : ""} から読み込み`,
       originExcel: (fileName, sheetName) => `${fileName} の ${sheetName} から取り込み`,
+      originDictionary: (name) => `客先の辞書「${name}」（保存すると共有フォルダに書きます。Maximo には反映しません）`,
+      confirmEndWorkDictionary: (n) => `辞書に保存していない変更が ${n} 件あります。作業を終えると消えます。続けますか？`,
       confirmReload: "再読み込みすると、このタブの作業データと API キーは消えます。再読み込みしますか？",
       confirmReloadKeep: "このタブを再読み込みしますか？ 作業は、再読み込みのあいだこの PC の MX Stage が預かり、開き直したあとに戻します。",
       reloadKeepFailed: "作業を預けられませんでした。このまま再読み込みすると、このタブの作業データは消えます。再読み込みしますか？",
@@ -218,6 +225,7 @@ export const pagesMessages = defineMessages(
     },
     panes: {
       sheet: "シート",
+      dictionary: "辞書",
       childOf: (parent) => `${parent} の子`,
       tooMany: (max) => `表は ${max} 枚まで並べられます。ほかの表を隠してから出してください。`,
     },
@@ -229,6 +237,7 @@ export const pagesMessages = defineMessages(
     sheetTabs: {
       label: "シート",
       changes: "変更の件数",
+      unsaved: "保存していない変更の件数",
       close: "シートを閉じる",
       closeNamed: (name) => `シート ${name} を閉じる`,
       running: (name) => `シート ${name} は Maximo へ反映中のため閉じられません。反映が終わってから閉じてください。`,
@@ -236,6 +245,7 @@ export const pagesMessages = defineMessages(
     },
     history: {
       title: "変更履歴",
+      unsavedTitle: "保存前の変更",
       empty: "まだ変更はありません。",
       ops: (n) => `${n} 件`,
       undo: "取り消す",

@@ -32,6 +32,8 @@ export interface TopBarProps {
   baseUrl?: string | null;
   /** 接続中の Maximo の環境（テスト／本番）の札を出す */
   license?: LicenseClient;
+  /** 「辞書」のボタン（今の接続先の客先の辞書） */
+  dictionaries?: ReactNode;
 }
 
 /**
@@ -136,6 +138,7 @@ export function TopBar(p: TopBarProps) {
       {p.license && p.baseUrl ? <EnvironmentTag license={p.license} baseUrl={p.baseUrl} /> : null}
       {p.tabs}
       <span className="spacer" />
+      {p.dictionaries}
       <nav className="topbar-links" aria-label={t.nav}>
         <LegendButton />
         <StructuresLink catalog={p.catalog} baseUrl={p.baseUrl} />

@@ -189,6 +189,38 @@ export function CommitPanel({ commits, sheet, version, connected, locked, onMess
     }
   };
 
+  // 反映する変更が無く、依頼・反映中・結果も無いときは、見出しと一言だけにする（件数 0 と押せないボタンを並べない）
+  if (!hasDiff && panel.state !== "requested" && panel.state !== "running" && panel.results.length === 0 && canary === null) {
+    return (
+      <section className="panel commit-panel" aria-label={t.title}>
+        <div className="commit-head">
+          <h2>{t.title}</h2>
+          {panel.target && (
+            <p className="commit-target" title={t.targetTitle}>
+              <span className="mono">{panel.target.os}</span>
+              {panel.target.baseUrl && <> → {hostOf(panel.target.baseUrl)}</>}
+            </p>
+          )}
+        </div>
+        <p className="muted small">{panel.blockers[0] ?? t.nothingToCommit}</p>
+        {(lastFresh || hasLog) && (
+          <div className="commit-status">
+            {workspace !== undefined && lastFresh && (
+              <Button kind="ghost" size="sm" className="report-link" title={diffReportMessages().buttonTitle} onClick={saveReport}>
+                {diffReportMessages().button}
+              </Button>
+            )}
+            {hasLog && (
+              <Button kind="ghost" size="sm" className="log-link" onClick={() => downloadText(withBom(commits.writeLogCsv()), writeLogFileName(new Date()))}>
+                {t.writeLog}
+              </Button>
+            )}
+          </div>
+        )}
+      </section>
+    );
+  }
+
   return (
     <section className={`panel commit-panel${panel.state === "requested" ? " requested" : ""}`} aria-label={t.title}>
       <div className="commit-head">

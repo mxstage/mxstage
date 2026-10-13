@@ -26,6 +26,8 @@ import { StoreError } from "./errors";
 import { compileFilters } from "./filters";
 import { randomHex } from "./ids";
 import { JobRegistry } from "./jobs";
+import { compileAliases, type CompiledAlias } from "../../shared/dictionary";
+import { DICT_FIND, DICT_MODE, DICT_TO } from "../../shared/dictionarySheet";
 import { compileMatcher, type RowMatch } from "./matcher";
 import { checkLimit, paginate } from "./paging";
 import { Sheet, type CellInfo, type CellOverlay, type RowMark, type RowState, type RowStatus, type SheetJSON, type ViewKind } from "./sheet";
@@ -76,6 +78,17 @@ export interface AddRowsOptions extends EditOptions {
 export interface UndoOptions {
   /** 取り消しを実行する人（省略時は利用者）。llm なら利用者が編集中のセル・行は取り消さず user_editing にする */
   author?: BatchAuthor;
+}
+
+/** 突き合わせの行ごとの結果（Workspace.matchDetail） */
+export interface MatchDetail {
+  /** 左側の行（同じ親の子行は 1 行に代表させる）と、その結果。match の id は相手側の ID */
+  rows: Array<{ rowKey: string; match: RowMatch }>;
+  targetIds: readonly string[];
+  targetRowKey(id: string): string;
+  targetLabel(id: string): string;
+  /** 左側を親で数えたか（行キーは代表の行） */
+  byParent: boolean;
 }
 
 /**
@@ -893,12 +906,12 @@ export class Workspace {
     const [matchCols, targetCols] = optionalPairColumns(lk.matchCol, lk.targetMatchCol, "matchCol", "targetMatchCol");
     const target = this.getSheet(lk.sheet);
     if (!target.hasColumn(lk.sourceCol)) throw columnNotFound(lk.sourceCol, target.name);
-    const { sheet: _sheet, matchCol: _matchCol, targetMatchCol: _targetMatchCol, sourceCol, normalize, ...conditions } = lk;
+    const { sheet: _sheet, matchCol: _matchCol, targetMatchCol: _targetMatchCol, sourceCol, normalize, dictionaries, ...conditions } = lk;
     // 参照元が親の列なら、同じ親の複数の行（子行）は同じ値なので 1 件として数える
     const matcher = compileMatcher(
       sheet,
       target,
-      { cols: matchCols, targetCols, normalize: normalize ?? [], conditions, targetByParent: target.isParentColumn(sourceCol) },
+      { cols: matchCols, targetCols, normalize: normalize ?? [], conditions, targetByParent: target.isParentColumn(sourceCol), aliases: this.aliasRules(dictionaries ?? []) },
       (n) => this.getSheet(n),
     );
     let prepared: Map<RowState, RowMatch> | null = null;
@@ -1258,13 +1271,57 @@ export class Workspace {
     sampleSize: number,
     extra: MatchConditions & { leftFilter?: TypedFilter[] } = {},
   ): MatchSummary {
-    const left = this.getSheet(leftName);
-    const right = this.getSheet(rightName);
-    const [leftCols, rightCols] = optionalPairColumns(leftCol, rightCol, "leftCol", "rightCol");
     if (!Number.isSafeInteger(sampleSize) || sampleSize < 0) {
       throw new StoreError("invalid_args", "sampleSize must be an integer of 0 or more", { sampleSize });
     }
-    const { leftFilter, ...conditions } = extra;
+    const detail = this.matchDetail(leftName, rightName, leftCol, rightCol, normalize, extra);
+    const summary: MatchSummary = {
+      matched: 0,
+      unmatchedLeft: 0,
+      unmatchedRight: 0,
+      ambiguous: 0,
+      samples: { matched: [], unmatchedLeft: [], unmatchedRight: [], ambiguous: [] },
+    };
+    const hit = new Set<string>();
+    for (const { rowKey, match: m } of detail.rows) {
+      if (m.kind === "unmatched") {
+        summary.unmatchedLeft++;
+        if (summary.samples.unmatchedLeft.length < sampleSize) summary.samples.unmatchedLeft.push({ rowKey, key: m.label });
+      } else if (m.kind === "matched") {
+        hit.add(m.id);
+        summary.matched++;
+        if (m.byGroup) summary.matchedByGroup = (summary.matchedByGroup ?? 0) + 1;
+        if (m.byAbove) summary.matchedByAbove = (summary.matchedByAbove ?? 0) + 1;
+        if (summary.samples.matched.length < sampleSize) summary.samples.matched.push({ leftRowKey: rowKey, rightRowKey: detail.targetRowKey(m.id), key: m.label });
+      } else {
+        for (const id of m.ids) hit.add(id);
+        summary.ambiguous++;
+        if (summary.samples.ambiguous.length < sampleSize) {
+          summary.samples.ambiguous.push({ leftRowKey: rowKey, key: m.label, candidates: m.ids.slice(0, MAX_CANDIDATES).map(detail.targetRowKey) });
+        }
+      }
+    }
+    for (const id of detail.targetIds) {
+      if (hit.has(id)) continue;
+      summary.unmatchedRight++;
+      if (summary.samples.unmatchedRight.length < sampleSize) summary.samples.unmatchedRight.push({ rowKey: detail.targetRowKey(id), key: detail.targetLabel(id) });
+    }
+    return summary;
+  }
+
+  /** 突き合わせの行ごとの結果（作業画面の「突き合わせ先」の列と、match_sheets の件数の元） */
+  matchDetail(
+    leftName: string,
+    rightName: string,
+    leftCol: string | readonly string[] | undefined,
+    rightCol: string | readonly string[] | undefined,
+    normalize: readonly NormalizeOption[],
+    extra: MatchConditions & { leftFilter?: TypedFilter[] } = {},
+  ): MatchDetail {
+    const left = this.getSheet(leftName);
+    const right = this.getSheet(rightName);
+    const [leftCols, rightCols] = optionalPairColumns(leftCol, rightCol, "leftCol", "rightCol");
+    const { leftFilter, dictionaries, ...conditions } = extra;
     const { contains, dateWithin } = conditions;
     const usedLeft = [...leftCols, ...(contains ? [contains.col] : []), ...(dateWithin ? [dateWithin.col] : [])];
     const usedRight = [
@@ -1276,7 +1333,7 @@ export class Workspace {
     const matcher = compileMatcher(
       left,
       right,
-      { cols: leftCols, targetCols: rightCols, normalize, conditions, targetByParent: byParent(right, usedRight) },
+      { cols: leftCols, targetCols: rightCols, normalize, conditions, targetByParent: byParent(right, usedRight), aliases: this.aliasRules(dictionaries ?? []) },
       (n) => this.getSheet(n),
     );
     const leftPredicate = compileFilters(leftFilter ?? [], (c) => left.hasColumn(c));
@@ -1290,40 +1347,44 @@ export class Workspace {
       seen.add(id);
       leftRows.push(r);
     }
-    const rightKey = (id: string) => matcher.targetRow(id).rowKey;
-
-    const summary: MatchSummary = {
-      matched: 0,
-      unmatchedLeft: 0,
-      unmatchedRight: 0,
-      ambiguous: 0,
-      samples: { matched: [], unmatchedLeft: [], unmatchedRight: [], ambiguous: [] },
+    const matched = matcher.matchRows(leftRows);
+    return {
+      rows: leftRows.map((r) => ({ rowKey: r.rowKey, match: matched.get(r) as RowMatch })),
+      targetIds: matcher.targetIds,
+      targetRowKey: (id) => matcher.targetRow(id).rowKey,
+      targetLabel: (id) => matcher.targetLabel(id),
+      byParent: leftByParent,
     };
-    const hit = new Set<string>();
-    for (const [r, m] of matcher.matchRows(leftRows)) {
-      if (m.kind === "unmatched") {
-        summary.unmatchedLeft++;
-        if (summary.samples.unmatchedLeft.length < sampleSize) summary.samples.unmatchedLeft.push({ rowKey: r.rowKey, key: m.label });
-      } else if (m.kind === "matched") {
-        hit.add(m.id);
-        summary.matched++;
-        if (m.byGroup) summary.matchedByGroup = (summary.matchedByGroup ?? 0) + 1;
-        if (m.byAbove) summary.matchedByAbove = (summary.matchedByAbove ?? 0) + 1;
-        if (summary.samples.matched.length < sampleSize) summary.samples.matched.push({ leftRowKey: r.rowKey, rightRowKey: rightKey(m.id), key: m.label });
-      } else {
-        for (const id of m.ids) hit.add(id);
-        summary.ambiguous++;
-        if (summary.samples.ambiguous.length < sampleSize) {
-          summary.samples.ambiguous.push({ leftRowKey: r.rowKey, key: m.label, candidates: m.ids.slice(0, MAX_CANDIDATES).map(rightKey) });
-        }
-      }
+  }
+
+  /**
+   * 開いている辞書のシートの呼び名（保存前の変更も含む、画面に見えているとおり）。
+   * 名前は辞書の名前かシートの名前。開いていなければ invalid_args（ツールは先に開いてから呼ぶ）
+   */
+  aliasRules(names: readonly string[]): CompiledAlias[] {
+    const out: CompiledAlias[] = [];
+    for (const name of names) {
+      const sheet = this.dictionarySheet(name);
+      if (sheet === null) throw new StoreError("invalid_args", `The dictionary ${name} is not open in the work screen. Open it with open_dictionary first`, { dictionary: name });
+      const entries = sheet.viewRows("final").map((r) => ({
+        id: r.rowKey,
+        find: String(sheet.finalValue(r, DICT_FIND) ?? ""),
+        to: String(sheet.finalValue(r, DICT_TO) ?? ""),
+        mode: sheet.finalValue(r, DICT_MODE) as "text",
+      }));
+      out.push(...compileAliases(entries).rules);
     }
-    for (const id of matcher.targetIds) {
-      if (hit.has(id)) continue;
-      summary.unmatchedRight++;
-      if (summary.samples.unmatchedRight.length < sampleSize) summary.samples.unmatchedRight.push({ rowKey: rightKey(id), key: matcher.targetLabel(id) });
+    return out;
+  }
+
+  /** 辞書のシート（辞書の名前かシートの名前で探す）。無ければ null */
+  dictionarySheet(name: string): Sheet | null {
+    const want = name.normalize("NFKC").trim().toLowerCase();
+    for (const s of this.sheetMap.values()) {
+      if (s.meta.source.kind !== "dictionary") continue;
+      if (s.meta.name === name || s.meta.source.dictionaryName.normalize("NFKC").trim().toLowerCase() === want) return s;
     }
-    return summary;
+    return null;
   }
 
   getDiff(sheetName: string, opts: DiffOptions = {}): DiffResult {

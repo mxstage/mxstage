@@ -3,6 +3,8 @@
 // 実装: createToolRegistry → src/app/tools/registry.ts、createCommitController → src/app/commit/controller.ts、
 //       ConnectionProvider → src/app/keyvault（UI 側）。
 
+import type { DictionaryService } from "../dictionaries/service";
+import type { MatchViewStore } from "../match/views";
 import type { BatchAuthor, CommitRowResult, CommitState } from "../../shared/model";
 import type { ObjectStructureCatalog } from "../catalog/catalog";
 import type { ImportStore } from "../imports";
@@ -151,6 +153,10 @@ export interface ToolRegistryDeps {
   catalog: ObjectStructureCatalog;
   /** 作業画面に届いた Excel・CSV（describe_import・apply_mapping が読む） */
   imports?: ImportStore;
+  /** 客先の辞書（open_dictionary・create_dictionary、突き合わせの dictionaries） */
+  dictionaries?: DictionaryService;
+  /** 突き合わせの結果（match_sheets の結果を作業画面に出す） */
+  matches?: MatchViewStore;
   /** 環境（本番／テスト）とライセンス。get_status に載せる */
   license?: LicenseGate;
   /** 接続先ごとの過去の作業のステータス（apply_rule の phase で past を省いたとき） */

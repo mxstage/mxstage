@@ -130,7 +130,7 @@ describe("列ごとの絞り込みメニュー（ColumnFilterMenu）", () => {
     let applied: GridFilter | null | undefined;
     await show((f) => (applied = f), changes);
     // 件数が 0 の区分は出さない
-    expect(qa(".changes label").map((l) => l.textContent)).toEqual(["LLM の変更3", "追加行1", "変更なし116"]);
+    expect(qa(".changes label").map((l) => l.textContent)).toEqual(["AI の変更3", "追加行1", "変更なし116"]);
     expect(qa(".changes .swatch")).toHaveLength(2);
     await click(qa<HTMLInputElement>('.changes input[type="checkbox"]')[0] ?? null);
     // 値も選んであっても、変更の状態を選んでいればそちらで絞る（1 つの列に 1 つ）

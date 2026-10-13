@@ -2,6 +2,7 @@
 // AI が決まり（置き換え・条件）を作り、照合そのものはここで行う。
 // 候補が 1 件に決まらない行（0 件・2 件以上）は結ばずに返し、人か AI が判断する。
 
+import { applyAliases, type CompiledAlias } from "../../shared/dictionary";
 import type { CellValue, MatchConditions, NormalizeOption } from "../../shared/model";
 import { StoreError } from "./errors";
 import { compileFilters } from "./filters";
@@ -16,10 +17,11 @@ export const MIN_CONTAINS_LENGTH = 2;
 const MAX_INDEXED_DAYS = 62;
 const DAY_MS = 86_400_000;
 
+/** aliases: この行の文を変えた辞書の項目の ID（効いた行の数と、一致の理由に使う） */
 export type RowMatch =
-  | { kind: "matched"; id: string; label: string; byGroup?: boolean; byAbove?: boolean }
-  | { kind: "unmatched"; label: string }
-  | { kind: "ambiguous"; ids: string[]; label: string };
+  | { kind: "matched"; id: string; label: string; byGroup?: boolean; byAbove?: boolean; aliases?: string[] }
+  | { kind: "unmatched"; label: string; aliases?: string[] }
+  | { kind: "ambiguous"; ids: string[]; label: string; aliases?: string[] };
 
 export interface MatchSpec {
   /** 等しい値で突合する列（この側）。空なら等しさでは絞らない */
@@ -30,6 +32,8 @@ export interface MatchSpec {
   conditions: MatchConditions;
   /** 相手側を親（同じ親の子行をまとめて 1 件）で数えるか */
   targetByParent: boolean;
+  /** 客先の辞書の呼び名。この側（取り込んだファイルなど）の文にだけ、正規化の前に当てる */
+  aliases?: readonly CompiledAlias[];
 }
 
 export interface Matcher {
@@ -231,27 +235,41 @@ export function compileMatcher(sheet: Sheet, target: Sheet, spec: MatchSpec, get
     }
   }
 
+  const aliasRules = spec.aliases ?? [];
+  /** この側の値に呼び名を当てる（当てた項目を applied に足す） */
+  const thisValue = (v: CellValue | undefined, applied: string[]): CellValue | undefined => {
+    if (aliasRules.length === 0 || v === null || v === undefined || v === "") return v;
+    const res = applyAliases(aliasRules, typeof v === "string" ? v : String(v));
+    for (const id of res.applied) if (!applied.includes(id)) applied.push(id);
+    return res.text;
+  };
   const matchOne = (r: RowState): RowMatch => {
+    const applied: string[] = [];
+    const withAliases = <M extends RowMatch>(m: M): M => (applied.length > 0 ? { ...m, aliases: applied } : m);
     const labelParts: string[] = [];
     let pool: readonly TargetEntry[] = entries;
     if (spec.cols.length > 0) {
-      const k = eqKey(sheet, r, spec.cols);
+      const k = normalizeCompositeKey(
+        spec.cols.map((c) => thisValue(sheet.finalValue(r, c), applied)),
+        spec.normalize,
+        rewrite,
+      );
       labelParts.push(k.label);
-      if (k.id === null) return { kind: "unmatched", label: labelParts.join(" | ") };
+      if (k.id === null) return withAliases({ kind: "unmatched", label: labelParts.join(" | ") });
       pool = byEq.get(k.id) ?? [];
     }
     let day: string | null = null;
     if (dateWithin !== undefined) {
       day = dayOfCell(sheet.finalValue(r, dateWithin.col));
       labelParts.push(day ?? "");
-      if (day === null) return { kind: "unmatched", label: labelParts.join(" | ") };
+      if (day === null) return withAliases({ kind: "unmatched", label: labelParts.join(" | ") });
       if (spec.cols.length === 0) pool = [...(byDay.get(day) ?? []), ...wide];
     }
     let body: string | null = null;
     if (contains !== undefined) {
-      body = text(sheet.finalValue(r, contains.col));
+      body = text(thisValue(sheet.finalValue(r, contains.col), applied));
       labelParts.push(body ?? "");
-      if (body === null) return { kind: "unmatched", label: labelParts.join(" | ") };
+      if (body === null) return withAliases({ kind: "unmatched", label: labelParts.join(" | ") });
     }
     const label = labelParts.join(" | ");
     const hits = pool.filter(
@@ -259,9 +277,9 @@ export function compileMatcher(sheet: Sheet, target: Sheet, spec: MatchSpec, get
         (day === null || ((e.from as string) <= day && day <= (e.to as string))) &&
         (body === null || e.names.some((n) => (body as string).includes(n))),
     );
-    if (hits.length === 0) return { kind: "unmatched", label };
-    if (hits.length === 1) return { kind: "matched", id: hits[0]!.id, label };
-    return { kind: "ambiguous", ids: hits.map((e) => e.id), label };
+    if (hits.length === 0) return withAliases({ kind: "unmatched", label });
+    if (hits.length === 1) return withAliases({ kind: "matched", id: hits[0]!.id, label });
+    return withAliases({ kind: "ambiguous", ids: hits.map((e) => e.id), label });
   };
 
   return {
@@ -285,7 +303,7 @@ export function compileMatcher(sheet: Sheet, target: Sheet, spec: MatchSpec, get
           const above = prev !== null && position.get(prev.rowKey) === (position.get(r.rowKey) ?? -1) - 1 ? out.get(prev) : undefined;
           const raw = sheet.finalValue(r, followsAbove.col);
           if (m.kind !== "matched" && above?.kind === "matched" && typeof raw === "string" && abovePattern.test(raw.trim())) {
-            out.set(r, { kind: "matched", id: above.id, label: m.label, byAbove: true });
+            out.set(r, { kind: "matched", id: above.id, label: m.label, byAbove: true, ...(m.aliases ? { aliases: m.aliases } : {}) });
           }
           prev = r;
         }
@@ -312,9 +330,9 @@ export function compileMatcher(sheet: Sheet, target: Sheet, spec: MatchSpec, get
           const m = out.get(r)!;
           if (ids.size === 1) {
             const [id] = ids;
-            if (m.kind !== "matched") out.set(r, { kind: "matched", id: id!, label: m.label, byGroup: true });
+            if (m.kind !== "matched") out.set(r, { kind: "matched", id: id!, label: m.label, byGroup: true, ...(m.aliases ? { aliases: m.aliases } : {}) });
           } else {
-            out.set(r, { kind: "ambiguous", ids: [...ids], label: m.label });
+            out.set(r, { kind: "ambiguous", ids: [...ids], label: m.label, ...(m.aliases ? { aliases: m.aliases } : {}) });
           }
         }
       }

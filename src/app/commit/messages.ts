@@ -385,9 +385,10 @@ export const commitMessages = defineMessages(
     },
     panel: {
       title: "Commit",
+      nothingToCommit: "There are no changes to commit.",
       targetTitle: "Commits to the object structure and connection the sheet was loaded from",
       requestTitle: "Review the changes before committing.",
-      requested: "The LLM has requested a commit",
+      requested: "The AI has requested a commit",
       dismissRequest: "Dismiss request",
       counts: {
         parents: "Records",
@@ -557,9 +558,10 @@ export const commitMessages = defineMessages(
     },
     panel: {
       title: "Maximo への反映",
+      nothingToCommit: "反映する変更はありません。",
       targetTitle: "シートを読み込んだオブジェクト構造と接続先に反映します",
       requestTitle: "差分を確認してから反映してください。",
-      requested: "LLM から反映の依頼があります",
+      requested: "AI から反映の依頼があります",
       dismissRequest: "依頼を閉じる",
       counts: {
         parents: "親レコード",

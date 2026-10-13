@@ -199,10 +199,10 @@ const slow = (ms: number) => (f: FetchLike): FetchLike =>
 // ---------------------------------------------------------------------------
 
 describe("ToolRegistry の一覧と引数", () => {
-  it("tools は実装済みの 21 ツールだけ（小さな表の取り込み・出力は含めない）", () => {
+  it("tools は実装済みの 23 ツールだけ（小さな表の取り込み・出力は含めない）", () => {
     const h = harness();
     expect(h.registry.tools).toEqual([...TAB_TOOL_NAMES]);
-    expect(h.registry.tools).toHaveLength(21);
+    expect(h.registry.tools).toHaveLength(23);
     for (const n of ["open_grid", "get_skill"]) {
       expect(h.registry.tools).not.toContain(n);
     }
@@ -477,14 +477,30 @@ describe("メタデータのツール", () => {
     expect(res.scanned).toBe(3);
     expect(res.note).toContain("in where of load_sheet");
     // Claude が読んだ行は、利用者も作業画面で同じものを見られる（キー列と軸の列だけのシート）
-    expect(res).toMatchObject({ sheet: "Scope MXAPIWO", replaced: false });
-    const sheet = h.workspace.summary("Scope MXAPIWO");
+    expect(res).toMatchObject({ sheet: "範囲の確認 MXAPIWO", replaced: false });
+    const sheet = h.workspace.summary("範囲の確認 MXAPIWO");
     expect(sheet.rowCount).toBe(3);
     expect(sheet.source).toMatchObject({ kind: "maximo", os: "MXAPIWO" });
     expect(sheet.columns.map((c) => c.name)).toEqual(expect.arrayContaining([...sheet.keyColumns, ...names]));
     // 数えた件数はシートの行と同じ
-    const agg = await h.call("aggregate", { sheet: "Scope MXAPIWO", groupBy: ["STATUS"] });
+    const agg = await h.call("aggregate", { sheet: "範囲の確認 MXAPIWO", groupBy: ["STATUS"] });
     expect(agg.groups).toEqual(expect.arrayContaining([{ key: { STATUS: "COMP" }, count: 2 }]));
+  });
+
+  it("scope_options の範囲の確認のシートは、同じ構造を load_sheet で読み込んだら閉じる（変更があれば残す）", async () => {
+    const h = harness();
+    await h.call("scope_options", { os: "MXAPIWO" });
+    expect(h.workspace.hasSheet("範囲の確認 MXAPIWO")).toBe(true);
+    const loaded = await loadPermits(h);
+    expect(loaded.closedScopeSheets).toEqual(["範囲の確認 MXAPIWO"]);
+    expect(h.workspace.hasSheet("範囲の確認 MXAPIWO")).toBe(false);
+    // 変更のある範囲の確認のシートは閉じない
+    await h.call("scope_options", { os: "MXAPIWO", name: "範囲 2" });
+    const rowKey = (await h.call("query_rows", { sheet: "範囲 2" })).rows[0][0];
+    h.workspace.applyEdits("範囲 2", [{ rowKey, col: "STATUS", value: "WAPPR" }], { author: "user" });
+    const again = await loadPermits(h, { name: "別の許可" });
+    expect(again.closedScopeSheets).toBeUndefined();
+    expect(h.workspace.hasSheet("範囲 2")).toBe(true);
   });
 
   it("scope_options: name でシート名を変えられる。未反映の変更がある同名のシートは置き換えない", async () => {

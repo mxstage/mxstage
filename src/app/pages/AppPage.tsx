@@ -45,6 +45,15 @@ import {
 import { PaneSplitters } from "./PaneSplitters";
 import { AiFollower } from "./follow";
 import { closeSheet, SheetTabs, type SheetTabInfo } from "./SheetTabs";
+import { AddAliasPopover } from "./AddAliasPopover";
+import { DictionaryMenu } from "./DictionaryMenu";
+import { DictionaryPanel } from "./DictionaryPanel";
+import { ImportPanel } from "./ImportPanel";
+import { MatchBand, type MatchBandFilter } from "./MatchBand";
+import { conditionLines, hitsColumn, MATCH_COLUMN_ID, matchColumn } from "../match/columns";
+import { dictionaryMessages } from "../dictionaries/messages";
+import { DICT_FIND, DICT_MODE, DICT_NOTE, DICT_TO } from "../../shared/dictionarySheet";
+import type { ExtraColumn, GridFilter } from "../grid/SheetGrid";
 import { hostOf, maximoBadge, relayBadge, reopenHint, shouldSuggestReopen } from "./status";
 import { TopBar } from "./TopBar";
 
@@ -113,6 +122,20 @@ export function AppPage({ runtime, vault, toasts, catalog, license, onEndWork, o
   const version = useFrameVersion(wsSubscribe);
   const commitSubscribe = useCallback((l: () => void) => commits.subscribe(() => l()), [commits]);
   const commitVersion = useFrameVersion(commitSubscribe);
+  // 辞書（一覧・保存・履歴）と突き合わせの結果が変わったら描き直す
+  const { dictionaries, matches } = runtime;
+  const extrasSubscribe = useCallback(
+    (l: () => void) => {
+      const a = dictionaries?.subscribe(l) ?? (() => undefined);
+      const b = matches?.subscribe(l) ?? (() => undefined);
+      return () => {
+        a();
+        b();
+      };
+    },
+    [dictionaries, matches],
+  );
+  const extrasVersion = useFrameVersion(extrasSubscribe);
   const vaultView = useSyncExternalStore(
     useCallback((l: () => void) => vault.subscribe(l), [vault]),
     useCallback(() => vault.getView(), [vault]),
@@ -123,6 +146,11 @@ export function AppPage({ runtime, vault, toasts, catalog, license, onEndWork, o
   );
 
   const onMessage = useCallback((text: string, tone: "info" | "error") => toasts.show(text, tone), [toasts]);
+  useEffect(() => dictionaries?.setNotifier(onMessage), [dictionaries, onMessage]);
+  // 突き合わせの帯の絞り込み（左のシートごと）と、表に掛ける合図
+  const [bandFilters, setBandFilters] = useState<Record<string, { filter: MatchBandFilter; token: number }>>({});
+  // 「読み替えを足す」を開いている行
+  const [aliasAt, setAliasAt] = useState<{ left: string; rowKey: string; x: number; y: number } | null>(null);
 
   // 開いているシートタブ（選択中のシートが消えたら先頭へ）。窓に並べる表の組はこのシートから決める
   const sheetNames = Array.from(workspace.sheets.keys());
@@ -248,6 +276,41 @@ export function AppPage({ runtime, vault, toasts, catalog, license, onEndWork, o
   const elsewhere = relayStatus.role === "mirror" ? (relayStatus.primarySheets ?? 0) : 0;
   const reopen = suggestReopen ? reopenHint() : null;
 
+  // 開いている辞書のシートの、保存していない変更の数
+  const unsavedDictionaries = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const [name, s] of workspace.sheets) {
+      if (s.meta.source.kind !== "dictionary") continue;
+      const c = s.counts();
+      const n = c.changedCells + c.addedRows + c.deletedRows;
+      if (n > 0) m.set(name, n);
+    }
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspace, version]);
+
+  // 表示だけの列（左のシートの「突き合わせ先」、辞書のシートの「効いた行」）
+  const extraColumnsFor = (pane: PaneSpec): ExtraColumn[] | undefined => {
+    const s = workspace.sheets.get(pane.sheet);
+    if (!s || pane.scope.kind === "child") return undefined;
+    if (s.meta.source.kind === "dictionary") return [hitsColumn(workspace, pane.sheet, matches)];
+    const view = matches?.get(pane.sheet) ?? null;
+    if (view === null) return undefined;
+    return [
+      matchColumn(workspace, view, {
+        onAddAlias: (row, bounds) => setAliasAt({ left: pane.sheet, rowKey: row.rowKey, x: bounds.x, y: bounds.y + bounds.height + 4 }),
+      }),
+    ];
+  };
+  const bandFilterOf = (sheet: string): GridFilter | null => {
+    const f = bandFilters[sheet]?.filter ?? "all";
+    const c = dictionaryMessages().column;
+    if (f === "unmatched") return { col: MATCH_COLUMN_ID, kind: "contains", text: c.unmatched };
+    if (f === "ambiguous") return { col: MATCH_COLUMN_ID, kind: "contains", text: "▲" };
+    return null;
+  };
+  const setBandFilter = (sheet: string, filter: MatchBandFilter) => setBandFilters((all) => ({ ...all, [sheet]: { filter, token: (all[sheet]?.token ?? 0) + 1 } }));
+
   const tabInfos: SheetTabInfo[] = sheetNames.map((name) => {
     const s = workspace.sheets.get(name);
     const counts = s ? s.counts() : null;
@@ -256,6 +319,10 @@ export function AppPage({ runtime, vault, toasts, catalog, license, onEndWork, o
     const info: SheetTabInfo = { name, changes: counts ? counts.changedCells + counts.addedRows + counts.deletedRows : 0 };
     if (src?.kind === "maximo") info.origin = t.originMaximo(src.os, src.baseUrl ? hostOf(src.baseUrl) : null);
     else if (src?.kind === "excel") info.origin = t.originExcel(src.fileName, src.sheetName);
+    else if (src?.kind === "dictionary") {
+      info.origin = t.originDictionary(src.dictionaryName);
+      info.icon = "dictionary";
+    }
     return info;
   });
   const sheetTabs = (
@@ -285,6 +352,23 @@ export function AppPage({ runtime, vault, toasts, catalog, license, onEndWork, o
         {...(license ? { license } : {})}
         baseUrl={vaultView.kind === "disconnected" ? null : vaultView.info.baseUrl}
         tabs={sheetTabs}
+        {...(dictionaries
+          ? {
+              dictionaries: (
+                <DictionaryMenu
+                  service={dictionaries}
+                  unsaved={unsavedDictionaries}
+                  connectionName={vaultView.kind === "disconnected" ? null : vaultView.info.connectionName}
+                  onOpened={(sheet) => {
+                    follower.current?.userSelected();
+                    setSelected(sheet);
+                    setFocused(sheet);
+                  }}
+                  onMessage={onMessage}
+                />
+              ),
+            }
+          : {})}
         sidePanel={sidePanel}
         onToggleSide={() => setSidePanel((s) => !s)}
         viewHint={view === "final" ? null : (views.find((v) => v.kind === view)?.label ?? null)}
@@ -300,6 +384,8 @@ export function AppPage({ runtime, vault, toasts, catalog, license, onEndWork, o
           });
         }}
         onEndWork={() => {
+          const unsavedDict = Array.from(unsavedDictionaries.values()).reduce((a, b) => a + b, 0);
+          if (unsavedDict > 0 && !confirmFn(t.confirmEndWorkDictionary(unsavedDict))) return;
           if (confirmFn(t.confirmEndWork)) onEndWork();
         }}
       />
@@ -409,6 +495,9 @@ export function AppPage({ runtime, vault, toasts, catalog, license, onEndWork, o
                           />
                         );
                       }
+                      const extras = extraColumnsFor(pane);
+                      const matchView = pane.scope.kind !== "child" ? (matches?.get(pane.sheet) ?? null) : null;
+                      const bandState = bandFilters[pane.sheet];
                       return (
                     <SheetGrid
                       renderHeader={header}
@@ -416,7 +505,22 @@ export function AppPage({ runtime, vault, toasts, catalog, license, onEndWork, o
                       valueLists={runtime.valueLists}
                       sheetName={pane.sheet}
                       view={view}
-                      version={version}
+                      version={version + extrasVersion}
+                      {...(extras ? { extraColumns: extras } : {})}
+                      requestFilter={bandState ? { col: MATCH_COLUMN_ID, filter: bandFilterOf(pane.sheet), token: bandState.token } : null}
+                      {...(matchView
+                        ? {
+                            banner: (
+                              <MatchBand
+                                view={matchView}
+                                conditions={conditionLines(workspace, matchView.args)}
+                                filter={bandState?.filter ?? "all"}
+                                onFilter={(f) => setBandFilter(pane.sheet, f)}
+                                onClose={() => matches?.clear(pane.sheet)}
+                              />
+                            ),
+                          }
+                        : {})}
                       isBusy={() => commits.isRunning(pane.sheet)}
                       onMessage={onMessage}
                       scope={pane.scope}
@@ -447,23 +551,120 @@ export function AppPage({ runtime, vault, toasts, catalog, license, onEndWork, o
                 <Switch key={v.kind} name={v.kind} text={v.label} />
               ))}
             </ContentSwitcher>
-            <CommitPanel
-              commits={commits}
-              sheet={focusSheet}
-              version={commitVersion + version}
-              connected={vaultView.kind === "connected"}
-              locked={vaultView.kind === "locked"}
-              onMessage={onMessage}
+            {(() => {
+              const kind = workspace.sheets.get(focusSheet)?.meta.source.kind;
+              if (kind === "dictionary" && dictionaries) {
+                return <DictionaryPanel service={dictionaries} workspace={workspace} sheet={focusSheet} version={version + extrasVersion} onMessage={onMessage} />;
+              }
+              if (kind === "excel") {
+                return (
+                  <ImportPanel
+                    workspace={workspace}
+                    sheet={focusSheet}
+                    match={matches?.get(focusSheet) ?? null}
+                    version={version + extrasVersion}
+                    onOnlyUnmatched={() => setBandFilter(focusSheet, "unmatched")}
+                  />
+                );
+              }
+              return (
+                <CommitPanel
+                  commits={commits}
+                  sheet={focusSheet}
+                  version={commitVersion + version}
+                  connected={vaultView.kind === "connected"}
+                  locked={vaultView.kind === "locked"}
+                  onMessage={onMessage}
+                  workspace={workspace}
+                  {...(license ? { license } : {})}
+                />
+              );
+            })()}
+            {/* 辞書のタブでは、保存前の変更があるときだけ出す（保存した変更はメンバー全員の変更履歴に出る） */}
+            {(workspace.sheets.get(focusSheet)?.meta.source.kind !== "dictionary" || workspace.listBatches(focusSheet).length > 0) && (
+            <HistoryPanel
               workspace={workspace}
-              {...(license ? { license } : {})}
+              sheet={focusSheet}
+              version={version}
+              busy={busy}
+              onMessage={onMessage}
+              {...(workspace.sheets.get(focusSheet)?.meta.source.kind === "dictionary" ? { title: pagesMessages().history.unsavedTitle } : {})}
             />
-            <HistoryPanel workspace={workspace} sheet={focusSheet} version={version} busy={busy} onMessage={onMessage} />
+            )}
           </aside>
         )}
       </div>
+      {aliasAt !== null &&
+        (() => {
+          const v = matches?.get(aliasAt.left) ?? null;
+          const left = workspace.sheets.get(aliasAt.left);
+          const row = left?.row(aliasAt.rowKey) ?? null;
+          if (v === null || !left || row === null) return null;
+          const textCol = v.args.extra.contains?.col ?? (Array.isArray(v.args.leftCol) ? v.args.leftCol[0] : v.args.leftCol);
+          const initialFind = textCol ? String(left.finalValue(row, textCol) ?? "") : "";
+          const aliasDicts = (dictionaries?.snapshot().listing?.dictionaries ?? []).filter((d) => d.kind === "alias").map((d) => d.name);
+          const used = v.args.extra.dictionaries ?? [];
+          return (
+            <AddAliasPopover
+              x={aliasAt.x}
+              y={aliasAt.y}
+              initialFind={initialFind}
+              names={candidateNames(workspace, v.args)}
+              dictionaries={Array.from(new Set([...used, ...aliasDicts]))}
+              defaultDictionary={used[0] ?? aliasDicts[0] ?? null}
+              onClose={() => setAliasAt(null)}
+              onSubmit={async ({ find, to, dictionary }) => {
+                const m = dictionaryMessages().addAlias;
+                if (!dictionaries || !matches) return;
+                const before = v.counts.matched;
+                const opened = dictionary === null ? await dictionaries.createDictionary(m.defaultName) : await dictionaries.openDictionary(dictionary);
+                if (!opened.ok) {
+                  onMessage(m.failed(opened.message), "error");
+                  return;
+                }
+                const sheet = opened.value.sheet;
+                const dictName = workspace.getSheet(sheet).meta.source.kind === "dictionary" ? (workspace.getSheet(sheet).meta.source as { dictionaryName: string }).dictionaryName : sheet;
+                try {
+                  workspace.addRows(sheet, [{ [DICT_FIND]: find, [DICT_TO]: to, [DICT_MODE]: "text", [DICT_NOTE]: m.note(aliasAt.left, aliasAt.rowKey) }], { author: "user", reason: m.note(aliasAt.left, aliasAt.rowKey) });
+                } catch (e) {
+                  onMessage(m.failed(e instanceof Error ? e.message : String(e)), "error");
+                  return;
+                }
+                const after = matches.rerunWithDictionary(aliasAt.left, dictName);
+                const now = after?.rows.get(aliasAt.rowKey);
+                if (now?.kind === "matched") onMessage(m.nowMatched(Math.max(0, (after?.counts.matched ?? 0) - before - 1)), "info");
+                else if (now?.kind === "ambiguous") onMessage(m.nowAmbiguous, "error");
+                else onMessage(m.stillUnmatched, "error");
+                setAliasAt(null);
+              }}
+            />
+          );
+        })()}
       <Toasts store={toasts} />
     </div>
   );
+}
+
+/** 「読み替えを足す」の正しい名前の候補（相手の名前。名前を別のシートから引くときはそのシートの名前） */
+function candidateNames(workspace: Runtime["workspace"], args: import("../match/views").MatchArgs): string[] {
+  const out = new Set<string>();
+  const take = (sheetName: string, col: string) => {
+    const s = workspace.sheets.get(sheetName);
+    if (!s || !s.hasColumn(col)) return;
+    for (const r of s.viewRows("final")) {
+      const v = s.finalValue(r, col);
+      if (v !== null && v !== "") out.add(String(v));
+      if (out.size >= 3000) return;
+    }
+  };
+  const c = args.extra.contains;
+  if (c?.via) take(c.via.sheet, c.via.sourceCol);
+  else if (c) take(args.right, c.targetCol);
+  else {
+    const cols = args.rightCol === undefined ? [] : Array.isArray(args.rightCol) ? args.rightCol : [args.rightCol];
+    for (const col of cols) take(args.right, col);
+  }
+  return Array.from(out).sort((a, b) => a.localeCompare(b, "ja"));
 }
 
 /** 作業が別の窓にあるときの案内と「この窓に移す」 */

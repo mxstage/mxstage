@@ -31,6 +31,10 @@ export interface ColumnSchema {
    * スキーマに印が無かった（古い定義・Excel のシート）ときは省略する
    */
   hasList?: boolean;
+  /** 見出しに列名（2 段目）を出さない（辞書のシートの FIND など、利用者に意味の無い列名） */
+  hideName?: boolean;
+  /** 値の表示名（例 text → そのまま）。値そのものは変えず、画面の表示だけに使う */
+  valueLabels?: Record<string, string>;
 }
 
 export type SheetSource =
@@ -54,6 +58,15 @@ export type SheetSource =
       fileName: string;
       sheetName: string;
       headerRow: number;
+    }
+  | {
+      /** 客先の辞書（src/app/dictionaries）。Maximo には反映せず、保存すると共有フォルダに書く */
+      kind: "dictionary";
+      dictionaryId: string;
+      dictionaryName: string;
+      dictKind: "alias";
+      /** 辞書のある接続先（保存した接続先の ID・デモの ID・保存していない接続先の Maximo の URL） */
+      scope: string;
     };
 
 export interface SheetSummary {
@@ -133,6 +146,8 @@ export interface MatchConditions {
   group?: string;
   /** 「同上」の行: col が pattern（正規表現）に合い、自分では 1 件に決まらない行は、真上の行が 1 件に決まっていればその相手を引き継ぐ */
   followsAbove?: { col: string; pattern: string };
+  /** 客先の辞書（呼び名）の名前。この側の文にだけ、ほかの条件の前に当てる（作業画面で開いている辞書） */
+  dictionaries?: string[];
 }
 
 export type BatchAuthor = "user" | "llm";

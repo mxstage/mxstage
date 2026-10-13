@@ -91,7 +91,7 @@ describe("列の絞り込み", () => {
   });
 
   it("札の文言", () => {
-    expect(filterLabel({ col: "STATUS", kind: "change", changes: ["llm", "user"] })).toBe("STATUS: LLM の変更・利用者の変更");
+    expect(filterLabel({ col: "STATUS", kind: "change", changes: ["llm", "user"] })).toBe("STATUS: AI の変更・あなたの変更");
     expect(filterLabel({ col: "STATUS", kind: "values", values: ["作成中"] })).toBe("STATUS: 作成中");
     expect(filterLabel({ col: "STATUS", kind: "values", values: ["作成中", "承認済み"] })).toBe("STATUS: 2 個の値");
     expect(filterLabel({ col: "ASSETNUM", kind: "values", values: [""] })).toBe("ASSETNUM: （空）");

@@ -57,6 +57,13 @@ const matchConditionShape = {
     .describe(
       "Column on this side naming one document (e.g. a report number). Use it only when one document is about one record: if the rows that matched one record agree, every row of the document gets it; if they disagree, all its rows are ambiguous",
     ),
+  dictionaries: z
+    .array(z.string().min(1).max(64))
+    .max(5)
+    .optional()
+    .describe(
+      "Customer dictionaries of names to apply first, to the text of this (left) side only (how the customer writes a name → the name in Maximo). Use the customer's dictionaries listed in get_status. Prefer adding entries to a dictionary over one-off rewrite rules, so the people can see and keep them",
+    ),
   followsAbove: z
     .strictObject({
       col: z.string().describe("Text column on this side"),
@@ -434,6 +441,29 @@ export const TOOL_DEFS = {
       sampleRows: z.number().int().min(0).max(20).default(5),
     }),
     annotations: RO,
+    runAt: "tab",
+  }),
+  open_dictionary: tool({
+    name: "open_dictionary",
+    title: "Open a customer dictionary",
+    description:
+      "Opens a customer dictionary (names written in the customer's own way → the names in Maximo) as a sheet in the work screen, so that the people can see it and match_sheets and lookups can use it (dictionaries). Columns: FIND (how it is written; for MODE regex a JavaScript regular expression), TO (the correct name; $1 for groups with regex), MODE (text or regex; text matches as written, ignoring full-width or half-width and spaces), NOTE (why). Add entries with add_rows, change them with patch_cells and remove them with delete_rows, each with a reason. Keep entries narrow and general (no unit numbers that differ from row to row). Entries are not shared until the user presses Save in the work screen: when you have added entries, tell the user to check them and press Save. Changes to a dictionary never go to Maximo.",
+    inputSchema: z.strictObject({
+      name: z.string().min(1).max(64).describe("Dictionary name (from dictionaries in get_status)"),
+    }),
+    annotations: RO,
+    runAt: "tab",
+  }),
+  create_dictionary: tool({
+    name: "create_dictionary",
+    title: "Create a customer dictionary",
+    description:
+      "Creates an empty customer dictionary of names for the current Maximo connection and opens it as a sheet (see open_dictionary). Create one only when no dictionary in get_status fits, and tell the user its name. It is kept in the connection's shared folder (shared with the project members) or, without one, on this PC.",
+    inputSchema: z.strictObject({
+      name: z.string().min(1).max(64).describe("Name the user will recognize, e.g. Equipment names"),
+      description: z.string().max(500).optional(),
+    }),
+    annotations: EDIT,
     runAt: "tab",
   }),
   apply_mapping: tool({

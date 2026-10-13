@@ -41,7 +41,7 @@ import { MaximoError } from "../maximo/client";
 import { loadRecords, recordsToRows } from "../maximo/load";
 import { DEFAULT_PAST_STATUS } from "../maximo/statusPrefs";
 import type { ToolContext, ToolHandler, ToolOutcome } from "../relay";
-import type { CommitPanelState, CreateToolRegistry, MaximoConnection } from "../runtime/contracts";
+import type { CommitPanelState, CreateToolRegistry, MaximoConnection, ToolRegistryDeps } from "../runtime/contracts";
 import { axesFor, pickScopeAxes } from "../scope/axes";
 import { SCAN_PAGE_SIZE, summarizeScope } from "../scope/scan";
 import { compileFilters, decodeCursor, encodeCursor } from "../store";
@@ -59,6 +59,7 @@ import {
   type ErrorContext,
 } from "./errors";
 import { columnTitleMap } from "../../shared/columnLabel";
+import { uiMessages } from "../ui/messages";
 import { CHILD_ID_NOTE, planSheetLoad, resolveKeyColumns, specificationNote, type LoadSheetArgs, type SheetLoadPlan } from "./loadSheet";
 import { clipCell, clipString, clipValues, DATA_NOTICE, fitCount, isoTime, jsonBytes, RESULT_BUDGET_BYTES, SIZE_NOTE, toolResult, TRUNCATED_NOTE } from "./results";
 
@@ -85,6 +86,8 @@ export const TAB_TOOL_NAMES = [
   "get_commit_result",
   "describe_import",
   "apply_mapping",
+  "open_dictionary",
+  "create_dictionary",
 ] as const satisfies readonly ToolName[];
 
 export type TabToolName = (typeof TAB_TOOL_NAMES)[number];
@@ -108,8 +111,13 @@ function syncView(sync: CatalogSyncState): Record<string, unknown> {
   return { state: sync.state, done: sync.done, total: sync.total, failedCount: sync.failed.length };
 }
 
-/** scope_options が走査した行を入れるシートの名前（name を省いたとき。後ろに構造名を付ける） */
+/** scope_options が走査した行を入れるシートの名前（name を省いたとき。後ろに構造名を付ける）。英語の作業画面での前置き */
 export const SCOPE_SHEET_PREFIX = "Scope ";
+
+/** 範囲の確認のシートの名前（作業画面の言語。英語は「Scope <構造>」、日本語は「範囲の確認 <構造>」） */
+export function scopeSheetName(os: string): string {
+  return uiMessages().scopeSheet(os);
+}
 
 /** describe_import で 1 シートに載せる列の上限（結果が大きければさらに減らす） */
 export const DESCRIBE_IMPORT_MAX_COLUMNS = 100;
@@ -294,9 +302,40 @@ export const SHEETS_NOTE: Record<Exclude<StatusDetail, "full">, string> = {
   counts: "Column names and load conditions were also left out because the result is large (columnCount is the number of columns). Check the columns of the sheet with query_rows.",
 };
 
+export const DICTIONARY_NOTE =
+  "Entries are applied by the work screen when you pass the dictionary in dictionaries of match_sheets or a lookup; you do not read rows to apply them. Unsaved entries are used at once but are not shared until the user presses Save in the work screen.";
+
+/** get_status の辞書（今の接続先。共有フォルダか、この PC だけか） */
+async function dictionaryStatusView(dictionaries: NonNullable<ToolRegistryDeps["dictionaries"]>, ws: { summary(s: string): SheetSummary; dictionarySheet(n: string): { meta: { name: string } } | null }): Promise<Record<string, unknown>> {
+  let snap = dictionaries.snapshot();
+  if (snap.status !== "ready" || snap.scope !== dictionaries.currentScope()) {
+    await dictionaries.refresh();
+    snap = dictionaries.snapshot();
+  }
+  const listing = snap.listing;
+  if (listing === null) return { available: false, note: snap.error ?? "The dictionaries could not be read." };
+  const folder = listing.folder;
+  return {
+    sharing: folder.path === null ? "this PC only" : !folder.reachable ? "shared folder (cannot be reached now)" : folder.writable ? "shared folder (project members)" : "shared folder (read only)",
+    list: listing.dictionaries.map((d) => {
+      const open = ws.dictionarySheet(d.name);
+      const s = open ? ws.summary(open.meta.name) : null;
+      return { name: d.name, kind: "names", entries: d.count, ...(open ? { sheet: open.meta.name, unsavedChanges: s ? s.changedCells + s.addedRows + s.deletedRows : 0 } : {}) };
+    }),
+    note: "Use these with open_dictionary and dictionaries in match_sheets and lookups.",
+  };
+}
+
+/** undefined の欄を落とす（覚えておく引数を小さくする） */
+function stripUndefined<T extends Record<string, unknown>>(v: T): T {
+  return Object.fromEntries(Object.entries(v).filter(([, x]) => x !== undefined)) as T;
+}
+
 /** 読み込み条件（select・where）を省いたシートの出どころ */
 function compactSource(s: SheetSummary["source"]): Record<string, unknown> {
-  return s.kind === "maximo" ? { kind: s.kind, os: s.os } : { kind: s.kind, fileName: s.fileName, sheetName: s.sheetName };
+  if (s.kind === "maximo") return { kind: s.kind, os: s.os };
+  if (s.kind === "dictionary") return { kind: s.kind, dictionary: s.dictionaryName };
+  return { kind: s.kind, fileName: s.fileName, sheetName: s.sheetName };
 }
 
 function compactSummary(s: SheetSummary, detail: Exclude<StatusDetail, "full">): Record<string, unknown> {
@@ -357,6 +396,8 @@ function panelSummary(p: CommitPanelState): Record<string, unknown> {
 
 export const createToolRegistry: CreateToolRegistry = (deps) => {
   const { workspace, jobs, connection, commits, catalog } = deps;
+  /** scope_options が作った範囲の確認のシート（名前 → 構造）。同じ構造を load_sheet で読み込んだら閉じる */
+  const scopeSheets = new Map<string, string>();
   const now = deps.now ?? Date.now;
   const settingsUrl = settingsUrlOf(deps.appUrl);
   const structuresUrl = structuresUrlOf(deps.appUrl);
@@ -393,6 +434,42 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
         `Sheet ${name} was not replaced because it has changes not yet committed to Maximo (${s.changedCells} changed cells, ${s.addedRows} added rows, ${s.deletedRows} deleted rows). Load into another sheet name, or ask the user to discard the changes in the work screen.`,
       );
     }
+  }
+
+  /** 辞書の名前のシートが開いていなければ開く（match_sheets・apply_rule の dictionaries の前に） */
+  async function ensureDictionaries(names: readonly string[]): Promise<void> {
+    for (const name of names) {
+      if (workspace.dictionarySheet(name) !== null) continue;
+      if (deps.dictionaries === undefined) throw toolError(`The dictionary ${name} is not available in this work screen.`);
+      const res = await deps.dictionaries.openDictionary(name);
+      if (!res.ok) throw toolError(`Could not open the dictionary ${name}: ${res.message}. ${dictionaryListNote()}`);
+    }
+  }
+
+  /** 今の接続先の辞書の名前（エラーの案内に添える） */
+  function dictionaryListNote(): string {
+    const names = deps.dictionaries?.snapshot().listing?.dictionaries.map((d) => d.name) ?? [];
+    return names.length > 0 ? `Dictionaries of this connection: ${names.join(", ")}.` : "This connection has no dictionaries yet (create one with create_dictionary).";
+  }
+
+  /** 辞書のシートの結果（open_dictionary・create_dictionary） */
+  function dictionaryResult(sheet: string): ToolOutcome {
+    const s = workspace.summary(sheet);
+    const open = deps.dictionaries?.openOf(sheet) ?? null;
+    const folder = deps.dictionaries?.snapshot().listing?.folder ?? null;
+    return toolResult(
+      {
+        sheet,
+        dictionary: open?.name ?? sheet,
+        kind: "names",
+        entries: s.rowCount,
+        unsavedChanges: s.changedCells + s.addedRows + s.deletedRows,
+        columns: { FIND: "how it is written", TO: "correct name", MODE: "text or regex", NOTE: "why" },
+        sharing: folder === null ? "unknown" : folder.path === null ? "this PC only" : "shared folder (project members)",
+        note: DICTIONARY_NOTE,
+      },
+      revision(),
+    );
   }
 
   /** 作業画面に届いたファイル。無ければ、届いているファイルと次にすることを添えてエラーにする */
@@ -544,6 +621,16 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
     assertReplaceable(args.name);
     const replaced = workspace.hasSheet(args.name);
     const summary = workspace.createSheet(plan.meta, rows, res.records);
+    // 同じ構造の範囲の確認のシートは役目を終えたので閉じる（変更があるものと、読み込んだシートそのものは残す）
+    const closedScopeSheets: string[] = [];
+    for (const [scopeName, os] of Array.from(scopeSheets)) {
+      if (os !== plan.os || scopeName === summary.name) continue;
+      scopeSheets.delete(scopeName);
+      if (!workspace.hasSheet(scopeName) || commits.isRunning(scopeName)) continue;
+      const s = workspace.summary(scopeName);
+      if (s.changedCells + s.addedRows + s.deletedRows > 0) continue;
+      if (workspace.removeSheet(scopeName)) closedScopeSheets.push(scopeName);
+    }
     const src = plan.meta.source;
     const value: Record<string, unknown> = {
       sheet: summary.name,
@@ -568,6 +655,7 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
     const titles = columnTitleMap(summary.columns);
     if (Object.keys(titles).length > 0) value.columnTitles = titles;
     if (res.truncated) value.maxRowsNote = `Stopped at maxRows (${args.maxRows}). Narrow the conditions or raise maxRows.`;
+    if (closedScopeSheets.length > 0) value.closedScopeSheets = closedScopeSheets;
     if (plan.keys.note !== undefined) value.keyColumnsNote = plan.keys.note;
     if (Object.keys(plan.childIdAttrs).length > 0) value.childIdNote = CHILD_ID_NOTE;
     // 仕様の表なら、分類の階層パスと欠けを画面に出すのに足りないもの（分類 ID・分類のシート）を知らせる
@@ -788,6 +876,8 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
       const commitStates = st.sheets.map((s) => panelSummary(commits.panel(s.name)));
       // 作業画面に届いた Excel・CSV（利用者がドロップしたものも。describe_import で中身を見る）
       const importList = (deps.imports?.list() ?? []).map(importEntryView);
+      // 今の接続先の客先の辞書（名前・件数・開いているシート）。行は載せない
+      const dictionaryStatus = conn === null || deps.dictionaries === undefined ? null : await dictionaryStatusView(deps.dictionaries, workspace);
       const total = st.sheets.length;
       // 上限を超えたら段階的に減らす: 列の定義 → 列名と読み込み条件 → シートの件数（残り件数を書く）。
       // 減らした形も測り直す（簡略形が上限に収まる保証は無いため）
@@ -804,6 +894,7 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
           jobs: runningJobs,
           commits: commitStates.slice(0, n),
           ...(importList.length > 0 ? { imports: importList } : {}),
+          ...(dictionaryStatus !== null ? { dictionaries: dictionaryStatus } : {}),
         };
         if (detail !== "full") v.sheetsNote = SHEETS_NOTE[detail];
         if (n < total) {
@@ -948,7 +1039,7 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
       if (axes.length === 0) {
         throw invalidArgs(`Could not choose axes for ${info.os}. Look at the attributes with describe_object_structure and pass column names in axes`);
       }
-      const name = args.name ?? `${SCOPE_SHEET_PREFIX}${info.os}`;
+      const name = args.name ?? scopeSheetName(info.os);
       assertNotBusy(name);
       assertReplaceable(name);
       const plan = planSheetLoad(info, { name, os: info.os, select: axes.map((a) => a.name), where, maxRows: args.maxScan }, { baseUrl: entry.baseUrl, loadedAt: entry.loadedAt });
@@ -978,6 +1069,7 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
       assertReplaceable(name);
       const replaced = workspace.hasSheet(name);
       const summary = workspace.createSheet(plan.meta, rows, res.records);
+      scopeSheets.set(summary.name, info.os);
       const counted = summarizeScope(res.records, axes, args.limit);
       const base: Record<string, unknown> = {
         os: info.os,
@@ -1102,17 +1194,17 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
       return toolResult(build(fitCount(groups.length, build)), res.revision);
     },
 
-    match_sheets: (args) => {
-      const { leftFilter, rewrite, contains, dateWithin, targetFilter, group, followsAbove } = args;
-      const m = workspace.matchSheets(args.left, args.right, args.leftCol, args.rightCol, args.normalize, args.sampleSize, {
-        leftFilter,
-        rewrite,
-        contains,
-        dateWithin,
-        targetFilter,
-        group,
-        followsAbove,
-      });
+    match_sheets: async (args) => {
+      const { leftFilter, rewrite, contains, dateWithin, targetFilter, group, followsAbove, dictionaries } = args;
+      await ensureDictionaries(dictionaries ?? []);
+      const extra = { leftFilter, rewrite, contains, dateWithin, targetFilter, group, followsAbove, dictionaries };
+      const m = workspace.matchSheets(args.left, args.right, args.leftCol, args.rightCol, args.normalize, args.sampleSize, extra);
+      // 作業画面の「突き合わせ先」の列と帯に出す（同じ条件で、辞書やシートが変われば突き合わせ直す）
+      try {
+        deps.matches?.record({ left: args.left, right: args.right, leftCol: args.leftCol, rightCol: args.rightCol, normalize: args.normalize, extra: stripUndefined(extra) });
+      } catch {
+        // 画面に出せなくても結果は返す
+      }
       const key = (k: string) => clipString(k) ?? k;
       const samples = {
         matched: m.samples.matched.map((s) => ({ ...s, key: key(s.key) })),
@@ -1151,8 +1243,9 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
       return editResult(args.sheet, res);
     },
 
-    apply_rule: (args) => {
+    apply_rule: async (args) => {
       assertNotBusy(args.sheet);
+      await ensureDictionaries(Object.values(args.set).flatMap((rv) => ("lookup" in rv ? (rv.lookup.dictionaries ?? []) : [])));
       // phase で past を省いたら、接続先の設定（過去の作業のステータス。既定 COMP）を使う
       let pastDefault: string | null = null;
       const set = Object.fromEntries(
@@ -1240,7 +1333,9 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
     },
 
     request_commit: (args) => {
-      workspace.getSheet(args.sheet);
+      if (workspace.getSheet(args.sheet).meta.source.kind === "dictionary") {
+        throw toolError(`${args.sheet} is a customer dictionary, not a Maximo sheet. Dictionaries are saved (and shared with the project members) when the user presses Save in the work screen; ask the user to check the entries and press Save.`);
+      }
       assertNotBusy(args.sheet);
       const p = commits.request(args.sheet, args.note, "llm");
       const message = p.blockers.length > 0 ? `${REQUEST_COMMIT_MESSAGE} However, it cannot be committed as it is because of blockers.` : REQUEST_COMMIT_MESSAGE;
@@ -1277,6 +1372,27 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
         return v;
       };
       return toolResult(build(fitCount(results.length, build)), revision());
+    },
+
+    open_dictionary: async (args) => {
+      if (deps.dictionaries === undefined) throw toolError("Dictionaries are not available in this work screen.");
+      const res = await deps.dictionaries.openDictionary(args.name);
+      if (!res.ok) {
+        if (res.error === "not_connected") throw toolError(notConnected);
+        throw toolError(`Could not open the dictionary ${args.name}: ${res.message}. ${dictionaryListNote()}`);
+      }
+      return dictionaryResult(res.value.sheet);
+    },
+
+    create_dictionary: async (args) => {
+      if (deps.dictionaries === undefined) throw toolError("Dictionaries are not available in this work screen.");
+      const res = await deps.dictionaries.createDictionary(args.name, args.description);
+      if (!res.ok) {
+        if (res.error === "not_connected") throw toolError(notConnected);
+        if (res.error === "name_taken") throw toolError(`A dictionary named ${args.name} already exists. Open it with open_dictionary.`);
+        throw toolError(`Could not create the dictionary ${args.name}: ${res.message}`);
+      }
+      return dictionaryResult(res.value.sheet);
     },
 
     describe_import: async (args) => {

@@ -16,6 +16,8 @@ import type {
   TabToolRegistry,
 } from "../runtime/contracts";
 import { Workspace, type JobRegistry } from "../store";
+import { DictionaryService } from "../dictionaries/service";
+import { MatchViewStore } from "../match/views";
 import { uiMessages } from "../ui/messages";
 
 export interface RuntimeFactories {
@@ -78,6 +80,10 @@ export interface Runtime {
   readonly commits: CommitController;
   /** 属性の値の一覧（Maximo の getlist）。作業の間だけ覚える。グリッドの一覧から選ぶ入力が使う */
   readonly valueLists?: ValueListService;
+  /** 今の接続先の客先の辞書（src/app/dictionaries） */
+  readonly dictionaries?: DictionaryService;
+  /** 突き合わせの結果（「突き合わせ先」の列と帯。src/app/match/views.ts） */
+  readonly matches?: MatchViewStore;
   /** hello で Hub に知らせるツール名 */
   readonly tools: readonly string[];
   readonly tabId: string;
@@ -107,6 +113,8 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
   const workspace = opts.initialWorkspace ?? new Workspace(opts.workspaceName ?? defaultWorkspaceName(new Date(now())), { now });
   const fetchImpl = opts.fetch ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));
   const jobs = workspace.jobs;
+  const dictionaries = new DictionaryService({ workspace, connection: opts.connection });
+  const matches = new MatchViewStore(workspace, now);
   const commits = opts.factories.createCommitController({ workspace, connection: opts.connection, catalog: opts.catalog, now, ...(opts.license ? { license: opts.license } : {}) });
   const registry: TabToolRegistry = opts.factories.createToolRegistry({
     workspace,
@@ -117,6 +125,8 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
     commits: commitRequesterOf(commits),
     catalog: opts.catalog,
     ...(opts.imports ? { imports: opts.imports } : {}),
+    dictionaries,
+    matches,
     appVersion: opts.appVersion,
     appUrl: `${opts.origin}/app`,
     ...(opts.noteActivity ? { noteActivity: opts.noteActivity } : {}),
@@ -185,6 +195,8 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
     jobs,
     commits,
     valueLists,
+    dictionaries,
+    matches,
     tools: [...registry.tools],
     tabId: relay.tabId,
     relayStatus: () => status ?? initial,
@@ -195,7 +207,9 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
       };
     },
     start: () => {
-      if (!disposed) relay.start();
+      if (disposed) return;
+      relay.start();
+      dictionaries.start();
     },
     dispose: () => {
       if (disposed) return;
@@ -211,6 +225,8 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
         }
       }
       unsubscribeState();
+      dictionaries.dispose();
+      matches.dispose();
       relay.stop();
       listeners.clear();
       // 受け取ったファイルも作業データなので捨てる

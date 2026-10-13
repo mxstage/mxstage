@@ -6,14 +6,16 @@ export const gridMessages = defineMessages(
   {
     /** セルの色の区分（凡例・絞り込みの「変更の状態」と同じ） */
     tone: {
-      llm: "Changed by LLM",
+      llm: "Changed by the AI",
       user: "Changed by you",
       added: "Added row",
       deleted: "Deleted row",
       readonly: "Read only",
       none: "Unchanged",
     },
-    author: { llm: "LLM", user: "You" },
+    author: { llm: "AI", user: "You" },
+    /** 取り込んだシートの内部の列の見出し */
+    internalColumns: { SOURCE_ROW: "Row", BLOCK: "Form", SOURCE_CELL: "Cell", SHEET: "Sheet" },
     hover: {
       empty: "(empty)",
       author: (who: string) => `Author: ${who}`,
@@ -119,14 +121,15 @@ export const gridMessages = defineMessages(
   },
   {
     tone: {
-      llm: "LLM の変更",
-      user: "利用者の変更",
+      llm: "AI の変更",
+      user: "あなたの変更",
       added: "追加行",
       deleted: "削除行",
       readonly: "読み取り専用",
       none: "変更なし",
     },
-    author: { llm: "LLM", user: "利用者" },
+    author: { llm: "AI", user: "あなた" },
+    internalColumns: { SOURCE_ROW: "元の行", BLOCK: "帳票", SOURCE_CELL: "元のセル", SHEET: "シート" },
     hover: {
       empty: "（空）",
       author: (who) => `作者: ${who}`,

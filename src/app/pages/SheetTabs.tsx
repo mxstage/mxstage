@@ -2,7 +2,7 @@
 // Carbon の Tabs は使わない（閉じるボタンに英語の説明が付き、Delete キーで閉じてしまい、中身の無いタブパネルを指す）。
 // 見た目だけ Carbon の line タブに合わせる（app.css）。
 
-import { Close } from "@carbon/icons-react";
+import { Book, Close } from "@carbon/icons-react";
 import { IconButton } from "@carbon/react";
 import type { Workspace } from "../store";
 import { pagesMessages } from "./messages";
@@ -13,6 +13,8 @@ export interface SheetTabInfo {
   changes: number;
   /** どこから読み込んだか（タブの説明） */
   origin?: string;
+  /** 辞書のシートは本の印を付ける */
+  icon?: "dictionary";
 }
 
 export interface SheetTabsProps {
@@ -29,9 +31,10 @@ export function SheetTabs({ tabs, current, onSelect, onClose }: SheetTabsProps) 
       {tabs.map((tab) => (
         <span key={tab.name} className="sheet-tab-wrap" role="presentation">
           <button type="button" role="tab" aria-selected={tab.name === current} className="sheet-tab" title={tab.origin} onClick={() => onSelect(tab.name)}>
+            {tab.icon === "dictionary" && <Book size={14} className="sheet-tab-icon" aria-hidden="true" />}
             {tab.name}
             {tab.changes > 0 && (
-              <span className="count" title={t.changes}>
+              <span className="count" title={tab.icon === "dictionary" ? t.unsaved : t.changes}>
                 {tab.changes}
               </span>
             )}

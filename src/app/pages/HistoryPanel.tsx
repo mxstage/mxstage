@@ -14,6 +14,8 @@ export interface HistoryPanelProps {
   version: number;
   busy: boolean;
   onMessage: (text: string, tone: "info" | "error") => void;
+  /** 見出し（省くと「変更履歴」。辞書のタブでは「保存前の変更」） */
+  title?: string;
 }
 
 const MAX_ITEMS = 50;
@@ -24,7 +26,7 @@ function formatTime(ms: number): string {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
-export function HistoryPanel({ workspace, sheet, busy, onMessage }: HistoryPanelProps) {
+export function HistoryPanel({ workspace, sheet, busy, onMessage, title }: HistoryPanelProps) {
   const recent = workspace.listBatches(sheet).slice(-MAX_ITEMS).reverse();
   const t = pagesMessages().history;
 
@@ -39,8 +41,8 @@ export function HistoryPanel({ workspace, sheet, busy, onMessage }: HistoryPanel
   };
 
   return (
-    <section className="panel history-panel" aria-label={t.title}>
-      <h2>{t.title}</h2>
+    <section className="panel history-panel" aria-label={title ?? t.title}>
+      <h2>{title ?? t.title}</h2>
       {recent.length === 0 ? (
         <p className="muted small">{t.empty}</p>
       ) : (

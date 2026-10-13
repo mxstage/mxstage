@@ -329,10 +329,10 @@ describe("セルの色分け", () => {
   });
 
   it("ホバーに作者・根拠・変更前後を出す", () => {
-    expect(hoverLines({ tone: "llm", author: "llm", reason: "DESCRIPTION から判断", before: "A", after: "B" })).toEqual(["作者: LLM", "根拠: DESCRIPTION から判断", "A → B"]);
-    expect(hoverLines({ tone: "user", author: "user", reason: null, before: null, after: "X" })).toEqual(["作者: 利用者", "（空） → X"]);
-    expect(hoverLines({ tone: "deleted", author: "llm", reason: "重複", before: "A", after: "A" })).toEqual(["削除行", "作者: LLM", "根拠: 重複"]);
-    expect(hoverLines({ tone: "added", author: "llm", reason: null, before: null, after: "A" })).toEqual(["追加行", "作者: LLM"]);
+    expect(hoverLines({ tone: "llm", author: "llm", reason: "DESCRIPTION から判断", before: "A", after: "B" })).toEqual(["作者: AI", "根拠: DESCRIPTION から判断", "A → B"]);
+    expect(hoverLines({ tone: "user", author: "user", reason: null, before: null, after: "X" })).toEqual(["作者: あなた", "（空） → X"]);
+    expect(hoverLines({ tone: "deleted", author: "llm", reason: "重複", before: "A", after: "A" })).toEqual(["削除行", "作者: AI", "根拠: 重複"]);
+    expect(hoverLines({ tone: "added", author: "llm", reason: null, before: null, after: "A" })).toEqual(["追加行", "作者: AI"]);
     expect(hoverLines({ tone: "readonly", author: null, reason: null, before: "A", after: "A" })).toEqual(["読み取り専用の列（キー列など）"]);
     expect(hoverLines({ tone: "normal", author: null, reason: null, before: "A", after: "A" })).toBeNull();
   });

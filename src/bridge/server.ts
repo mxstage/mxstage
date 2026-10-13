@@ -28,6 +28,9 @@ import type { UpdateManager } from "./updates.ts";
 import type { BridgeKeyStore } from "./bridgeKey.ts";
 import { readSkillCatalog } from "./skills.ts";
 import { serveStatic } from "./staticFiles.ts";
+import type { DictionaryStore } from "./dictionaries.ts";
+import { DICTIONARY_PATHS, handleDictionaryRequest } from "./dictionaryRoutes.ts";
+import { openFolder } from "./openFolder.ts";
 import { acceptWebSocket } from "./wsserver.ts";
 import type { UpgradeSocket } from "./wsserver.ts";
 
@@ -67,6 +70,8 @@ export interface BridgeServerOptions {
   updates?: UpdateManager | null;
   /** Maximo が無くても試せるデモ（設定の「デモ」）。省く・null（--no-demo）なら /_mxstage/demo は 404、デモの接続先は使えない */
   demo?: DemoManager | null;
+  /** 客先の辞書と共有フォルダ（src/bridge/dictionaries.ts）。省くと /_mxstage/dictionaries は 503 */
+  dictionaries?: DictionaryStore | null;
 }
 
 /** 作業画面の設定が読む Skill の一覧（本文は含めない） */
@@ -421,6 +426,11 @@ export async function startBridgeServer(opts: BridgeServerOptions): Promise<Brid
 
     if (HANDOFF_PATHS.includes(url.pathname)) {
       await handoffs.handle(req, res, url.pathname, hub);
+      return;
+    }
+
+    if (DICTIONARY_PATHS.includes(url.pathname)) {
+      await handleDictionaryRequest(req, res, url, { store: opts.dictionaries ?? null, send: sendJson, readBody: readJsonBody, reveal: openFolder });
       return;
     }
 

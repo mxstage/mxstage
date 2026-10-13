@@ -12,6 +12,8 @@ const MAX_MESSAGE_TEXT = 4_000;
 export const MAX_TAB_ID_LENGTH = 128;
 export const MAX_APP_VERSION_LENGTH = 64;
 export const MAX_WORKSPACE_LENGTH = 256;
+/** hello の diag（タブが知らせる直前の様子）の上限 */
+export const MAX_DIAG_LENGTH = 1_000;
 
 type Obj = Record<string, unknown>;
 
@@ -54,6 +56,7 @@ export function parseTabMessage(data: string | ArrayBuffer): TabToHub | null {
         focused: v.focused === true,
       };
       if (finite(v.sheets) && v.sheets >= 0) hello.sheets = Math.floor(v.sheets);
+      if (typeof v.diag === "string" && v.diag.trim() !== "") hello.diag = v.diag.slice(0, MAX_DIAG_LENGTH);
       return hello;
     }
     case "tab.state":

@@ -244,7 +244,7 @@ export class BridgeCoordinator {
   // -------------------------------------------------------------------------
 
   private listen(): Promise<BridgeServer> {
-    const hub = this.opts.createHub ? this.opts.createHub() : new LocalHub();
+    const hub = this.opts.createHub ? this.opts.createHub() : new LocalHub({ log: this.log });
     return startBridgeServer({
       port: this.port,
       root: this.opts.root,

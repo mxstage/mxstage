@@ -802,6 +802,29 @@ describe("心拍と再接続", () => {
     expect(ws2.framesOf("hello")[0]).toMatchObject({ tabId: TAB_ID });
   });
 
+  it("つなぎ直した hello で、直前の様子（止まっていた時間、閉じられた理由）を知らせる", () => {
+    const h = setup();
+    const ws = open(h);
+    // main thread が 30 秒止まった: 時計だけ進み、心拍のタイマーは遅れて動く
+    vi.setSystemTime(Date.now() + 30_000);
+    vi.advanceTimersByTime(HEARTBEAT_MS);
+    ws.receive("pong");
+    // Hub が閉じた（NO_ACK のときなど）
+    ws.serverClose(4003);
+    vi.advanceTimersByTime(500);
+    const ws2 = lastSocket();
+    ws2.accept();
+    const diag = String(ws2.framesOf("hello")[0]?.diag ?? "");
+    expect(diag).toContain("blocked for about 30 s");
+    expect(diag).toContain("closed by the bridge (4003)");
+    // 知らせたら消す
+    ws2.serverClose(1006);
+    vi.advanceTimersByTime(1_000);
+    const ws3 = lastSocket();
+    ws3.accept();
+    expect(String(ws3.framesOf("hello")[0]?.diag ?? "")).not.toContain("blocked");
+  });
+
   it("welcome の heartbeatMs を使う", () => {
     const h = setup();
     h.relay.start();

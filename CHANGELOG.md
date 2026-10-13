@@ -22,6 +22,7 @@ All notable changes to MX Stage are listed here. Versions follow [Semantic Versi
 
 ### Fixed
 
+- When the work screen tab stopped answering (NO_ACK), the bridge kept sending every call to it until the tab reconnected by itself, and the AI stopped to ask you to show the tab. Now the bridge closes a connection that has sent nothing since the call (unless another call is still running on it), so the tab reconnects as soon as it can; until it does, calls answer that the tab is reconnecting rather than not open, and the AI waits about 20 seconds and checks once before asking you. The bridge log records each case, and a reconnecting tab reports how long it was blocked and why its connection closed.
 - Regular-expression entries of dictionaries with full-width symbols (for example 「^(\\d+)/(\\d+)（」) broke, because the full-width parenthesis became a regular-expression parenthesis when normalised. Full-width symbols now stay ordinary characters.
 
 ### Changed

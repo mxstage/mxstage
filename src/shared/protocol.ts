@@ -68,6 +68,8 @@ export interface HelloMsg {
   focused: boolean;
   /** 作業にあるシートの数。シートの無いタブはフォーカスしても、シートのある primary を奪わない */
   sheets?: number;
+  /** つなぎ直したタブが知らせる直前の様子（止まっていた時間、切れた理由）。Hub はログに残すだけ */
+  diag?: string;
 }
 
 export interface FocusMsg {
@@ -250,7 +252,7 @@ export function relayErrorMessage(code: RelayErrorCode, appUrl: string): string 
     case RelayErrorCode.NO_TAB:
       return `The work screen tab is not open. Ask the user to open ${appUrl}/app in their browser, then try again.`;
     case RelayErrorCode.NO_ACK:
-      return "The work screen tab is not responding. Check that the tab is shown, then try again.";
+      return "The work screen tab did not answer. It reconnects by itself: wait about 20 seconds, then call get_status once. If that also fails, ask the user to show the work screen tab and press its Reload button. If the call was a change, check get_diff before repeating it, because it may have been applied.";
     case RelayErrorCode.DEADLINE:
       return "The operation did not finish in time. Narrow the target or run it as a job (check progress with get_job).";
     case RelayErrorCode.TAB_DISCONNECTED:

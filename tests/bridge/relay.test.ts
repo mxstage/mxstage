@@ -210,6 +210,54 @@ describe("失敗の決着", () => {
     expect(tab.frames("tool.cancel")).toHaveLength(0);
   });
 
+  it("ack が来ず、送ってから何も届かないタブの接続は閉じてつなぎ直させ、ログに残す", async () => {
+    const lines: string[] = [];
+    const hub = new LocalHub({ timeoutScale: SCALE, log: (l) => lines.push(l) });
+    const bridge = await startTestBridge({ hub });
+    const tab = await FakeTab.connect(bridge);
+    tab.onInvoke = () => undefined;
+    const res = await invokeRead(hub);
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.message).toContain("wait about 20 seconds");
+    await waitFor(() => tab.closeCode !== null);
+    expect(tab.closeCode).toBe(4003);
+    expect(lines.some((l) => l.startsWith("NO_ACK: get_status") && l.includes("closing the connection"))).toBe(true);
+    // 閉じた直後にタブが無いのは「開いていない」ではなく「つなぎ直し待ち」
+    const again = await invokeRead(hub);
+    expect(again.ok).toBe(false);
+    if (!again.ok) expect(again.code).toBe(RelayErrorCode.NO_ACK);
+  });
+
+  it("ack 済みの呼び出しが動いている間や、心拍が届いているタブは閉じない", async () => {
+    const { hub, tab } = await bridgeWithTab();
+    // 1 件目は ack して実行中のまま、2 件目は ack しない
+    tab.onInvoke = (msg) => {
+      if (msg.tool === "load_sheet") tab.ack(msg.id);
+    };
+    const running = hub.invoke({ tool: "load_sheet" as never, args: {}, readOnly: false, deadlineMs: RELAY_TIMEOUTS.maxDeadlineMs, idempotencyKey: "k1" });
+    await waitFor(() => tab.frames("tool.invoke").length === 1);
+    const res = await invokeRead(hub);
+    expect(res.ok).toBe(false);
+    await sleep(ACK_MS);
+    expect(tab.closeCode).toBeNull();
+    // 実行中の呼び出しが終わった後でも、心拍が届いている（遅いだけ）なら閉じない
+    await running;
+    tab.onInvoke = (msg) => {
+      if (msg.tool === "get_status") tab.sendRaw("ping");
+    };
+    await invokeRead(hub);
+    await sleep(ACK_MS);
+    expect(tab.closeCode).toBeNull();
+  });
+
+  it("つなぎ直したタブが知らせた様子をログに残す", async () => {
+    const lines: string[] = [];
+    const hub = new LocalHub({ timeoutScale: SCALE, log: (l) => lines.push(l) });
+    const bridge = await startTestBridge({ hub });
+    await FakeTab.connect(bridge, { tabId: "tab-diag", diag: "09:00:00 the work screen was blocked for about 30 s" });
+    expect(lines).toContain("tab tab-diag reconnected: 09:00:00 the work screen was blocked for about 30 s");
+  });
+
   it("ack はあるが結果が来なければ読み取りは DEADLINE", async () => {
     const { hub, tab } = await bridgeWithTab();
     tab.onInvoke = (msg) => tab.ack(msg.id);

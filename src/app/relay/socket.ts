@@ -67,6 +67,10 @@ const CLOSE_PROTOCOL_MISMATCH = 1008;
 const CLOSE_NORMAL = 1000;
 const CLOSE_HEARTBEAT_TIMEOUT = 4001;
 const CLOSE_HANDSHAKE_TIMEOUT = 4002;
+/** 次につなぎ直したときに Hub へ知らせる様子の数 */
+const STALL_NOTES = 5;
+/** 心拍のタイマーがこれ以上遅れたら、止まっていたとして知らせる（Hub は ack を 2 秒待つ） */
+const STALL_NOTE_MS = 5_000;
 /** 心拍（Hub は "ping" に "pong" を返す） */
 const PING = "ping";
 const PONG = "pong";
@@ -389,6 +393,10 @@ export class RelaySocket {
   private heartbeatMs: number = RELAY_TIMEOUTS.heartbeatMs;
   private lastRecvAt = 0;
   private pingSentAt: number | null = null;
+  /** 心拍のタイマーを仕掛けた時刻（遅れて動いたら、その間 main thread が止まっていた） */
+  private heartbeatArmedAt = 0;
+  /** 次につなぎ直したときに Hub へ知らせる様子（止まっていた時間、切れた理由）。最大 STALL_NOTES 件 */
+  private readonly notes: string[] = [];
   private reconnectTimer: TimerHandle | undefined;
   private heartbeatTimer: TimerHandle | undefined;
   private handshakeTimer: TimerHandle | undefined;
@@ -554,6 +562,7 @@ export class RelaySocket {
     };
     const sheets = this.currentSheets();
     if (sheets !== null) hello.sheets = sheets;
+    if (this.notes.length > 0) hello.diag = this.notes.splice(0).join("; ");
     this.sentSheets = sheets;
     this.sendJson(ws, hello);
     this.helloSent = true;
@@ -569,7 +578,14 @@ export class RelaySocket {
       this.enterMismatch(code);
       return;
     }
+    this.note(`closed by the bridge (${code ?? "no code"})`);
     this.scheduleReconnect(code);
+  }
+
+  /** 次の hello で Hub に知らせる様子を足す（時刻付き。古いものから捨てる） */
+  private note(text: string): void {
+    this.notes.push(`${new Date(this.now()).toISOString().slice(11, 19)} ${text}`);
+    if (this.notes.length > STALL_NOTES) this.notes.splice(0, this.notes.length - STALL_NOTES);
   }
 
   private handleHandshakeTimeout(ws: WebSocketLike): void {
@@ -647,6 +663,7 @@ export class RelaySocket {
 
   private scheduleHeartbeat(ws: WebSocketLike): void {
     if (this.heartbeatTimer !== undefined) this.clearTimer(this.heartbeatTimer);
+    this.heartbeatArmedAt = this.now();
     this.heartbeatTimer = this.setTimer(() => this.heartbeatTick(ws), this.heartbeatMs);
   }
 
@@ -659,7 +676,11 @@ export class RelaySocket {
     this.heartbeatTimer = undefined;
     if (ws !== this.ws) return;
     const now = this.now();
+    // タイマーが大きく遅れた: 画面が見えているのに遅れたなら main thread が止まっていた（裏のタブの間引きは除く）
+    const late = now - this.heartbeatArmedAt - this.heartbeatMs;
+    if (late >= STALL_NOTE_MS && this.doc?.visibilityState !== "hidden") this.note(`the work screen was blocked for about ${Math.round(late / 1000)} s`);
     if (this.pingSentAt !== null && this.lastRecvAt < this.pingSentAt && now - this.lastRecvAt >= this.heartbeatMs * 2) {
+      this.note(`nothing from the bridge for ${Math.round((now - this.lastRecvAt) / 1000)} s; reconnecting`);
       this.dropSocket(CLOSE_HEARTBEAT_TIMEOUT, "heartbeat timeout");
       this.scheduleReconnect(null);
       return;

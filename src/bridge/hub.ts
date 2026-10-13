@@ -52,6 +52,10 @@ export type InvokeProgressCallback = (progress: InvokeProgress) => unknown;
 /** 接続を閉じるときのコード（作業タブの src/app/relay/socket.ts と同じ） */
 export const CLOSE_PROTOCOL_MISMATCH = 1008;
 export const CLOSE_SUPERSEDED = 4000;
+/** 呼び出しに ack を返さず、送ってから何も届かないタブの接続を閉じる（タブはすぐつなぎ直す） */
+export const CLOSE_NO_ACK = 4003;
+/** ack の無いタブを閉じてからこの間にタブが無ければ、「開いていない」ではなく「つなぎ直し待ち」（NO_ACK）と答える */
+const NO_ACK_RECONNECT_WINDOW_MS = 60_000;
 
 /** 同時に追跡するインポートの上限 */
 const MAX_IMPORT_TARGETS = 64;
@@ -73,6 +77,8 @@ interface TabEntry {
   closed: boolean;
   /** 作業にあるシートの数（hello・tab.state。古い画面で分からなければ null） */
   sheets: number | null;
+  /** このタブから最後に何か（心拍を含む）を受け取った時刻 */
+  lastRecvAt: number;
 }
 
 interface PendingCall {
@@ -87,6 +93,8 @@ interface PendingCall {
   chunks: string[];
   chunkBytes: number;
   chunkRevision: number | undefined;
+  /** いまの接続へ送った時刻（ack の無いタブが送った後に何も返していないかを見る） */
+  sentAt: number;
   ackTimer: Timer | undefined;
   deadlineTimer: Timer | undefined;
   onProgress: InvokeProgressCallback | undefined;
@@ -99,6 +107,8 @@ export interface LocalHubOptions {
   /** エラー文言に載せる作業画面の URL */
   appUrl?: string;
   now?: () => number;
+  /** 橋渡しのログ（NO_ACK の様子、タブが知らせた止まっていた時間） */
+  log?: (line: string) => void;
 }
 
 export class LocalHub implements HubRpc {
@@ -110,11 +120,15 @@ export class LocalHub implements HubRpc {
   private readonly now: () => number;
   private appUrlValue: string;
   private lastDisconnectAt = 0;
+  /** ack の無いタブの接続を閉じた時刻 */
+  private lastNoAckDropAt = Number.NEGATIVE_INFINITY;
+  private readonly log: (line: string) => void;
 
   constructor(opts: LocalHubOptions = {}) {
     this.scale = typeof opts.timeoutScale === "number" && opts.timeoutScale > 0 ? opts.timeoutScale : 1;
     this.appUrlValue = opts.appUrl ?? "";
     this.now = opts.now ?? (() => Date.now());
+    this.log = opts.log ?? (() => undefined);
   }
 
   /** 起動後にポートが決まってから作業画面の URL を入れる */
@@ -147,6 +161,7 @@ export class LocalHub implements HubRpc {
       lastFocusAt: 0,
       closed: false,
       sheets: null,
+      lastRecvAt: this.now(),
     };
     this.conns.set(entry.connId, entry);
     ws.onmessage = (text) => this.onMessage(entry, text);
@@ -167,6 +182,7 @@ export class LocalHub implements HubRpc {
   }
 
   private onMessage(entry: TabEntry, text: string): void {
+    entry.lastRecvAt = this.now();
     // 心拍は JSON ではない
     if (text === PING) {
       entry.ws.send(PONG);
@@ -225,7 +241,11 @@ export class LocalHub implements HubRpc {
     if (!target && this.shouldWaitForTab(scale)) {
       target = await this.waitForTab(Math.min(RELAY_TIMEOUTS.reconnectGraceMs * scale, deadlineAt - this.now()));
     }
-    if (!target) return this.failure(RelayErrorCode.NO_TAB, false);
+    if (!target) {
+      // 固まったタブを閉じた直後なら、タブは開いていて、動けるようになればつなぎ直してくる（何も送っていないので再試行できる）
+      if (this.now() - this.lastNoAckDropAt < NO_ACK_RECONNECT_WINDOW_MS * scale) return this.failure(RelayErrorCode.NO_ACK, true);
+      return this.failure(RelayErrorCode.NO_TAB, false);
+    }
     // 再接続を待つ間に締切を過ぎたら送らない（書き込みを結果不明にしないため）
     if (this.now() >= deadlineAt) return this.failure(RelayErrorCode.DEADLINE, false);
 
@@ -243,6 +263,7 @@ export class LocalHub implements HubRpc {
         chunks: [],
         chunkBytes: 0,
         chunkRevision: undefined,
+        sentAt: 0,
         ackTimer: undefined,
         deadlineTimer: undefined,
         onProgress: typeof onProgress === "function" ? onProgress : undefined,
@@ -321,6 +342,7 @@ export class LocalHub implements HubRpc {
       this.dropConnection(old, CLOSE_SUPERSEDED, "superseded", false);
     }
 
+    if (msg.diag !== undefined) this.log(`tab ${msg.tabId} reconnected: ${msg.diag}`);
     const now = this.now();
     entry.tabId = msg.tabId;
     entry.appVersion = capText(msg.appVersion, MAX_APP_VERSION_LENGTH);
@@ -530,6 +552,7 @@ export class LocalHub implements HubRpc {
     call.chunks = [];
     call.chunkBytes = 0;
     call.chunkRevision = undefined;
+    call.sentAt = this.now();
     this.pending.set(call.id, call);
 
     const msg: InvokeMsg = {
@@ -587,6 +610,7 @@ export class LocalHub implements HubRpc {
     if (call.settled || call.id !== attemptId || call.acked) return;
     call.ackTimer = undefined;
     const current = this.tabByConn(call.connId);
+    if (current) this.onUnacked(current, call);
 
     if (call.readOnly) {
       // 読み取りは別のタブへ 1 回だけ送り直す
@@ -604,6 +628,29 @@ export class LocalHub implements HubRpc {
     }
     // 書き込みは cancel を送らない（タブが後から受け取って完了させうるので再試行不可）
     this.settle(call, this.failure(RelayErrorCode.NO_ACK, false));
+  }
+
+  /**
+   * ack が来なかった。様子をログに残し、送ってから何も届いていない（心拍も無い）タブの接続は閉じる。
+   * 接続が黙って途切れていても、Hub は閉じるまでそのタブへ送り続けてしまうので、閉じてつなぎ直させる。
+   * 同じタブで ack 済みの呼び出しが動いているときは閉じない（その結果を失わないため）
+   */
+  private onUnacked(entry: TabEntry, call: PendingCall): void {
+    const now = this.now();
+    const silentMs = now - entry.lastRecvAt;
+    const silentSinceSend = entry.lastRecvAt < call.sentAt;
+    const running = [...this.pending.values()].filter((c) => c !== call && !c.settled && c.connId === entry.connId && c.acked).length;
+    const drop = silentSinceSend && running === 0;
+    this.log(
+      `NO_ACK: ${call.req.tool} to tab ${entry.tabId ?? "?"} (${entry.role}); nothing from the tab for ${Math.round(silentMs / 1000)} s; other calls running ${running}; ${drop ? "closing the connection so the tab reconnects" : "keeping the connection"}`,
+    );
+    if (drop) {
+      this.lastNoAckDropAt = now;
+      // 呼び出しの決着（別のタブへの送り直し・NO_ACK）を先に付けてから閉じる
+      queueMicrotask(() => {
+        if (!entry.closed) this.dropConnection(entry, CLOSE_NO_ACK, "no ack", true);
+      });
+    }
   }
 
   private onDeadline(call: PendingCall): void {

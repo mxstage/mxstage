@@ -104,6 +104,8 @@ export interface FakeTabOptions {
   appVersion?: string;
   /** hello で知らせるシートの数（省けば送らない） */
   sheets?: number;
+  /** hello で知らせる直前の様子（省けば送らない） */
+  diag?: string;
 }
 
 /** 作業タブのふりをする WebSocket クライアント */
@@ -114,10 +116,15 @@ export class FakeTab {
   onInvoke: ((msg: InvokeMsg, tab: FakeTab) => void) | null = null;
 
   private readonly ws: WebSocket;
+  /** 接続が閉じられたときのコード（開いていれば null） */
+  closeCode: number | null = null;
 
   private constructor(ws: WebSocket, tabId: string) {
     this.ws = ws;
     this.tabId = tabId;
+    ws.addEventListener("close", (ev: { code: number }) => {
+      this.closeCode = ev.code;
+    });
     ws.onmessage = (ev: MessageEvent): void => {
       const text = String(ev.data);
       if (text === "pong") {
@@ -161,6 +168,7 @@ export class FakeTab {
         workspace: null,
         focused: opts.focused ?? true,
         ...(opts.sheets !== undefined ? { sheets: opts.sheets } : {}),
+        ...(opts.diag !== undefined ? { diag: opts.diag } : {}),
       });
       await tab.waitFor("welcome").catch(() => undefined);
     }

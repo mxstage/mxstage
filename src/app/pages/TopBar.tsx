@@ -138,12 +138,11 @@ export function TopBar(p: TopBarProps) {
       {p.license && p.baseUrl ? <EnvironmentTag license={p.license} baseUrl={p.baseUrl} /> : null}
       {p.tabs}
       <span className="spacer" />
-      {p.dictionaries}
-      <nav className="topbar-links" aria-label={t.nav}>
+      {/* アイコンのボタンは 1 列に同じ間隔で並べる（凡例・辞書・オブジェクト構造・設定・作業の終了・パネル） */}
+      <nav className="topbar-icons" aria-label={t.nav}>
         <LegendButton />
+        {p.dictionaries}
         <StructuresLink catalog={p.catalog} baseUrl={p.baseUrl} />
-      </nav>
-      <div className="topbar-icons">
         <IconButton kind="ghost" size="md" align="bottom" label={t.settings} aria-label={t.settings} href={SETTINGS_PATH} onClick={spaClick(SETTINGS_PATH)}>
           <Settings />
         </IconButton>
@@ -167,7 +166,7 @@ export function TopBar(p: TopBarProps) {
         >
           <OpenPanelRight />
         </IconButton>
-      </div>
+      </nav>
     </header>
   );
 }

@@ -20,6 +20,9 @@ export interface DictionaryPanelProps {
   onMessage: (text: string, tone: "info" | "error") => void;
 }
 
+/** 書き出す Excel の列の幅 */
+const EXPORT_WIDTHS: Record<string, number> = { [DICT_FIND]: 28, [DICT_TO]: 28, [DICT_MODE]: 14, [DICT_NOTE]: 40, [DICT_UPDATED]: 22 };
+
 function shortTime(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
@@ -40,7 +43,6 @@ function download(bytes: Uint8Array, fileName: string): void {
 
 export function DictionaryPanel({ service, workspace, sheet, onMessage }: DictionaryPanelProps) {
   const t = dictionaryMessages().panel;
-  const c = dictionaryMessages().columns;
   const [busy, setBusy] = useState(false);
   const od = service.openOf(sheet);
   const listing = service.snapshot().listing;
@@ -69,11 +71,13 @@ export function DictionaryPanel({ service, workspace, sheet, onMessage }: Dictio
   };
 
   const exportExcel = () => {
+    // 辞書の種類ごとの列（呼び名・言葉 → コード・値の置き換え）と見出しを、タブに出しているとおりに書き出す
     const s = workspace.getSheet(sheet);
-    const cols = [DICT_FIND, DICT_TO, DICT_MODE, DICT_NOTE, DICT_UPDATED];
-    const header = [c.find, c.to, c.mode, c.note, c.updated];
-    const rows = s.viewRows("final").map((r) => ({ cells: cols.map((col) => formatColumnValue(s.column(col), s.finalValue(r, col))) }));
-    download(buildXlsx([{ name: od.name.slice(0, 31) || "dictionary", rows: [{ cells: header, style: XLSX_STYLE.header }, ...rows], widths: [28, 28, 14, 40, 22] }]), `${od.name}.xlsx`);
+    const cols = s.meta.columns;
+    const header = cols.map((col) => col.title ?? col.name);
+    const rows = s.viewRows("final").map((r) => ({ cells: cols.map((col) => formatColumnValue(col, s.finalValue(r, col.name))) }));
+    const widths = cols.map((col) => EXPORT_WIDTHS[col.name] ?? 20);
+    download(buildXlsx([{ name: od.name.slice(0, 31) || "dictionary", rows: [{ cells: header, style: XLSX_STYLE.header }, ...rows], widths }]), `${od.name}.xlsx`);
   };
 
   return (

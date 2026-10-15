@@ -1,8 +1,9 @@
 // 上部バーの「辞書」: 今の接続先の辞書の一覧（共有フォルダかこの PC だけか）、開く、新しい辞書を作る。
-// アイコンだけにせず、文字の付いたボタンにする。保存していない変更があれば件数を出す。
+// ほかの操作（凡例・オブジェクト構造・設定）と同じアイコンのボタン。名前はツールチップと読み上げで伝え、
+// 保存していない変更があればアイコンの右上に件数を出す。
 
 import { Book } from "@carbon/icons-react";
-import { Button, RadioButton, RadioButtonGroup, TextInput } from "@carbon/react";
+import { Button, IconButton, RadioButton, RadioButtonGroup, TextInput } from "@carbon/react";
 import type { DictionaryKind } from "../../shared/dictionary";
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { dictionaryMessages } from "../dictionaries/messages";
@@ -65,11 +66,23 @@ export function DictionaryMenu({ service, unsaved, connectionName, onOpened, onM
 
   return (
     <div className="dictionary-menu" ref={ref}>
-      <button type="button" className={`tb-button${open ? " open" : ""}`} aria-expanded={open} title={t.menu.buttonTitle} onClick={() => setOpen((o) => !o)}>
-        <Book size={16} aria-hidden="true" />
-        <span>{t.menu.button}</span>
-        {totalUnsaved > 0 && <span className="count">{totalUnsaved}</span>}
-      </button>
+      <IconButton
+        kind="ghost"
+        size="md"
+        align="bottom"
+        isSelected={open}
+        aria-expanded={open}
+        label={totalUnsaved > 0 ? `${t.menu.button}（${t.menu.unsaved(totalUnsaved)}）` : t.menu.button}
+        aria-label={totalUnsaved > 0 ? `${t.menu.button}（${t.menu.unsaved(totalUnsaved)}）` : t.menu.button}
+        onClick={() => setOpen((o) => !o)}
+      >
+        <Book />
+      </IconButton>
+      {totalUnsaved > 0 && (
+        <span className="dictionary-count" aria-hidden="true">
+          {totalUnsaved}
+        </span>
+      )}
       {open && (
         <div className="dictionary-list" role="menu" aria-label={t.menu.button}>
           <div className="dictionary-list-head">

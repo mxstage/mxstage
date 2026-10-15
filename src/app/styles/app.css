@@ -295,15 +295,22 @@ button.link:hover {
   flex: 1;
 }
 
-.topbar-links {
-  display: flex;
-  align-items: center;
-  gap: var(--cds-spacing-04);
-}
-
 .topbar-icons {
   display: flex;
   align-items: center;
+}
+
+/* 凡例の ⓘ もほかのアイコンのボタン（40 × 40）と同じ大きさにして、間隔をそろえる */
+.legend-anchor .cds--toggletip-button {
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.legend-anchor .cds--toggletip-button:hover {
+  background: var(--cds-layer-hover-01);
 }
 
 /* オブジェクト構造へのアイコン。読み込み中だけ件数を横に出す */
@@ -1506,43 +1513,25 @@ body.resizing-row * {
 .dictionary-menu {
   position: relative;
   flex: none;
-}
-
-.tb-button {
   display: inline-flex;
-  align-items: center;
-  gap: var(--cds-spacing-03);
-  height: 32px;
-  padding: 0 var(--cds-spacing-04);
-  border: 1px solid var(--cds-border-strong-01);
-  background: transparent;
-  color: var(--cds-text-primary);
-  font: inherit;
-  font-size: var(--cds-body-compact-01-font-size);
-  cursor: pointer;
-  white-space: nowrap;
 }
 
-.tb-button:hover {
-  background: var(--cds-layer-hover-01);
-}
-
-.tb-button.open {
-  background: var(--cds-layer-01);
-  border-color: var(--cds-border-interactive);
-}
-
-.tb-button .count {
-  min-width: 18px;
-  height: 18px;
-  padding: 0 6px;
-  border-radius: 9px;
+/* 保存していない変更の数（辞書のアイコンの右上） */
+.dictionary-count {
+  position: absolute;
+  top: 4px;
+  right: 2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
   background: var(--cds-button-primary);
   color: var(--cds-text-on-color);
-  font-size: var(--cds-label-01-font-size);
-  line-height: 18px;
+  font-size: 11px;
+  line-height: 16px;
   text-align: center;
   font-variant-numeric: tabular-nums;
+  pointer-events: none;
 }
 
 .dictionary-list {

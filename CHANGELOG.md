@@ -22,12 +22,14 @@ All notable changes to MX Stage are listed here. Versions follow [Semantic Versi
 
 ### Fixed
 
+- Export to Excel of words → codes and value replacement dictionaries wrote only the columns of a dictionary of names. It now writes each kind's own columns and headings, as the tab shows them.
 - The work screen no longer fails with NO_ACK when its Chrome window is minimized or behind other windows. Chrome gives such a page low priority, and it took 5 to 12 seconds to confirm a call, while the bridge waited only 2 seconds. The bridge now waits up to 15 seconds (in a 12-minute test with a minimized Chrome window, 72 of 72 calls succeeded; the slowest took 7 seconds).
 - When the work screen tab stopped answering (NO_ACK), the bridge kept sending every call to it until the tab reconnected by itself, and the AI stopped to ask you to show the tab. Now the bridge closes a connection that has sent nothing since the call (unless another call is still running on it), so the tab reconnects as soon as it can; until it does, calls answer that the tab is reconnecting rather than not open, and the AI waits about 20 seconds and checks once before asking you. The bridge log records each case, and a reconnecting tab reports how long it was blocked and why its connection closed.
 - Regular-expression entries of dictionaries with full-width symbols (for example 「^(\\d+)/(\\d+)（」) broke, because the full-width parenthesis became a regular-expression parenthesis when normalised. Full-width symbols now stay ordinary characters.
 
 ### Changed
 
+- The top bar's icon buttons (legend, dictionaries, object structures, settings, end work, side panel) sit in one evenly spaced row. The dictionaries button is an icon like the others, left of object structures, with the number of unsaved changes on it.
 - Imported sheets no longer show the commit panel (they are not committed to Maximo); the side panel shows the file, its forms and rows, and the matching result instead. Their internal columns are shown as Row and Form.
 - When there is nothing to commit, the commit panel only says so (no zero counts, batch size or disabled button).
 - The range check sheet made by scope_options is named in the work screen's language and is closed when the same object structure is loaded with load_sheet.

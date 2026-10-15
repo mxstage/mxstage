@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { columnLabel, columnTitleMap, headerLines } from "../../src/shared/columnLabel";
 import { HOVER_MAX_CHARS, HOVER_MAX_LINES, isLongValue, longCellLines, rowDetailItems, sortDetailItems, LONG_VALUE_CHARS } from "../../src/app/grid/detailItems";
-import { freezeCountForWidth, frozenColumnsFor, headerHeightFor, MAX_FROZEN, MEDIUM_WIDTH, NARROW_WIDTH, orderForFreeze, togglePinned } from "../../src/app/grid/layout";
+import { changedColumnsOnly, freezeCountForWidth, frozenColumnsFor, headerHeightFor, MAX_FROZEN, MEDIUM_WIDTH, NARROW_WIDTH, orderForFreeze, togglePinned } from "../../src/app/grid/layout";
 import type { ColumnSchema } from "../../src/shared/model";
 
 const col = (name: string, title?: string): ColumnSchema => (title === undefined ? { name, type: "string" } : { name, title, type: "string" });
@@ -141,5 +141,22 @@ describe("長文のセルにマウスを置いたとき", () => {
     const many = longCellLines(Array.from({ length: HOVER_MAX_LINES + 5 }, (_, i) => `行${i}`).join("\n"));
     expect(many).toHaveLength(HOVER_MAX_LINES + 1);
     expect((many as string[])[HOVER_MAX_LINES]).toBe("…");
+  });
+});
+
+describe("差分ビューの「変更のあった列だけ」", () => {
+  const cols = [col("SITEID"), col("ASSETNUM"), col("DESCRIPTION"), col("STATUS"), col("LOCATION")];
+  const rows = [
+    { key: "A", touched: ["STATUS"] },
+    { key: "B", touched: ["STATUS", "LOCATION"] },
+  ];
+  const touched = (r: { touched: string[] }, c: string) => r.touched.includes(c);
+
+  it("残す列と、どれかの行で変わった列だけを、元の並びのまま出す", () => {
+    expect(changedColumnsOnly(cols, ["SITEID", "ASSETNUM"], rows, touched).map((c) => c.name)).toEqual(["SITEID", "ASSETNUM", "STATUS", "LOCATION"]);
+  });
+
+  it("変わった列が無ければ残す列だけ", () => {
+    expect(changedColumnsOnly(cols, ["ASSETNUM"], [], touched).map((c) => c.name)).toEqual(["ASSETNUM"]);
   });
 });

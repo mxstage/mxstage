@@ -57,6 +57,21 @@ export function orderForFreeze<T extends { name: string }>(columns: readonly T[]
   return { columns: [...head, ...columns.filter((c) => !headSet.has(c))], freeze: head.length };
 }
 
+/**
+ * 差分ビューで「変更のあった列だけ」にしたときに残す列。残す列（キー列など）と、どれかの行で変わった列。
+ * touched は「その行のその列を見せたいか」（変えたセル・追加行の値の入ったセル）。並びは元の列の順のまま
+ */
+export function changedColumnsOnly<T extends { name: string }, R>(columns: readonly T[], keep: readonly string[], rows: readonly R[], touched: (row: R, col: string) => boolean): T[] {
+  const keepSet = new Set(keep);
+  const hit = new Set<string>();
+  for (const row of rows) {
+    for (const c of columns) {
+      if (!keepSet.has(c.name) && !hit.has(c.name) && touched(row, c.name)) hit.add(c.name);
+    }
+  }
+  return columns.filter((c) => keepSet.has(c.name) || hit.has(c.name));
+}
+
 /** 2 段見出し（ラベル＋属性名）を出す列があるかで見出しの高さを決める */
 export function headerHeightFor(columns: readonly ColumnSchema[]): number {
   return columns.some((c) => headerLines(c).sub !== null) ? 48 : 32;

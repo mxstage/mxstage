@@ -104,6 +104,19 @@ export function authorLabel(author: BatchAuthor): string {
   return gridMessages().author[author];
 }
 
+/**
+ * 差分ビューで変えたセルに 2 段で出す文字（上に元の値、下に新しい値）。空は「（空）」と書く
+ * （空にした・空から入れたことが、何も書いていないのと見分けられるように）
+ */
+export function diffCellTexts(col: Pick<ColumnSchema, "type"> | undefined, before: CellValue, after: CellValue): { before: string; after: string } {
+  const empty = gridMessages().hover.empty;
+  const text = (v: CellValue) => {
+    const s = formatColumnValue(col, v);
+    return s === "" ? empty : s;
+  };
+  return { before: text(before), after: text(after) };
+}
+
 export interface HoverInput {
   tone: CellTone;
   author: BatchAuthor | null;

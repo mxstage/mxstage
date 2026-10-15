@@ -18,6 +18,8 @@ export interface DetailItem {
   changed: boolean;
   /** 変更したセルの作者（文字をその作者の色で出す）。分からないときは持たない */
   author?: BatchAuthor | null;
+  /** 変更したセルの元の値（表示用の文字。空は ""）。変更していないセル・元の値ビューでは持たない */
+  before?: string;
   /** 長文（改行を含む、または LONG_VALUE_CHARS より長い） */
   long: boolean;
   /** 値が空 */
@@ -32,20 +34,34 @@ export interface DetailRead {
   value: string;
   changed: boolean;
   author?: BatchAuthor | null;
+  before?: string;
 }
 
 /** 列の順はシートの列の順。空の列も飛ばさずに出す（入っていないことも情報のため） */
 export function rowDetailItems(columns: readonly ColumnSchema[], read: (col: string) => DetailRead): DetailItem[] {
   return columns.map((c) => {
     const { main, sub } = headerLines(c);
-    const { value, changed, author } = read(c.name);
-    return { name: c.name, label: main, attr: sub, value, changed, ...(author !== undefined ? { author } : {}), long: isLongValue(value), empty: value === "" };
+    const { value, changed, author, before } = read(c.name);
+    // 元の値が長文なら、新しい値が短くても幅いっぱいで並べる（新旧を同じ幅で見比べられるように）
+    const long = isLongValue(value) || (before !== undefined && isLongValue(before));
+    return {
+      name: c.name,
+      label: main,
+      attr: sub,
+      value,
+      changed,
+      ...(author !== undefined ? { author } : {}),
+      ...(changed && before !== undefined ? { before } : {}),
+      long,
+      empty: value === "",
+    };
   });
 }
 
-/** 空の列を後ろにまとめる（値の入っている列から読めるように） */
+/** 空の列を後ろにまとめる（値の入っている列から読めるように）。空にした変更は変更なので前に残す */
 export function sortDetailItems(items: readonly DetailItem[]): DetailItem[] {
-  return [...items.filter((i) => !i.empty), ...items.filter((i) => i.empty)];
+  const front = (i: DetailItem) => !i.empty || i.changed;
+  return [...items.filter(front), ...items.filter((i) => !front(i))];
 }
 
 /** マウスを置いたときに全文を出す行数と文字数の上限 */

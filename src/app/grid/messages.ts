@@ -70,6 +70,9 @@ export const gridMessages = defineMessages(
       busy: "Sheets being committed to Maximo cannot be edited.",
       rowCountTitle: "Filter from the ▾ in a column header",
       detailHint: "Select a row to show all of its columns here.",
+      changedOnly: "Changed columns only",
+      changedOnlyCount: (shown: number, total: number) => `${shown} of ${total} columns`,
+      changedOnlyTitle: "Show only key columns and the columns changed in at least one row. Changed cells show the original value above the new one.",
     },
     /** 子の表の横持ち（1 行 ＝ 1 親、1 列 ＝ 1 項目） */
     pivot: {
@@ -96,6 +99,7 @@ export const gridMessages = defineMessages(
     rowDetail: {
       label: (title: string) => `Row details ${title}`,
       filled: (filled: number, total: number) => `${filled} / ${total} columns have values`,
+      before: "Original value",
     },
     /** セルの編集（日付・値の一覧） */
     editor: {
@@ -183,6 +187,9 @@ export const gridMessages = defineMessages(
       busy: "Maximo に反映中のシートは編集できません。",
       rowCountTitle: "列の見出しの ▾ から絞り込めます",
       detailHint: "行を選ぶと、その行の全列をここに出します。",
+      changedOnly: "変更のあった列だけ",
+      changedOnlyCount: (shown, total) => `${total} 列のうち ${shown} 列`,
+      changedOnlyTitle: "キーの列と、どれかの行で変わった列だけを出します。変えたセルは、元の値を上に、新しい値を下に出します。",
     },
     pivot: {
       size: (rows, cols) => `${rows} 件 × ${cols} 項目`,
@@ -208,6 +215,7 @@ export const gridMessages = defineMessages(
     rowDetail: {
       label: (title) => `行の詳細 ${title}`,
       filled: (filled, total) => `${filled} / ${total} 列に値`,
+      before: "元の値",
     },
     editor: {
       datePlaceholder: "YYYY/MM/DD",

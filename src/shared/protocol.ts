@@ -26,7 +26,8 @@ export type RelayErrorCode = (typeof RelayErrorCode)[keyof typeof RelayErrorCode
 
 /** タイムアウト予算。Codex の既定ツールタイムアウト 60 秒を下回るように決めている */
 export const RELAY_TIMEOUTS = {
-  ackMs: 2_000,
+  /** 裏の窓（最小化した Chrome など）のタブは、受け取りを返すまで 5〜12 秒かかることがある（2026-10-15 に計った） */
+  ackMs: 15_000,
   readDeadlineMs: 25_000,
   maxDeadlineMs: 45_000,
   heartbeatMs: 20_000,

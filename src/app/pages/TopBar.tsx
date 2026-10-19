@@ -1,8 +1,8 @@
 // 作業画面の上部バー（1 段）。接続の ○、シートタブ、色の意味、オブジェクト構造、設定・作業終了・パネルの出し入れ。
 
-import { DataStructured, Information, Logout, OpenPanelRight, Settings } from "@carbon/icons-react";
+import { Column, DataStructured, Information, Logout, OpenPanelRight, Settings } from "@carbon/icons-react";
 import { Button, IconButton, Toggletip, ToggletipButton, ToggletipContent } from "@carbon/react";
-import { useCallback, useSyncExternalStore, type ReactNode } from "react";
+import { useCallback, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { ObjectStructureCatalog } from "../catalog/catalog";
 import { LEGEND_TONES, PIVOT_CELL_STYLE, PIVOT_WARN_MARK, TONE_STYLE, toneLabel } from "../grid/cellStyle";
 import type { LicenseClient } from "../license/client";
@@ -34,6 +34,47 @@ export interface TopBarProps {
   license?: LicenseClient;
   /** 「辞書」のボタン（今の接続先の客先の辞書） */
   dictionaries?: ReactNode;
+  /** 知らせ（窓を並べられなかったとき） */
+  onMessage?: (text: string, tone: "info" | "error") => void;
+}
+
+const ARRANGE_URL = "/_mxstage/arrange";
+
+/**
+ * 「AI アシスタントと左右に並べる」。押すと橋渡しが、この窓（題名に一時的な印を付けて見分ける）と、
+ * 手前にある AI アシスタントの窓を、画面の左右に並べる（Windows だけ。橋渡しは同じ PC で動くので、この PC が Windows かで出し分ける。
+ * 起動のときに橋渡しへ問い合わせない）
+ */
+function ArrangeButton({ onMessage }: { onMessage?: TopBarProps["onMessage"] }) {
+  const [busy, setBusy] = useState(false);
+  const supported = typeof navigator !== "undefined" && /Windows/.test(navigator.userAgent);
+  if (!supported) return null;
+  const t = pagesMessages().topBar;
+  const run = async () => {
+    if (busy) return;
+    setBusy(true);
+    const token = Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => (b % 36).toString(36)).join("") + Date.now().toString(36).slice(-4);
+    const before = document.title;
+    document.title = `${before} [arrange ${token}]`;
+    try {
+      const res = await fetch(ARRANGE_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token }), cache: "no-store" });
+      const v = (await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
+      if (v?.ok !== true) {
+        const reasons = t.arrangeFailed as Record<string, string>;
+        onMessage?.(reasons[v?.error ?? "failed"] ?? t.arrangeFailed.failed, "error");
+      }
+    } catch {
+      onMessage?.(t.arrangeFailed.failed, "error");
+    } finally {
+      document.title = before;
+      setBusy(false);
+    }
+  };
+  return (
+    <IconButton kind="ghost" size="md" align="bottom" label={t.arrange} aria-label={t.arrange} disabled={busy} onClick={() => void run()}>
+      <Column />
+    </IconButton>
+  );
 }
 
 /**
@@ -149,6 +190,7 @@ export function TopBar(p: TopBarProps) {
         <IconButton kind="ghost" size="md" align="bottom" label={t.endWork} aria-label={t.endWork} onClick={p.onEndWork}>
           <Logout />
         </IconButton>
+        <ArrangeButton {...(p.onMessage ? { onMessage: p.onMessage } : {})} />
         {!p.sidePanel && p.viewHint && (
           <span className="view-hint" title={t.viewHint}>
             {p.viewHint}

@@ -18,10 +18,26 @@ export const DICTIONARY_ENDPOINTS = {
 export type SyncKind = "onedrive-business" | "onedrive" | "sharepoint" | "box" | "google-drive" | "dropbox" | "network" | "local";
 
 export interface FolderInfo {
+  /** 選んだ共有フォルダ。null なら既定のフォルダ（この PC だけ） */
   path: string | null;
   sync: SyncKind | null;
   reachable: boolean;
   writable: boolean;
+  /** 辞書と Skill を置くフォルダ（既定のフォルダ、または <共有フォルダ>/MX Stage）。古い橋渡しは返さない */
+  root?: string;
+  /** 既定のフォルダ（ドキュメント\MX Stage\<接続先の名前>）を使っている */
+  isDefault?: boolean;
+  /** 既定のフォルダの同期（「ドキュメント」を OneDrive で同期しているときなど） */
+  rootSync?: SyncKind | null;
+}
+
+/** AI が作った Skill の案（人が設定で確かめて保存するまで使わない） */
+export interface SkillDraftNote {
+  name: string;
+  description: string;
+  createdAt: string;
+  /** 案の置き場の印（接続先、または pc） */
+  draftScope: string;
 }
 
 export interface Member {
@@ -60,6 +76,8 @@ export interface DictionaryListing {
   dictionaries: DictionarySummary[];
   /** 変わったかを見分ける印（共有フォルダに届かなければ null） */
   version: string | null;
+  /** AI の Skill の案（古い橋渡しは返さない） */
+  skillDrafts?: SkillDraftNote[];
 }
 
 export interface DictionaryState {

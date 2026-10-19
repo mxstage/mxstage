@@ -2,13 +2,13 @@
 name: mxstage-core-skills
 description: "MX Stage basic operation: when to propose a user Skill, how to write one for a customer's environment (custom objects and attributes, rules, repeated tasks), how to name and save it."
 metadata:
-  version: "1.0.0"
+  version: "1.1.0"
   category: "core"
 ---
 
 # Making user Skills
 
-Built-in Skills cover standard Maximo. Everything specific to one customer belongs in user Skills, which the user keeps on their PC (~/.config/mxstage/skills/name/SKILL.md).
+Built-in Skills cover standard Maximo. Everything specific to one customer belongs in user Skills. They are kept per connection (in that customer's folder, shared with the project members) or on this PC only. MX Stage gives you only the Skills of the connection open in the work screen.
 
 ## When to propose one
 
@@ -43,6 +43,6 @@ Do not write API keys, passwords, personal data or row data into a Skill. Use at
 
 1. Show the user the name, description and full body.
 2. Change it until they agree.
-3. save_skill. To replace an existing one, get their agreement and pass overwrite: true with a higher version.
+3. save_skill. It keeps the Skill as a draft for the connection of the work screen. Nothing is used until the user checks it and presses Save in Settings > Skills and dictionaries. To change an existing Skill, send the whole new text with a higher version.
 4. Read warnings in the result (for example words that look like tool names but are not) and fix them with the user.
-5. The Skill can be read with list_skills and get_skill from the next conversation on. For Claude Code, Codex and other assistants with their own Skill folders, the user runs the MX Stage setup again to copy it there.
+5. Tell the user that the draft waits for their check; do not say that it was saved. Once they save it, list_skills and get_skill return it. Never copy a customer's Skill into an assistant's own Skill folder: it would then be read with other customers too.

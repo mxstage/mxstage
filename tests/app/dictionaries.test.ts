@@ -269,3 +269,112 @@ describe("辞書を使った突き合わせ", () => {
     matches.dispose();
   });
 });
+
+describe("接続先を切り替えたとき", () => {
+  const KITA = "c_00000000000000a1";
+  const MINAMI = "c_00000000000000b2";
+
+  /** 接続先ごとに辞書を持つ橋渡しの代わり */
+  class ScopedClient extends DictionaryClient {
+    readonly by = new Map<string, FakeClient>([
+      [KITA, new FakeClient()],
+      [MINAMI, new FakeClient()],
+    ]);
+    constructor() {
+      super(async () => new Response("{}"));
+    }
+    override list(scope: string) {
+      return this.by.get(scope)!.list();
+    }
+    override get(scope: string, id: string) {
+      return this.by.get(scope)!.get(scope, id);
+    }
+  }
+
+  function switchable() {
+    let current = KITA;
+    const listeners = new Set<() => void>();
+    const connOf = (id: string) => ({ info: { baseUrl: "https://maximo.example.com", via: "proxy", connectionName: id, userName: null, connectedAt: 0, savedId: id }, client: {} }) as unknown as MaximoConnection;
+    const provider: ConnectionProvider = { current: () => connOf(current), subscribe: (l) => (listeners.add(l), () => listeners.delete(l)) };
+    return {
+      provider,
+      use(id: string) {
+        current = id;
+        for (const l of Array.from(listeners)) l();
+      },
+    };
+  }
+
+  function scoped() {
+    const client = new ScopedClient();
+    const workspace = new Workspace("作業");
+    const conn = switchable();
+    const service = new DictionaryService({ workspace, connection: conn.provider, client, setInterval: () => 0, clearInterval: () => undefined });
+    const idle = (sheet: string) => ({ sheet, state: "idle", counts: { parents: 0, changedCells: 0, addedRows: 0, deletedRows: 0 }, blockers: [], needsDeleteConfirm: false, needsNullConfirm: false, awaitingCanary: null, results: [] });
+    const commits = { request: () => ({}) as never, panel: idle, isRunning: () => false } as unknown as CommitRequester;
+    const registry = createToolRegistry({ workspace, jobs: new JobRegistry(), connection: conn.provider, commits, catalog: new ObjectStructureCatalog(), appVersion: "t", appUrl: "http://127.0.0.1/app", dictionaries: service });
+    const call = async (tool: string, args: unknown) => {
+      const msg: InvokeMsg = { type: "tool.invoke", id: "c", tool: tool as ToolName, args, deadlineAt: Date.now() + 30_000, timeoutMs: 30_000, idempotencyKey: "", readOnly: false };
+      return registry.handler(msg, { signal: new AbortController().signal, progress: () => {} });
+    };
+    return { client, workspace, conn, service, call };
+  }
+
+  it("前の接続先の辞書のシートを閉じ、AI が名前で開こうとしても、ほかの接続先の辞書は使わない", async () => {
+    const { client, workspace, conn, service, call } = scoped();
+    client.by.get(KITA)!.add("北部 設備名の呼び方", [["ごみクレ", "ごみクレーン", "text"]]);
+    service.start();
+    await service.refresh();
+    await service.openDictionary("北部 設備名の呼び方");
+    expect(workspace.dictionarySheet("北部 設備名の呼び方")).not.toBe(null);
+
+    conn.use(MINAMI);
+    await service.refresh();
+    expect(workspace.hasSheet("北部 設備名の呼び方")).toBe(false);
+    expect(workspace.dictionarySheet("北部 設備名の呼び方")).toBe(null);
+    await expect(call("open_dictionary", { name: "北部 設備名の呼び方" })).rejects.toThrow(/Could not open the dictionary/);
+    service.dispose();
+  });
+
+  it("保存前の変更がある辞書は閉じずに残すが、今の接続先のデータには当てない。同じ名前の辞書は今の接続先のものを開く", async () => {
+    const { client, workspace, conn, service, call } = scoped();
+    client.by.get(KITA)!.add("呼び名", [["ごみクレ", "ごみクレーン", "text"]]);
+    client.by.get(MINAMI)!.add("呼び名", [["P1", "1号ポンプ", "text"]]);
+    service.start();
+    await service.refresh();
+    await service.openDictionary("呼び名");
+    workspace.addRows("呼び名", [{ [DICT_FIND]: "B号", [DICT_TO]: "B号機", [DICT_MODE]: "text" }], { author: "user" });
+
+    conn.use(MINAMI);
+    await service.refresh();
+    // 北部の辞書のシートは残る（変更を失わない）が、使わない
+    expect(workspace.getSheet("呼び名").meta.source).toMatchObject({ kind: "dictionary", scope: KITA });
+    expect(workspace.dictionarySheet("呼び名")).toBe(null);
+    expect(workspace.dictionaryOfOtherScope("呼び名")).toBe(KITA);
+    // AI が「呼び名」を開くと、南部の辞書を別のシートで開く
+    await call("open_dictionary", { name: "呼び名" });
+    const opened = workspace.dictionarySheet("呼び名")!;
+    expect(opened.meta.source).toMatchObject({ kind: "dictionary", scope: MINAMI });
+    expect(opened.meta.name).not.toBe("呼び名");
+    expect(opened.viewRows("final").map((r) => opened.finalValue(r, DICT_FIND))).toEqual(["P1"]);
+    // 北部に戻すと、南部の辞書のシートを閉じ、北部の辞書をまた使う
+    conn.use(KITA);
+    await service.refresh();
+    expect(workspace.dictionarySheet("呼び名")?.meta.source).toMatchObject({ scope: KITA });
+    expect(workspace.hasSheet(opened.meta.name)).toBe(false);
+    service.dispose();
+  });
+
+  it("南部に無い辞書の名前を AI が使うと、ほかの接続先の辞書だと伝える", async () => {
+    const { client, workspace, conn, service, call } = scoped();
+    client.by.get(KITA)!.add("北部 故障の言葉", [["異音", "NOISE", "text"]]);
+    service.start();
+    await service.refresh();
+    await service.openDictionary("北部 故障の言葉");
+    workspace.addRows("北部 故障の言葉", [{ [DICT_FIND]: "漏れ", [DICT_TO]: "LEAK", [DICT_MODE]: "text" }], { author: "user" });
+    conn.use(MINAMI);
+    await service.refresh();
+    await expect(call("open_dictionary", { name: "北部 故障の言葉" })).rejects.toThrow(/belongs to another connection/);
+    service.dispose();
+  });
+});

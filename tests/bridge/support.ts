@@ -106,6 +106,8 @@ export interface FakeTabOptions {
   sheets?: number;
   /** hello で知らせる直前の様子（省けば送らない） */
   diag?: string;
+  /** hello で知らせる接続先（省けば送らない） */
+  connection?: string | null;
 }
 
 /** 作業タブのふりをする WebSocket クライアント */
@@ -169,6 +171,7 @@ export class FakeTab {
         focused: opts.focused ?? true,
         ...(opts.sheets !== undefined ? { sheets: opts.sheets } : {}),
         ...(opts.diag !== undefined ? { diag: opts.diag } : {}),
+        ...(opts.connection !== undefined ? { connection: opts.connection } : {}),
       });
       await tab.waitFor("welcome").catch(() => undefined);
     }
@@ -246,6 +249,8 @@ export async function createSandbox(): Promise<Sandbox> {
     XDG_CONFIG_HOME: join(dir, "config"),
     HOME: join(dir, "home"),
     USERPROFILE: join(dir, "home"),
+    // 接続先の既定のフォルダ（ドキュメント\MX Stage\<接続先の名前>）も一時フォルダに
+    MXSTAGE_DOCUMENTS_DIR: join(dir, "documents"),
   };
   return {
     dir,

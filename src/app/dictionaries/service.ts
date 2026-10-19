@@ -4,6 +4,8 @@
 // - 保存すると共有フォルダに書き、シートを保存後の中身で作り直す（保存前の変更の色は消える）。
 // - 15 秒ごと（画面が見えている間だけ）に一覧の印を確かめ、ほかのメンバーが保存していれば、開いている辞書を新しくする。
 //   保存前の変更があるシートは作り直さず、「新しい保存が届いています」と出す（保存すると橋渡しが合わせる）。
+// - 接続先を切り替えたら、前の接続先の辞書のシートを閉じる（保存前の変更があるものは残すが、AI も突き合わせも使わない。
+//   Workspace.setDictionaryScope）。客先 A の辞書を客先 B のデータに当てないため。
 
 import type { DictionaryKind } from "../../shared/dictionary";
 import type { ConnectionProvider } from "../runtime/contracts";
@@ -81,6 +83,7 @@ export class DictionaryService {
   start(): void {
     if (this.unsubscribe !== null) return;
     const offConnection = this.connection.subscribe(() => {
+      this.syncScope();
       if (this.currentScope() !== this.snap.scope) void this.refresh();
     });
     // 閉じたシートは開いている辞書から外す
@@ -92,6 +95,7 @@ export class DictionaryService {
       offWorkspace();
     };
     this.adopt();
+    this.syncScope();
     this.timer = this.setIntervalFn(() => {
       if (this.isVisible()) void this.refresh();
     }, DICTIONARY_POLL_MS);
@@ -115,6 +119,23 @@ export class DictionaryService {
         }
       });
     }
+  }
+
+  /**
+   * 辞書を使ってよい接続先を今の接続先にし、ほかの接続先の辞書のシートを閉じる。
+   * 保存前の変更があるシートは閉じない（変更を失わないため）。開いたままでも Workspace が使わせない
+   */
+  private syncScope(): void {
+    const scope = this.currentScope();
+    this.workspace.setDictionaryScope(scope);
+    let changed = false;
+    for (const od of Array.from(this.open.values())) {
+      if (od.scope === scope || this.hasChanges(od.sheet)) continue;
+      this.open.delete(od.sheet);
+      if (this.workspace.hasSheet(od.sheet) && this.workspace.getSheet(od.sheet).meta.source.kind === "dictionary") this.workspace.removeSheet(od.sheet);
+      changed = true;
+    }
+    if (changed) this.emit();
   }
 
   dispose(): void {
@@ -218,8 +239,14 @@ export class DictionaryService {
 
   /** 辞書の名前に合うシートの名前（データのシートと名前が重なれば「（辞書）」を付ける） */
   private sheetNameFor(name: string, id: string): string {
-    for (const [sheet, od] of this.open) if (od.id === id && this.workspace.hasSheet(sheet)) return sheet;
-    const taken = (n: string) => this.workspace.hasSheet(n) && this.workspace.getSheet(n).meta.source.kind !== "dictionary";
+    const scope = this.currentScope();
+    for (const [sheet, od] of this.open) if (od.id === id && od.scope === scope && this.workspace.hasSheet(sheet)) return sheet;
+    // データのシートと、ほかの接続先の辞書のシート（保存前の変更があって残っているもの）は使えない名前
+    const taken = (n: string) => {
+      if (!this.workspace.hasSheet(n)) return false;
+      const src = this.workspace.getSheet(n).meta.source;
+      return src.kind !== "dictionary" || src.scope !== scope;
+    };
     if (!taken(name)) return name;
     const suffixed = `${name} (${dictionaryMessages().menu.button})`;
     return taken(suffixed) ? `${name} [${id.slice(2, 8)}]` : suffixed;

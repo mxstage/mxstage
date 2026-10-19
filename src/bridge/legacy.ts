@@ -8,7 +8,8 @@
 // - 古い置き場所は消さない（利用者が確かめてから消す）。
 // - 状態フォルダを環境変数で差し替えているとき（試験など）は、呼び出し側が enabled: false にする。
 
-import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { copyTree } from "./copyTree.ts";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { USER_SKILLS_DIR_NAME, userSkillsDirOf } from "./skills.ts";
@@ -86,7 +87,8 @@ export function migrateLegacyFiles(opts: LegacyMigration): LegacyMigrationResult
     const target = join(skillsTo, name);
     if (!isDir(source) || existsSync(target)) continue;
     try {
-      cpSync(source, target, { recursive: true, errorOnExist: true, force: false });
+      // fs.cpSync は日本語の場所で落ちることがある（src/bridge/copyTree.ts）
+      copyTree(source, target, { errorOnExist: true });
       result.copied.push(name);
     } catch (err) {
       result.failed.push(`${name}（${message(err)}）`);

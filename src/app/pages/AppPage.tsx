@@ -19,6 +19,7 @@ import { Link } from "../ui/Link";
 import { uiMessages } from "../ui/messages";
 import { Notice } from "../ui/Notice";
 import { SETTINGS_PATH } from "../ui/routes";
+import { SkillDraftNotice } from "./SkillDraftNotice";
 import { Toasts, type ToastStore } from "../ui/toast";
 import { CommitPanel } from "./CommitPanel";
 import { HistoryPanel } from "./HistoryPanel";
@@ -101,6 +102,8 @@ export interface AppPageProps {
   reload?: () => void;
   /** 再読み込みの前に作業を預ける（預けられたら true）。省くと預けずに再読み込みする */
   keepWorkForReload?: () => Promise<boolean>;
+  /** 設定の「Skill と辞書」で開くよう頼まれた辞書の名前（開いたら null にする） */
+  pendingDictionary?: { current: string | null };
 }
 
 const VIEW_KINDS: readonly ViewKind[] = ["final", "diff", "base"];
@@ -111,7 +114,7 @@ function viewOptions(): Array<{ kind: ViewKind; label: string }> {
   return VIEW_KINDS.map((kind) => ({ kind, label: labels[kind] }));
 }
 
-export function AppPage({ runtime, vault, toasts, catalog, license, onEndWork, onMoveWorkHere, confirm, reload, keepWorkForReload }: AppPageProps) {
+export function AppPage({ runtime, vault, toasts, catalog, license, onEndWork, onMoveWorkHere, confirm, reload, keepWorkForReload, pendingDictionary }: AppPageProps) {
   const { workspace, commits } = runtime;
   const confirmFn = confirm ?? ((m: string) => window.confirm(m));
   const reloadFn = reload ?? (() => window.location.reload());
@@ -176,6 +179,21 @@ export function AppPage({ runtime, vault, toasts, catalog, license, onEndWork, o
       follower.current = null;
     };
   }, [workspace, commits]);
+  // 設定の「Skill と辞書」で［開く］を押した辞書を開き、そのシートを出す
+  useEffect(() => {
+    const name = pendingDictionary?.current ?? null;
+    if (name === null || pendingDictionary === undefined || !dictionaries) return;
+    pendingDictionary.current = null;
+    void dictionaries.openDictionary(name).then((res) => {
+      if (!res.ok) {
+        onMessage(res.message, "error");
+        return;
+      }
+      follower.current?.userSelected();
+      setSelected(res.value.sheet);
+      setFocused(res.value.sheet);
+    });
+  }, [pendingDictionary, dictionaries, onMessage]);
   const [view, setView] = useState<ViewKind>("final");
 
   const isRunning = (sheet: string) => {
@@ -344,6 +362,7 @@ export function AppPage({ runtime, vault, toasts, catalog, license, onEndWork, o
   return (
     <div className="app">
       <TopBar
+        onMessage={onMessage}
         relay={relayBadge(relayStatus, retryAt !== null ? retryAt - now : null)}
         maximo={maximoBadge(vaultView)}
         reopen={reopen}
@@ -389,6 +408,7 @@ export function AppPage({ runtime, vault, toasts, catalog, license, onEndWork, o
           if (confirmFn(t.confirmEndWork)) onEndWork();
         }}
       />
+      {dictionaries && <SkillDraftNotice drafts={dictionaries.snapshot().listing?.skillDrafts ?? []} />}
       <div className={`workarea${sidePanel ? "" : " no-side"}`}>
         <div className="grid-area">
           {current === null && elsewhere > 0 && onMoveWorkHere ? (

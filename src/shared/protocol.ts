@@ -71,6 +71,8 @@ export interface HelloMsg {
   sheets?: number;
   /** つなぎ直したタブが知らせる直前の様子（止まっていた時間、切れた理由）。Hub はログに残すだけ */
   diag?: string;
+  /** 今つないでいる接続先（保存した接続先の ID・デモの ID・保存していない接続先の Maximo の URL）。つないでいなければ null */
+  connection?: string | null;
 }
 
 export interface FocusMsg {
@@ -124,11 +126,13 @@ export interface SheetOpsMsg {
   ops: unknown;
 }
 
-/** タブの作業の様子が変わった（シートの数）。hello の後で送る */
+/** タブの作業の様子が変わった（シートの数・接続先）。hello の後で送る */
 export interface TabStateMsg {
   type: "tab.state";
   tabId: string;
   sheets: number;
+  /** 今つないでいる接続先（hello と同じ）。古い画面は送らない */
+  connection?: string | null;
 }
 
 export type TabToHub = HelloMsg | FocusMsg | AckMsg | ProgressMsg | ChunkMsg | ResultMsg | ErrorMsg | SheetOpsMsg | TabStateMsg;
@@ -231,7 +235,8 @@ export interface InvokeProgress {
 }
 
 export interface HubStatus {
-  tabs: Array<{ tabId: string; role: TabRole; workspace: string | null; appVersion: string; connectedAt: number }>;
+  /** connection: タブが今つないでいる接続先（MCP が客先の Skill を選ぶのに使う。古い画面では無い） */
+  tabs: Array<{ tabId: string; role: TabRole; workspace: string | null; appVersion: string; connectedAt: number; connection?: string | null }>;
   primaryTabId: string | null;
 }
 

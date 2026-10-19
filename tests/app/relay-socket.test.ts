@@ -825,6 +825,28 @@ describe("心拍と再接続", () => {
     expect(String(ws3.framesOf("hello")[0]?.diag ?? "")).not.toContain("blocked");
   });
 
+  it("今つないでいる接続先を hello で知らせ、変わったら tab.state で知らせる（AI に渡す客先の Skill を橋渡しが選ぶ）", () => {
+    let connection: string | null = "c_00000000000000a1";
+    let sheets = 0;
+    const h = setup({ getConnection: () => connection, getSheetCount: () => sheets });
+    const ws = open(h);
+    expect(ws.framesOf("hello")[0]).toMatchObject({ connection: "c_00000000000000a1", sheets: 0 });
+    // 変わらなければ送らない
+    h.relay.notifyState();
+    expect(ws.framesOf("tab.state")).toHaveLength(0);
+    connection = "https://maximo.example.jp";
+    h.relay.notifyState();
+    expect(ws.framesOf("tab.state").at(-1)).toMatchObject({ connection: "https://maximo.example.jp", sheets: 0 });
+    // シートの数だけ変わったときも、接続先を添える
+    sheets = 2;
+    h.relay.notifyState();
+    expect(ws.framesOf("tab.state").at(-1)).toMatchObject({ connection: "https://maximo.example.jp", sheets: 2 });
+    connection = null;
+    h.relay.notifyState();
+    expect(ws.framesOf("tab.state").at(-1)).toMatchObject({ connection: null, sheets: 2 });
+    expect(ws.framesOf("tab.state")).toHaveLength(3);
+  });
+
   it("welcome の heartbeatMs を使う", () => {
     const h = setup();
     h.relay.start();

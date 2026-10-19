@@ -1,20 +1,25 @@
 // 客先の辞書と共有フォルダ。橋渡しが読み書きし、作業画面には /_mxstage/dictionaries の入口で渡す。
-// - 共有フォルダは接続先（保存した接続先・デモ・保存していない接続先の Maximo）ごとに 1 つ。設定は状態フォルダの shared-folders.json。
-//   共有フォルダが無ければ、状態フォルダの local-share/<接続先> に置く（この PC だけ）。あとからフォルダを選べば移す。
-// - 中身は <共有フォルダ>/MX Stage/ の下だけに書く:
+// - 置き場所は接続先（保存した接続先・デモ・保存していない接続先の Maximo）ごとに 1 つ。設定は状態フォルダの shared-folders.json。
+//   共有フォルダを選んでいなければ、既定のフォルダ（ドキュメント\MX Stage\<接続先の名前>）に置く（この PC だけ）。
+//   既定のフォルダは、接続先を初めて見たときに決めて覚え（名前を変えても動かさない）、初めて書くときに作る。
+//   あとから共有フォルダを選べば、中身を移す。0.2.8 までの置き場所（状態フォルダの local-share/<接続先>）は、既定のフォルダへ移す。
+// - 中身は <共有フォルダ>/MX Stage/（既定のフォルダならそのフォルダ）の下だけに書く:
 //     README.txt
 //     project.json                      客先の名前と接続先（名前・URL・環境）。API キーは書かない
 //     members/<メンバーID>.json         表示名
 //     dictionaries/<辞書ID>/dictionary.json         名前・種類・説明
 //     dictionaries/<辞書ID>/changes/<メンバーID>.jsonl  そのメンバーの変更（追記だけ）
+//     skills/<名前>/versions/<時刻>_<メンバーID>.md     Skill の版（足すだけ。src/bridge/sharedSkills.ts）
 // - メンバーは自分のファイルにだけ追記する。OneDrive などは 2 人が同じファイルを同時に書くと「競合のコピー」を作るが、
 //   書くファイルが人ごとに分かれていれば起きない。読むときに全員のファイルを合わせ、項目ごとに一番新しい変更を使う。
 // - フォルダから読んだものは検査してから使う（形の合わない行は使わず problems に入れる）。ファイル名は検査した ID からだけ作る。
 
 import { createHash, randomBytes } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync, cpSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
-import { isAbsolute, join, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { copyTree } from "./copyTree.ts";
+import { documentsDir } from "./documentsDir.ts";
 import {
   DICTIONARY_DESCRIPTION_MAX,
   DICTIONARY_ID_RE,
@@ -44,6 +49,10 @@ export const SHARE_DIR_NAME = "MX Stage";
 export const SHARED_FOLDERS_FILE = "shared-folders.json";
 export const MEMBER_FILE = "member.json";
 export const LOCAL_SHARE_DIR = "local-share";
+/** 既定のフォルダから共有フォルダへ移した後の、元のフォルダの置き場（状態フォルダの下） */
+export const MOVED_DIR = "moved";
+/** 既定のフォルダの名前の長さの上限 */
+const DEFAULT_FOLDER_NAME_MAX = 80;
 const DICTIONARY_FORMAT = "mxstage-dictionary/1";
 const PROJECT_FORMAT = "mxstage-project/1";
 /** 1 つの変更のファイルで読む上限（壊れた・大きすぎるファイルで止まらないように） */
@@ -64,13 +73,28 @@ const README = [
 export type SyncKind = "onedrive-business" | "onedrive" | "sharepoint" | "box" | "google-drive" | "dropbox" | "network" | "local";
 
 export interface FolderInfo {
-  /** 共有フォルダ（選んだフォルダ）。null ならこの PC だけ */
+  /** 共有フォルダ（選んだフォルダ）。null ならこの PC だけ（既定のフォルダ） */
   path: string | null;
   sync: SyncKind | null;
   /** フォルダに届くか（同期の止まり・ネットワークの切断で届かないことがある） */
   reachable: boolean;
   /** 書けるか（読み取りだけの権限なら false） */
   writable: boolean;
+  /** 辞書と Skill を置くフォルダ（既定のフォルダ、または <共有フォルダ>/MX Stage） */
+  root: string;
+  /** 既定のフォルダ（ドキュメント\MX Stage\<接続先の名前>）を使っている */
+  isDefault: boolean;
+  /** 既定のフォルダの同期（「ドキュメント」を OneDrive で同期している PC など）。共有フォルダなら null */
+  rootSync: SyncKind | null;
+}
+
+/** shared-folders.json の 1 つの接続先 */
+interface FolderEntry {
+  /** 選んだ共有フォルダ、または既定のフォルダ（default のとき） */
+  path: string;
+  setAt: string;
+  /** 既定のフォルダ（path がそのまま置き場所） */
+  default?: true;
 }
 
 export interface Member {
@@ -166,6 +190,40 @@ export interface DictionaryStoreOptions {
   now?: () => number;
   /** 環境変数（OneDrive の場所の見分けに使う。試験で差し替える） */
   env?: NodeJS.ProcessEnv;
+  /** 「ドキュメント」の場所（既定のフォルダはこの下の MX Stage\<接続先の名前>）。省くと documentsDir() */
+  documentsDir?: string;
+  /** 接続先の名前（保存した接続先の名前）。分からなければ null */
+  labelOf?: (scopeKey: string) => string | null;
+}
+
+/** デモの接続先の名前（既定のフォルダの名前に使う） */
+const DEMO_LABELS: Readonly<Record<string, string>> = { "demo-ja": "デモ", "demo-en": "Demo" };
+
+const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])$/i;
+
+/** 接続先の名前を、フォルダの名前に使える形にする（Windows で使えない文字を _ に、末尾の点と空白を外す） */
+export function folderNameOf(label: string): string {
+  let name = label
+    .normalize("NFC")
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, DEFAULT_FOLDER_NAME_MAX)
+    .replace(/[. ]+$/, "");
+  if (WINDOWS_RESERVED.test(name)) name = `${name}_`;
+  return name === "" || name === "." || name === ".." ? "MX Stage" : name;
+}
+
+/** 作業画面が送る接続先から、名前が分からないときに使う名前（Maximo の URL ならホスト名） */
+export function fallbackLabelOf(scope: unknown): string | null {
+  if (typeof scope !== "string") return null;
+  if (DEMO_LABELS[scope] !== undefined) return DEMO_LABELS[scope];
+  try {
+    const u = new URL(scope);
+    return u.protocol === "https:" ? u.host : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -274,6 +332,8 @@ export class DictionaryStore {
   private readonly stateDir: string;
   private readonly now: () => number;
   private readonly env: NodeJS.ProcessEnv;
+  private readonly documentsDirValue: string | undefined;
+  private readonly labelOf: (scopeKey: string) => string | null;
   /** 接続先ごとの書き込みを 1 つずつ行う */
   private readonly queues = new Map<string, Promise<unknown>>();
 
@@ -281,6 +341,13 @@ export class DictionaryStore {
     this.stateDir = opts.stateDir;
     this.now = opts.now ?? Date.now;
     this.env = opts.env ?? process.env;
+    this.documentsDirValue = opts.documentsDir;
+    this.labelOf = opts.labelOf ?? (() => null);
+  }
+
+  /** 状態フォルダ（Skill の案・この PC だけの Skill の置き場所を決めるのに使う） */
+  get stateFolder(): string {
+    return this.stateDir;
   }
 
   // ---------------------------------------------------------------------------
@@ -319,44 +386,95 @@ export class DictionaryStore {
     return join(this.stateDir, SHARED_FOLDERS_FILE);
   }
 
-  private readFolders(): Record<string, { path: string; setAt: string }> {
+  private readFolders(): Record<string, FolderEntry> {
     const v = readJson(this.foldersFile()) as { folders?: Record<string, unknown> } | null;
-    const out: Record<string, { path: string; setAt: string }> = {};
+    const out: Record<string, FolderEntry> = {};
     if (v && v.folders && typeof v.folders === "object") {
       for (const [k, raw] of Object.entries(v.folders)) {
-        const f = raw as { path?: unknown; setAt?: unknown };
-        if (typeof f?.path === "string" && isAbsolute(f.path)) out[k] = { path: f.path, setAt: typeof f.setAt === "string" ? f.setAt : "" };
+        const f = raw as { path?: unknown; setAt?: unknown; default?: unknown };
+        if (typeof f?.path === "string" && isAbsolute(f.path)) out[k] = { path: f.path, setAt: typeof f.setAt === "string" ? f.setAt : "", ...(f.default === true ? { default: true as const } : {}) };
       }
     }
     return out;
   }
 
-  /** 接続先の共有フォルダ（選んだフォルダ）。無ければ null */
+  /** 接続先の共有フォルダ（選んだフォルダ）。既定のフォルダを使っていれば null */
   sharedFolderOf(scopeKey: string): string | null {
-    return this.readFolders()[scopeKey]?.path ?? null;
+    const entry = this.readFolders()[scopeKey];
+    return entry === undefined || entry.default === true ? null : entry.path;
   }
 
-  /** 接続先の辞書と Skill を置くところ（<共有フォルダ>/MX Stage か、この PC の local-share/<接続先>） */
+  /** 接続先の辞書と Skill を置くところ（既定のフォルダ、<共有フォルダ>/MX Stage、まだ決めていなければ 0.2.8 までの local-share/<接続先>） */
   rootOf(scopeKey: string): string {
-    const folder = this.sharedFolderOf(scopeKey);
-    return folder === null ? join(this.stateDir, LOCAL_SHARE_DIR, scopeKey) : join(folder, SHARE_DIR_NAME);
+    const entry = this.readFolders()[scopeKey];
+    if (entry === undefined) return this.legacyRootOf(scopeKey);
+    return entry.default === true ? entry.path : join(entry.path, SHARE_DIR_NAME);
+  }
+
+  private legacyRootOf(scopeKey: string): string {
+    return join(this.stateDir, LOCAL_SHARE_DIR, scopeKey);
+  }
+
+  /** 接続先の名前（保存した接続先の名前、デモ、Maximo のホスト名）。分からなければ null */
+  labelFor(scopeKey: string, fallback: string | null = null): string | null {
+    return this.labelOf(scopeKey) ?? DEMO_LABELS[scopeKey] ?? fallback;
+  }
+
+  /** 置き場所を決めた接続先 */
+  knownScopes(): string[] {
+    return Object.keys(this.readFolders());
+  }
+
+  /**
+   * 置き場所がまだ決まっていなければ、既定のフォルダ（ドキュメント\MX Stage\<接続先の名前>）にする。
+   * 同じ名前のフォルダをほかの接続先が使っていれば「名前 (2)」にする。フォルダは初めて書くときに作る。
+   * 0.2.8 までの置き場所（local-share/<接続先>）に中身があれば、既定のフォルダへ移す
+   */
+  ensurePlace(scopeKey: string, fallbackLabel: string | null = null): void {
+    const folders = this.readFolders();
+    if (folders[scopeKey] !== undefined) return;
+    const base = join(this.documentsDirValue ?? documentsDir(), SHARE_DIR_NAME);
+    const name = folderNameOf(this.labelFor(scopeKey, fallbackLabel) ?? scopeKey);
+    const used = new Set(Object.values(folders).map((f) => resolve(f.path).toLowerCase()));
+    let path = join(base, name);
+    for (let i = 2; used.has(resolve(path).toLowerCase()); i++) path = join(base, `${name} (${i})`);
+    const legacy = this.legacyRootOf(scopeKey);
+    if (existsSync(legacy)) {
+      try {
+        mkdirSync(path, { recursive: true });
+        copyTree(legacy, path);
+        renameSync(legacy, `${legacy}.moved-${nowIso(this.now()).replace(/[:.]/g, "-")}`);
+      } catch {
+        // 移せなければ、元の置き場所を使い続ける（次に見たときにもう一度試す）
+        return;
+      }
+    }
+    folders[scopeKey] = { path, setAt: nowIso(this.now()), default: true };
+    this.writeFolders(folders);
   }
 
   folderInfo(scopeKey: string): FolderInfo {
-    const folder = this.sharedFolderOf(scopeKey);
-    if (folder === null) return { path: null, sync: null, reachable: true, writable: true };
+    const entry = this.readFolders()[scopeKey];
+    const root = this.rootOf(scopeKey);
+    if (entry === undefined || entry.default === true) {
+      // 既定のフォルダは初めて書くときに作るので、まだ無くても届く
+      const exists = existsSync(root);
+      const writable = !exists || canWrite(root);
+      return { path: null, sync: null, reachable: true, writable, root, isDefault: true, rootSync: entry === undefined ? null : detectSync(root, this.env) };
+    }
+    const folder = entry.path;
     let reachable = false;
     try {
       reachable = statSync(folder).isDirectory();
     } catch {
       reachable = false;
     }
-    return { path: folder, sync: detectSync(folder, this.env), reachable, writable: reachable && canWrite(folder) };
+    return { path: folder, sync: detectSync(folder, this.env), reachable, writable: reachable && canWrite(folder), root, isDefault: false, rootSync: null };
   }
 
   /**
-   * 接続先に共有フォルダを付ける（null で外す）。この PC だけに置いていた辞書と Skill は、選んだフォルダへ写す
-   * （元はこの PC に「moved-<日時>」の名前で残す。消さない）。
+   * 接続先に共有フォルダを付ける（null で既定のフォルダに戻す）。今の置き場所の辞書と Skill は、選んだフォルダへ写す。
+   * 既定のフォルダから移したときは、元のフォルダを状態フォルダの moved/ へ動かす（消さない。ドキュメントに古い写しを残さない）。
    */
   async setSharedFolder(scopeKey: string, path: string | null, project?: { name: string; connections: ProjectConnection[] }): Promise<FolderInfo> {
     return this.serial(scopeKey, async () => {
@@ -364,6 +482,7 @@ export class DictionaryStore {
       if (path === null) {
         delete folders[scopeKey];
         this.writeFolders(folders);
+        this.ensurePlace(scopeKey);
         return this.folderInfo(scopeKey);
       }
       if (typeof path !== "string" || !isAbsolute(path)) throw new DictionaryError("invalid_folder", "Choose a folder with a full path.");
@@ -377,12 +496,15 @@ export class DictionaryStore {
       if (!isDir) throw new DictionaryError("invalid_folder", "The folder does not exist.");
       if (!canWrite(folder)) throw new DictionaryError("not_writable", "MX Stage cannot write to this folder.");
       const root = join(folder, SHARE_DIR_NAME);
+      const before = folders[scopeKey];
+      const from = this.rootOf(scopeKey);
+      if (resolve(root) !== resolve(from) && isInside(root, from)) throw new DictionaryError("invalid_folder", "Choose a folder outside the current folder of this connection.");
       ensureRoot(root);
-      // この PC だけに置いていたものを写す（同じ ID のファイルがあれば上書きしない）
-      const local = join(this.stateDir, LOCAL_SHARE_DIR, scopeKey);
-      if (existsSync(local) && resolve(local) !== resolve(root)) {
-        cpSync(local, root, { recursive: true, force: false, errorOnExist: false });
-        renameSync(local, `${local}.moved-${nowIso(this.now()).replace(/[:.]/g, "-")}`);
+      // 今の置き場所の中身を写す（同じ ID のファイルがあれば上書きしない。メンバーの共有フォルダに加わるときは足し合わせになる）
+      if (existsSync(from) && resolve(from) !== resolve(root)) {
+        // fs.cpSync は日本語・全角の括弧を含む場所で落ちる（src/bridge/copyTree.ts）
+        copyTree(from, root);
+        if (before === undefined || before.default === true) this.putAway(scopeKey, from);
       }
       if (project) this.writeProject(root, project);
       const member = this.member();
@@ -393,7 +515,23 @@ export class DictionaryStore {
     });
   }
 
-  private writeFolders(folders: Record<string, { path: string; setAt: string }>): void {
+  /** 移した後の元のフォルダ（既定のフォルダ・0.2.8 までの置き場所）を状態フォルダの moved/ へ動かす。動かせなければ名前を変えて残す */
+  private putAway(scopeKey: string, from: string): void {
+    const stamp = nowIso(this.now()).replace(/[:.]/g, "-");
+    const target = join(this.stateDir, MOVED_DIR, `${scopeKey}-${stamp}`);
+    try {
+      mkdirSync(dirname(target), { recursive: true });
+      renameSync(from, target);
+    } catch {
+      try {
+        renameSync(from, join(dirname(from), `${basename(from)}.moved-${stamp}`));
+      } catch {
+        // 残っても使わない（置き場所は新しいフォルダになる）
+      }
+    }
+  }
+
+  private writeFolders(folders: Record<string, FolderEntry>): void {
     mkdirSync(this.stateDir, { recursive: true });
     writeJsonAtomic(this.foldersFile(), { version: 1, folders });
   }
@@ -679,6 +817,18 @@ export class DictionaryStore {
     return out;
   }
 
+  /** 接続先の置き場所のメンバーの表示名（メンバーID → 名前。Skill の変更履歴に使う） */
+  memberNamesOf(scopeKey: string): Map<string, string> {
+    return this.memberNames(this.rootOf(scopeKey));
+  }
+
+  /** 接続先の置き場所に自分の表示名を書く（Skill を保存したとき） */
+  touchMemberOf(scopeKey: string): void {
+    const root = this.rootOf(scopeKey);
+    ensureRoot(root);
+    this.touchMember(root, this.member());
+  }
+
   private touchMember(root: string, member: Member): void {
     const file = join(root, "members", `${member.id}.json`);
     const prev = readJson(file) as { name?: unknown } | null;
@@ -690,8 +840,9 @@ export class DictionaryStore {
   /** 名前を変えたら、共有フォルダの自分の表示名も変える */
   renameMemberEverywhere(): void {
     const member = this.member();
-    for (const { path } of Object.values(this.readFolders())) {
-      const root = join(path, SHARE_DIR_NAME);
+    for (const entry of Object.values(this.readFolders())) {
+      if (entry.default === true) continue;
+      const root = join(entry.path, SHARE_DIR_NAME);
       if (existsSync(root)) {
         try {
           this.touchMember(root, member);
@@ -773,6 +924,13 @@ function ensureRoot(root: string): void {
   mkdirSync(join(root, "members"), { recursive: true });
   const readme = join(root, "README.txt");
   if (!existsSync(readme)) writeFileSync(readme, README);
+}
+
+/** inner が outer と同じか、その中か */
+function isInside(inner: string, outer: string): boolean {
+  const a = resolve(inner).toLowerCase();
+  const b = resolve(outer).toLowerCase();
+  return a === b || a.startsWith(b.endsWith(sep) ? b : b + sep);
 }
 
 /** そのフォルダに書けるか（試しに小さなファイルを作って消す） */

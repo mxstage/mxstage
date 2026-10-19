@@ -138,17 +138,19 @@ describe("stdio の MCP サーバ", () => {
     const skills = await cli.call(5, "tools/call", { name: "list_skills", arguments: {} });
     expect((skills.result as { structuredContent: { skills: unknown[] } }).structuredContent.skills.length).toBeGreaterThan(0);
 
-    // チャットから利用者の Skill を保存すると、隔離環境の状態フォルダの skills/ に入り、すぐ get_skill で読める
+    // チャットから Skill を保存すると、AI の案として隔離環境の状態フォルダの skill-drafts/ に入る（作業画面が無いので PC の案）。
+    // 人が設定で保存するまでは使わない（get_skill で読めない・この PC の skills/ に入らない）
     const saveArgs = { name: "permit-date-update", description: "mxstage で許可申請の完了日を一括で変えるときに使う。", body: "# 手順\n\nget_status から始め、get_diff で確かめてから request_commit する。" };
     const saved = (await cli.call(6, "tools/call", { name: "save_skill", arguments: saveArgs })).result as ToolCallResult;
     expect(saved.isError ?? false).toBe(false);
-    expect(saved.structuredContent).toMatchObject({ saved: "permit-date-update", created: true, version: "0.1.0" });
-    expect(existsSync(join(dirname(box.keyFile), "skills", "permit-date-update", "SKILL.md"))).toBe(true);
+    expect(saved.structuredContent).toMatchObject({ draft: "permit-date-update", version: "0.1.0", connection: null });
+    expect(existsSync(join(dirname(box.keyFile), "skill-drafts", "pc", "permit-date-update.json"))).toBe(true);
+    expect(existsSync(join(dirname(box.keyFile), "skills", "permit-date-update", "SKILL.md"))).toBe(false);
     const got = (await cli.call(7, "tools/call", { name: "get_skill", arguments: { name: "permit-date-update" } })).result as ToolCallResult;
-    expect(got.structuredContent).toMatchObject({ name: "permit-date-update", origin: "user" });
-    // 同じ名前を黙って上書きしない
-    const again = (await cli.call(8, "tools/call", { name: "save_skill", arguments: saveArgs })).result as ToolCallResult;
-    expect(again.isError).toBe(true);
+    expect(got.isError).toBe(true);
+    // API キーらしいものがあれば案にもしない
+    const secret = (await cli.call(8, "tools/call", { name: "save_skill", arguments: { ...saveArgs, body: "# 手順\n\napikey: q8Zr4LmW2xT9vB7n" } })).result as ToolCallResult;
+    expect(secret.isError).toBe(true);
 
     // 起動の知らせもポート番号も stderr に出す（stdout は MCP のもの）
     expect(cli.badLines).toEqual([]);

@@ -32,6 +32,7 @@ import { UpdateManager, revealInFolder } from "./updates.ts";
 import { createBridgeLogger } from "./logFile.ts";
 import { buildBridgeMcpServer } from "./mcp.ts";
 import { userSkillsDirOf } from "./skills.ts";
+import { SkillShelf } from "./sharedSkills.ts";
 import { HELP_TEXT, parseArgs } from "./options.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -125,6 +126,21 @@ export async function main(argv: readonly string[]): Promise<number> {
     log: record,
     reveal: revealInFolder,
   });
+  // 保存した Maximo の接続先（API キーは OS の保護付きで暗号化する。src/bridge/connections.ts）
+  const connections = new ConnectionStore({ dir: dirname(keyPath) });
+  // 客先の辞書と共有フォルダ（共有フォルダを選んでいない接続先は、ドキュメント\MX Stage\<接続先の名前> に置く）
+  const dictionaries = new DictionaryStore({
+    stateDir: dirname(keyPath),
+    labelOf: (scopeKey) => {
+      try {
+        return connections.list().connections.find((c) => c.id === scopeKey)?.name ?? null;
+      } catch {
+        return null;
+      }
+    },
+  });
+  // 接続先の Skill・この PC だけの Skill・AI の案
+  const skillShelf = new SkillShelf({ store: dictionaries, userSkillsDir });
   const coordinator = new BridgeCoordinator({
     port: opts.port,
     root,
@@ -142,10 +158,9 @@ export async function main(argv: readonly string[]): Promise<number> {
       allowTestKeys: opts.devLicense || licenseTestKeysAllowed(),
       bundled: opts.devLicense && !BUNDLE ? readDevLicenses(ROOT, record) : [],
     }),
-    // 保存した Maximo の接続先（API キーは OS の保護付きで暗号化する。src/bridge/connections.ts）
-    connections: new ConnectionStore({ dir: dirname(keyPath) }),
-    // 客先の辞書と共有フォルダ（共有フォルダの設定と、共有フォルダが無い接続先の辞書は状態フォルダに置く）
-    dictionaries: new DictionaryStore({ stateDir: dirname(keyPath) }),
+    connections,
+    dictionaries,
+    skillShelf,
     updates: updater,
     // Maximo が無くても試せるデモ。データは利用者が設定の「デモ」で選んだときだけ落とし、状態フォルダの demo に置く
     demo: opts.demo ? new DemoManager({ dir: join(dirname(keyPath), "demo"), log: record }) : null,
@@ -196,7 +211,7 @@ export async function main(argv: readonly string[]): Promise<number> {
           });
   const stdio = opts.mcp
     ? serveStdio(
-        () => buildBridgeMcpServer({ origin: coordinator.origin, hub: coordinator.hub, tickets: coordinator.tickets, version, userSkillsDir, checkUpdates: updates }),
+        () => buildBridgeMcpServer({ origin: coordinator.origin, hub: coordinator.hub, tickets: coordinator.tickets, version, userSkillsDir, skillShelf, checkUpdates: updates }),
         {
           onerror: () => record("MCP の接続でエラーが発生しました。"),
         },

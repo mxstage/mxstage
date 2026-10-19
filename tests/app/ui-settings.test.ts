@@ -7,7 +7,8 @@ import type { ConnectInput, VaultView } from "../../src/app/keyvault/client";
 import { toMaximoError } from "../../src/app/maximo/client";
 import type { MaximoConnectionInfo } from "../../src/app/runtime/contracts";
 import { CONNECTED_URL, SettingsPage, type SettingsPageProps, type SettingsVault } from "../../src/app/settings/SettingsPage";
-import { STORAGE_KEYS, type SkillList } from "../../src/app/settings/logic";
+import { STORAGE_KEYS } from "../../src/app/settings/logic";
+import { fakeSkillsBridge } from "./fakeSkillsBridge";
 import { NAVIGATE_EVENT, SETTINGS_TABS, navigate, type SettingsTab } from "../../src/app/ui/routes";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -71,7 +72,7 @@ async function render(props: Partial<SettingsPageProps> & { vault: SettingsVault
     passwordCredential: null,
     replaceUrl: vi.fn(),
     clipboard: null,
-    loadSkills: NO_SKILLS,
+    ...fakeSkillsBridge(),
     ...props,
   };
   await act(async () => {
@@ -79,8 +80,6 @@ async function render(props: Partial<SettingsPageProps> & { vault: SettingsVault
   });
 }
 
-/** 試験では橋渡しの一覧を取りに行かない（同じ関数を使い回して、読み込みを繰り返させない） */
-const NO_SKILLS = async (): Promise<SkillList> => ({ skills: [], problems: [], userSkillsDir: null });
 
 function q<T extends Element>(selector: string): T | null {
   return container.querySelector<T>(selector);
@@ -238,51 +237,118 @@ describe("設定画面のフォーム", () => {
     expect(q('input[name="token-name"]')).toBeNull();
   });
 
-  it("Skill はアプリ既定と利用者の Skill に分けて出し、置き場所と問題を示す（一覧は 1 回だけ読む）", async () => {
-    const loadSkills = vi.fn(
-      async (): Promise<SkillList> => ({
+  it("Skill と辞書: 今の接続先の置き場所・辞書・Skill・AI の案、この PC だけの Skill、畳んだ標準の Skill と問題を出す", async () => {
+    const vault = new FakeVault();
+    vault.view = { kind: "connected", info: { ...INFO, connectionName: "北部", savedId: "c_00000000000000a1" } };
+    const bridge = fakeSkillsBridge({
+      list: {
         userSkillsDir: "/home/u/.config/mxstage/skills",
         skills: [
-          { name: "mxstage-workbench", version: "2.0.0", description: "目次", origin: "default", category: "index" },
-          { name: "mxstage-core-load", version: "1.0.0", description: "読み込み", origin: "default", category: "core" },
-          { name: "mxstage-obj-asset", version: "1.0.0", description: "資産", origin: "default", category: "object" },
+          { name: "mxstage-workbench", version: "2.0.0", description: "Index", origin: "default", category: "index" },
+          { name: "mxstage-core-load", version: "1.0.0", description: "Load", origin: "default", category: "core" },
+          { name: "mxstage-obj-asset", version: "1.0.0", description: "Assets", origin: "default", category: "object" },
           { name: "my-flow", version: "0.1.0", description: "業務の手順", origin: "user", category: "user" },
         ],
         problems: [{ name: "broken", level: "error", message: "SKILL.md がありません。" }],
-      }),
-    );
-    await render({ vault: new FakeVault(), loadSkills });
+        connection: {
+          label: "北部クリーンセンター（本番）",
+          folder: { path: "C:\\OneDrive - 北部CC\\共有", sync: "onedrive-business", reachable: true, writable: true, root: "C:\\OneDrive - 北部CC\\共有\\MX Stage", isDefault: false, rootSync: null },
+          skills: [{ name: "kita-tagno", description: "WO の説明から TAGNO を選び直す", version: "1.2.0", place: "connection", versionId: "20261002T051000000Z_m_00000000000000ff", updatedAt: "2026-10-02T05:10:00Z", updatedBy: "田中" }],
+          deleted: [],
+          problems: [],
+          drafts: [{ name: "kita-daily-report", description: "日報と作業指示の突き合わせ", version: "0.1.0", createdAt: "2026-10-16T00:40:00Z", basedOn: null, draftScope: "c_00000000000000a1" }],
+        },
+      },
+      places: [
+        { scope: "c_00000000000000a1", label: "北部クリーンセンター（本番）", folder: { path: "C:\\OneDrive - 北部CC\\共有", sync: "onedrive-business", reachable: true, writable: true, isDefault: false }, dictionaries: 3, skills: 1, drafts: 1, members: 3 },
+        { scope: "c_00000000000000b2", label: "南部工場（テスト）", folder: { path: null, sync: null, reachable: true, writable: true, root: "C:\\Users\\u\\Documents\\MX Stage\\南部工場（テスト）", isDefault: true, rootSync: null }, dictionaries: 1, skills: 0, drafts: 0, members: null },
+      ],
+      dictionaries: [{ id: "d_0000000000000001", name: "北部 設備名の呼び方", kind: "alias", description: "", createdAt: "", createdBy: "", count: 23, updatedAt: "2026-10-13T01:00:00Z", updatedBy: "武藤" }],
+    });
+    const openDictionary = vi.fn();
+    await render({ vault, ...bridge, openDictionary });
     await act(async () => {
-      await Promise.resolve();
+      await new Promise((r) => setTimeout(r, 0));
     });
     await selectTab("skills");
-    const section = panel("skills").querySelector<HTMLElement>(".skills");
-    const text = section?.textContent ?? "";
-    expect(text).toContain("アプリ既定");
-    expect(text).toContain("利用者の Skill");
-    // 既定の見出しの後に既定の Skill、利用者の見出しの後に利用者の Skill が並ぶ
-    expect(text.indexOf("mxstage-workbench")).toBeGreaterThan(text.indexOf("アプリ既定"));
-    expect(text.indexOf("my-flow")).toBeGreaterThan(text.indexOf("利用者の Skill"));
-    // 既定の Skill は層ごとに分ける（目次・基本動作・標準オブジェクト）
-    expect(text.indexOf("mxstage-workbench")).toBeGreaterThan(text.indexOf("目次（"));
-    expect(text.indexOf("mxstage-core-load")).toBeGreaterThan(text.indexOf("基本動作"));
-    expect(text.indexOf("mxstage-obj-asset")).toBeGreaterThan(text.indexOf("Maximo の標準オブジェクト"));
-    expect(text.indexOf("基本動作")).toBeGreaterThan(text.indexOf("mxstage-workbench"));
-    expect(text).toContain("/home/u/.config/mxstage/skills");
+    const section = panel("skills").querySelector<HTMLElement>(".skills-and-dictionaries")!;
+    const text = section.textContent ?? "";
+    expect(section.querySelector("h2")?.textContent).toBe("Skill と辞書");
+    // AI の案は一番上に、確かめるボタンと一緒に
+    expect(section.querySelector('[data-testid="skill-drafts"]')?.textContent).toContain("kita-daily-report");
+    // 置き場所: 共有フォルダの接続先と、既定のフォルダの接続先
+    const cards = Array.from(section.querySelectorAll<HTMLElement>(".place-card"));
+    expect(cards.map((c) => c.dataset.scope)).toEqual(["c_00000000000000a1", "c_00000000000000b2"]);
+    expect(cards[0]!.textContent).toContain("接続中");
+    expect(cards[0]!.textContent).toContain("OneDrive（会社）");
+    expect(cards[0]!.textContent).toContain("メンバーと共有");
+    expect(cards[1]!.textContent).toContain("Documents\\MX Stage\\南部工場（テスト）");
+    expect(cards[1]!.textContent).toContain("既定");
+    expect(cards[1]!.textContent).toContain("この PC だけ");
+    // 今の接続先の辞書と Skill
+    expect(text).toContain("北部クリーンセンター（本番） の辞書");
+    expect(text).toContain("北部 設備名の呼び方");
+    expect(text).toContain("北部クリーンセンター（本番） の Skill");
+    expect(text).toContain("kita-tagno");
+    // この PC だけの Skill と、畳んだ標準の Skill（日本語の短い説明）
+    expect(text.indexOf("my-flow")).toBeGreaterThan(text.indexOf("この PC だけの Skill"));
+    const builtIns = section.querySelector<HTMLDetailsElement>("details.sk-builtins")!;
+    expect(builtIns.open).toBe(false);
+    expect(builtIns.querySelector("summary")?.textContent).toContain("MX Stage の標準の Skill（3）");
+    expect(builtIns.textContent).toContain("目次: どの作業でも守る決まり");
     expect(text).toContain("broken");
-    expect(text).toContain("読み込めません");
-    // ZIP のダウンロードは無い
-    expect(section?.querySelector("a[download]")).toBeNull();
-    expect(loadSkills).toHaveBeenCalledTimes(1);
+    // 辞書の［開く］は作業画面で開く
+    const openButton = Array.from(section.querySelectorAll("button")).find((b) => b.textContent === "開く" && b.closest(".sk-row")?.textContent?.includes("北部 設備名の呼び方"));
+    await act(async () => {
+      openButton!.click();
+    });
+    expect(openDictionary).toHaveBeenCalledWith("北部 設備名の呼び方");
+    // 接続のタブには共有フォルダの欄を出さない
+    expect(panel("connection").querySelector(".shared-folder")).toBeNull();
   });
 
-  it("利用者の Skill が無ければ、無いことを出す", async () => {
-    await render({ vault: new FakeVault() });
+  it("AI の案を開いて確かめ、保存すると接続先の置き場所に保存し、案を片づける", async () => {
+    const vault = new FakeVault();
+    vault.view = { kind: "connected", info: { ...INFO, savedId: "c_00000000000000a1" } };
+    const bridge = fakeSkillsBridge({
+      list: {
+        connection: {
+          label: "北部",
+          folder: { path: null, sync: null, reachable: true, writable: true, isDefault: true },
+          skills: [],
+          deleted: [],
+          problems: [],
+          drafts: [{ name: "kita-daily-report", description: "日報", version: "0.1.0", createdAt: "2026-10-16T00:40:00Z", basedOn: null, draftScope: "c_00000000000000a1" }],
+        },
+      },
+      get: (q) =>
+        q.get("place") === "draft"
+          ? { ok: true, draft: { name: "kita-daily-report", description: "日報", version: "0.1.0", createdAt: "2026-10-16T00:40:00Z", basedOn: null, draftScope: "c_00000000000000a1", body: "# 手順\n\n1. 日報を読む。" } }
+          : { ok: true, skill: { name: "kita-daily-report", description: "日報", version: "0.1.0", place: "connection", versionId: "v1", updatedAt: null, updatedBy: null, body: "# 手順" }, history: [] },
+      post: (path) => (path === "/_mxstage/skills/save" ? { body: { ok: true, created: true, warnings: [], skill: { name: "kita-daily-report", description: "日報", version: "0.1.0", place: "connection", versionId: "v1", updatedAt: null, updatedBy: null, body: "# 手順" } } } : { body: { ok: true } }),
+    });
+    const notify = vi.fn();
+    await render({ vault, ...bridge, notify });
     await act(async () => {
-      await Promise.resolve();
+      await new Promise((r) => setTimeout(r, 0));
     });
     await selectTab("skills");
-    expect(panel("skills").querySelector(".skills")?.textContent).toContain("まだありません");
+    const review = Array.from(panel("skills").querySelectorAll("button")).find((b) => b.textContent === "確かめる")!;
+    await act(async () => {
+      review.click();
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    const page = panel("skills").querySelector<HTMLElement>(".skill-page")!;
+    expect(page.textContent).toContain("AI の案です");
+    expect(page.querySelector<HTMLTextAreaElement>("textarea")?.value).toContain("日報を読む");
+    const save = Array.from(page.querySelectorAll("button")).find((b) => b.textContent === "保存してメンバーと共有")!;
+    await act(async () => {
+      save.click();
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    const saved = bridge.calls.find((c) => c.path === "/_mxstage/skills/save")!;
+    expect(saved.body).toMatchObject({ scope: "c_00000000000000a1", place: "connection", name: "kita-daily-report", baseVersion: null, draft: "c_00000000000000a1" });
+    expect(notify).toHaveBeenCalledWith("保存し、メンバーと共有しました。");
   });
 
   it("接続方式の proxy は橋渡し経由と書く", async () => {
@@ -294,13 +360,13 @@ describe("設定画面のフォーム", () => {
 });
 
 describe("設定画面のタブ", () => {
-  it("接続・デモ・AI アシスタント・Skill・更新・言語のタブがあり（ライセンスを渡さなければライセンスのタブは無い）、各パネルはタブの名前を持つ", async () => {
+  it("接続・デモ・AI アシスタント・Skill と辞書・更新・言語のタブがあり（ライセンスを渡さなければライセンスのタブは無い）、各パネルはタブの名前を持つ", async () => {
     await render({ vault: new FakeVault() });
     const tablist = q<HTMLElement>('[role="tablist"]')!;
     expect(tablist.getAttribute("aria-label")).toBe("設定の項目");
     const tabs = Array.from(container.querySelectorAll<HTMLElement>('[role="tab"]'));
     expect(tabs.map((t) => t.dataset.tab)).toEqual(["connection", "demo", "assistants", "skills", "updates", "language"]);
-    expect(tabs.map((t) => t.textContent)).toEqual(["接続", "デモ", "AI アシスタント", "Skill", "更新", "言語"]);
+    expect(tabs.map((t) => t.textContent)).toEqual(["接続", "デモ", "AI アシスタント", "Skill と辞書", "更新", "言語"]);
     for (const tab of tabs) {
       const p = container.querySelector<HTMLElement>(`[role="tabpanel"][data-tab="${tab.dataset.tab}"]`)!;
       // パネルの名前はタブ、中にも見出しがある

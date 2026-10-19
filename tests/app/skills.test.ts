@@ -213,14 +213,17 @@ describe("skills", () => {
 
   });
 
-  it("目次は利用者の Skill の置き場所と読み方（get_skill）を、mxstage-core-skills は保存（save_skill）を案内する", () => {
+  it("目次は利用者の Skill の置き場所（接続先ごと・この PC）と読み方（get_skill）を、mxstage-core-skills は案の保存（save_skill）を案内する", () => {
     const body = parsed.find((s) => s.dirName === PRIMARY_SKILL)?.body ?? "";
     expect(body).toContain("User Skills");
-    expect(body).toContain("~/.config/mxstage/skills");
+    expect(body).toContain("per connection");
+    expect(body).toContain("only those of the connection open in the work screen");
     expect(body).toContain("get_skill");
     expect(body).toContain("reserved");
     const skills = parsed.find((s) => s.dirName === "mxstage-core-skills")?.body ?? "";
     expect(skills).toContain("save_skill");
+    expect(skills).toContain("draft");
+    expect(skills).toContain("Settings > Skills and dictionaries");
     expect(skills).toContain("reserved");
   });
 });

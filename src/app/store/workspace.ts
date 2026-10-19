@@ -428,6 +428,11 @@ export class Workspace {
   private readonly now: () => number;
   /** シートごと・列ごとの、オフセットの無い時刻に付けるオフセット（シートの元の値は変わらないので覚えておく） */
   private readonly columnOffsets = new WeakMap<Sheet, Map<string, DateOffsetHint>>();
+  /**
+   * 辞書を使ってよい接続先（辞書のサービスが今の接続先にする）。ほかの接続先の辞書のシートは、開いていても使わない
+   * （接続先を切り替えた後に、前の客先の辞書を当てないため）。undefined なら分けない（試験・辞書の無い画面）
+   */
+  private dictionaryScopeValue: string | null | undefined = undefined;
 
   constructor(name: string, opts: WorkspaceOptions = {}) {
     this._name = name;
@@ -1654,14 +1659,45 @@ export class Workspace {
     }));
   }
 
-  /** 辞書のシート（辞書の名前かシートの名前で探す）。無ければ null */
+  /** 辞書を使ってよい接続先を決める（null: つないでいないので、どの辞書も使わない） */
+  setDictionaryScope(scope: string | null): void {
+    this.dictionaryScopeValue = scope;
+  }
+
+  get dictionaryScope(): string | null | undefined {
+    return this.dictionaryScopeValue;
+  }
+
+  /** 辞書のシート（辞書の名前かシートの名前で探す）。今の接続先の辞書だけ。無ければ null */
   dictionarySheet(name: string): Sheet | null {
+    const s = this.findDictionarySheet(name);
+    return s !== null && this.inDictionaryScope(s) ? s : null;
+  }
+
+  /** 名前の合う辞書のシートが、ほかの接続先のものとして開いていれば、その接続先（AI に断る理由を言うため） */
+  dictionaryOfOtherScope(name: string): string | null {
+    const s = this.findDictionarySheet(name);
+    if (s === null || this.inDictionaryScope(s) || s.meta.source.kind !== "dictionary") return null;
+    return s.meta.source.scope;
+  }
+
+  private inDictionaryScope(s: Sheet): boolean {
+    if (this.dictionaryScopeValue === undefined) return true;
+    return s.meta.source.kind === "dictionary" && s.meta.source.scope === this.dictionaryScopeValue;
+  }
+
+  private findDictionarySheet(name: string): Sheet | null {
     const want = name.normalize("NFKC").trim().toLowerCase();
+    let found: Sheet | null = null;
     for (const s of this.sheetMap.values()) {
       if (s.meta.source.kind !== "dictionary") continue;
-      if (s.meta.name === name || s.meta.source.dictionaryName.normalize("NFKC").trim().toLowerCase() === want) return s;
+      if (s.meta.name === name || s.meta.source.dictionaryName.normalize("NFKC").trim().toLowerCase() === want) {
+        // 同じ名前の辞書が 2 つの接続先から開いていれば、今の接続先のものを選ぶ
+        if (this.inDictionaryScope(s)) return s;
+        found ??= s;
+      }
     }
-    return null;
+    return found;
   }
 
   getDiff(sheetName: string, opts: DiffOptions = {}): DiffResult {

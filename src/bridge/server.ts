@@ -26,7 +26,9 @@ import { DEMO_CONNECTION_IDS, DEMO_ORIGINS, demoLangOfConnectionId } from "../sh
 import { HANDOFF_PATHS, Handoffs } from "./handoff.ts";
 import type { UpdateManager } from "./updates.ts";
 import type { BridgeKeyStore } from "./bridgeKey.ts";
-import { readSkillCatalog } from "./skills.ts";
+import { handleSkillRequest, SKILL_PATHS, SKILL_WRITE_PATHS, SKILLS_PATH } from "./skillRoutes.ts";
+import { PC_DRAFT_SCOPE, type SkillShelf } from "./sharedSkills.ts";
+import { arrangeWindows, type ArrangeResult } from "./arrangeWindows.ts";
 import { serveStatic } from "./staticFiles.ts";
 import type { DictionaryStore } from "./dictionaries.ts";
 import { DICTIONARY_PATHS, handleDictionaryRequest } from "./dictionaryRoutes.ts";
@@ -72,10 +74,16 @@ export interface BridgeServerOptions {
   demo?: DemoManager | null;
   /** 客先の辞書と共有フォルダ（src/bridge/dictionaries.ts）。省くと /_mxstage/dictionaries は 503 */
   dictionaries?: DictionaryStore | null;
+  /** 窓を並べる（試験で差し替える。省くと src/bridge/arrangeWindows.ts） */
+  arrange?: { platform?: NodeJS.Platform; run?: (token: string) => Promise<ArrangeResult> };
+  /** 接続先の Skill・この PC だけの Skill・AI の案（src/bridge/sharedSkills.ts）。省くと一覧だけ（既定とこの PC だけの Skill） */
+  skillShelf?: SkillShelf | null;
 }
 
 /** 作業画面の設定が読む Skill の一覧（本文は含めない） */
-export const SKILLS_LIST_PATH = "/_mxstage/skills";
+export const SKILLS_LIST_PATH = SKILLS_PATH;
+/** 作業画面と AI アシスタントの窓を左右に並べる（GET: できるか、POST { token }: 並べる） */
+export const ARRANGE_PATH = "/_mxstage/arrange";
 /** ライセンスキーの一覧（GET）と保存（POST） */
 export const LICENSE_PATH = "/_mxstage/license";
 /** ライセンスキーを外す（POST） */
@@ -374,7 +382,15 @@ export async function startBridgeServer(opts: BridgeServerOptions): Promise<Brid
       // ライセンスと保存した接続先の入口は作業画面（同一オリジン）からだけ受ける
       isTicketPath =
         pathname.startsWith("/import/") ||
-        (pathname.startsWith(PEER_PREFIX) && !LICENSE_PATHS.includes(pathname) && !CONNECTIONS_PATHS.includes(pathname) && !HANDOFF_PATHS.includes(pathname) && !UPDATES_PATHS.includes(pathname) && !isDemoPath(pathname));
+        (pathname.startsWith(PEER_PREFIX) &&
+          !LICENSE_PATHS.includes(pathname) &&
+          !CONNECTIONS_PATHS.includes(pathname) &&
+          !HANDOFF_PATHS.includes(pathname) &&
+          !UPDATES_PATHS.includes(pathname) &&
+          // Skill の保存は設定の画面からだけ（AI が案を通さずに保存しないように）
+          !SKILL_WRITE_PATHS.includes(pathname) &&
+          pathname !== ARRANGE_PATH &&
+          !isDemoPath(pathname));
     } catch {
       isTicketPath = false;
     }
@@ -402,14 +418,31 @@ export async function startBridgeServer(opts: BridgeServerOptions): Promise<Brid
       return;
     }
 
-    if (url.pathname === SKILLS_LIST_PATH) {
-      // アプリ既定と利用者の Skill を分けて返す（設定画面の「Skill」）。名前・版・出どころ・問題だけで、本文は返さない
-      const catalog = readSkillCatalog(opts.userSkillsDir ?? null);
-      sendJson(res, 200, {
-        ok: true,
-        userSkillsDir: catalog.userDir,
-        skills: catalog.skills.map((s) => ({ name: s.name, version: s.version, description: s.description, origin: s.origin, category: s.category })),
-        problems: catalog.problems,
+    if (url.pathname === ARRANGE_PATH) {
+      const method = (req.method ?? "GET").toUpperCase();
+      if (method === "GET") {
+        sendJson(res, 200, { ok: true, supported: (opts.arrange?.platform ?? process.platform) === "win32" });
+        return;
+      }
+      if (method !== "POST") {
+        sendJson(res, 405, { ok: false, error: "method_not_allowed", message: "Only GET and POST are accepted." }, { Allow: "GET, POST" });
+        return;
+      }
+      const body = await readJsonBody(req, 4096);
+      const token = body !== null && body !== "too_large" && typeof body.token === "string" ? body.token : "";
+      const result: ArrangeResult = await (opts.arrange?.run ?? arrangeWindows)(token);
+      sendJson(res, result.ok ? 200 : result.reason === "failed" ? 500 : 409, result.ok ? { ok: true, assistant: result.assistant } : { ok: false, error: result.reason });
+      return;
+    }
+
+    if (SKILL_PATHS.includes(url.pathname)) {
+      // 設定の「Skill と辞書」: 既定・この PC だけ・接続先の Skill と AI の案（src/bridge/skillRoutes.ts）
+      await handleSkillRequest(req, res, url, {
+        store: opts.dictionaries ?? null,
+        shelf: opts.skillShelf ?? null,
+        userSkillsDir: opts.userSkillsDir ?? null,
+        send: sendJson,
+        readBody: readJsonBody,
       });
       return;
     }
@@ -430,7 +463,20 @@ export async function startBridgeServer(opts: BridgeServerOptions): Promise<Brid
     }
 
     if (DICTIONARY_PATHS.includes(url.pathname)) {
-      await handleDictionaryRequest(req, res, url, { store: opts.dictionaries ?? null, send: sendJson, readBody: readJsonBody, reveal: openFolder });
+      const shelf = opts.skillShelf ?? null;
+      await handleDictionaryRequest(req, res, url, {
+        store: opts.dictionaries ?? null,
+        send: sendJson,
+        readBody: readJsonBody,
+        reveal: openFolder,
+        // 作業画面に AI の Skill の案を知らせる（今の接続先の案と、接続先の無い案）
+        ...(shelf !== null
+          ? {
+              drafts: (scopeKey: string) =>
+                [...shelf.listDrafts(scopeKey), ...shelf.listDrafts(PC_DRAFT_SCOPE)].map((d) => ({ name: d.name, description: d.description, createdAt: d.createdAt, draftScope: d.scope })),
+            }
+          : {}),
+      });
       return;
     }
 

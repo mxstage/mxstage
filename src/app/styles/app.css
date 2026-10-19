@@ -1765,7 +1765,7 @@ body.resizing-row * {
   gap: var(--cds-spacing-03);
 }
 
-/* 設定の「接続」: 共有フォルダ（settings/SharedFolderField.tsx） */
+/* 設定の「Skill と辞書」: 接続先ごとの置き場所（settings/SkillsSection.tsx の PlaceCard） */
 .shared-folder {
   display: flex;
   flex-direction: column;
@@ -1837,4 +1837,365 @@ body.resizing-row * {
 
 .dictionary-kind {
   margin-top: var(--cds-spacing-06);
+}
+
+/* ---------------------------------------------------------------------------
+   設定の「Skill と辞書」（settings/SkillsSection.tsx・SkillPage.tsx）と、作業画面の AI の Skill の案の知らせ
+   AI の案の色は紫（Carbon の purple 70 / 20）。ほかの知らせ（黄・赤）と見分ける
+   --------------------------------------------------------------------------- */
+.skills-and-dictionaries,
+.skill-page {
+  --mx-ai-fg: var(--cds-tag-color-purple, #6929c4);
+  --mx-ai-bg: var(--cds-tag-background-purple, #e8daff);
+}
+
+/* 1 行の並び: 名前・説明・最後に変えた人・操作 */
+.sk-list {
+  margin: 0 0 var(--cds-spacing-03);
+  padding: 0;
+  list-style: none;
+}
+
+.sk-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 180px) minmax(0, 1fr) minmax(88px, max-content) max-content;
+  gap: var(--cds-spacing-04);
+  align-items: center;
+  padding: var(--cds-spacing-03) 0;
+  border-bottom: 1px solid var(--cds-border-subtle-01);
+  font-size: var(--cds-body-compact-01-font-size);
+}
+
+.sk-row > code,
+.sk-row > .sk-name {
+  overflow-wrap: anywhere;
+}
+
+.sk-desc {
+  min-width: 0;
+}
+
+.draft-tag {
+  display: inline-block;
+  margin-left: var(--cds-spacing-02);
+  padding: 0 var(--cds-spacing-03);
+  border-radius: 10px;
+  background: var(--mx-ai-bg);
+  color: var(--mx-ai-fg);
+  font-size: var(--cds-label-01-font-size);
+  white-space: nowrap;
+}
+
+.skill-drafts {
+  margin: var(--cds-spacing-05) 0;
+  padding: var(--cds-spacing-04) var(--cds-spacing-05);
+  border-left: 3px solid var(--mx-ai-fg);
+  background: var(--cds-layer-02);
+}
+
+.skill-drafts h3 {
+  margin-top: 0;
+}
+
+/* 置き場所のカード（接続先ごと） */
+.place-card {
+  margin-bottom: var(--cds-spacing-03);
+  padding: var(--cds-spacing-04) var(--cds-spacing-05);
+  border: 1px solid var(--cds-border-subtle-01);
+  background: var(--cds-layer-02);
+}
+
+.place-card :where(p) {
+  margin: var(--cds-spacing-02) 0 0;
+}
+
+.place-head {
+  display: flex;
+  align-items: center;
+  gap: var(--cds-spacing-03);
+  margin-bottom: var(--cds-spacing-02);
+}
+
+.sync-tag.default {
+  background: var(--cds-layer-accent-01);
+  color: var(--cds-text-secondary);
+}
+
+.place-counts {
+  flex-basis: 100%;
+}
+
+/* 畳んだ一覧（標準の Skill・削除した Skill） */
+.sk-collapsed {
+  margin-top: var(--cds-spacing-05);
+  border-top: 1px solid var(--cds-border-subtle-01);
+}
+
+.sk-collapsed > summary {
+  padding: var(--cds-spacing-04) 0;
+  cursor: pointer;
+}
+
+/* Skill のページ */
+.crumb-link {
+  margin: 0 0 var(--cds-spacing-04);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--cds-link-primary);
+  font: inherit;
+  font-size: var(--cds-body-compact-01-font-size);
+  cursor: pointer;
+}
+
+.crumb-link:hover {
+  text-decoration: underline;
+}
+
+.skill-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--cds-spacing-05);
+}
+
+.skill-head h2 {
+  margin-bottom: var(--cds-spacing-02);
+}
+
+.skill-head :where(p) {
+  margin: 0 0 var(--cds-spacing-02);
+}
+
+.sk-desc-lead {
+  font-size: var(--cds-body-01-font-size);
+}
+
+.skill-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--cds-spacing-03);
+}
+
+.skill-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: var(--cds-spacing-07);
+  margin-top: var(--cds-spacing-05);
+}
+
+.skill-aside h3:first-child {
+  margin-top: 0;
+}
+
+.skill-aside :where(p) {
+  margin: 0 0 var(--cds-spacing-03);
+}
+
+.skill-history,
+.skill-checks {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.skill-history li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--cds-spacing-02);
+  padding: var(--cds-spacing-02) 0;
+  border-bottom: 1px solid var(--cds-border-subtle-01);
+}
+
+.skill-checks li + li {
+  margin-top: var(--cds-spacing-02);
+}
+
+.warn-text {
+  color: var(--cds-text-primary);
+  border-left: 3px solid var(--cds-support-warning);
+  padding-left: var(--cds-spacing-03);
+}
+
+/* 本文（Markdown を読める形に） */
+.markdown {
+  max-width: 72ch;
+  line-height: 1.6;
+}
+
+.markdown h3,
+.markdown h4,
+.markdown h5 {
+  margin: var(--cds-spacing-05) 0 var(--cds-spacing-03);
+  font-weight: 600;
+}
+
+.markdown h3 {
+  font-size: 1.125rem;
+}
+
+.markdown h4 {
+  font-size: 1rem;
+}
+
+.markdown h5 {
+  font-size: 0.875rem;
+}
+
+.markdown :where(p, ul, ol, pre, table) {
+  margin: 0 0 var(--cds-spacing-04);
+}
+
+.markdown :where(ul, ol) {
+  padding-left: var(--cds-spacing-06);
+}
+
+.markdown ul {
+  list-style: disc;
+}
+
+.markdown ol {
+  list-style: decimal;
+}
+
+.markdown code,
+.markdown pre {
+  font-family: var(--cds-code-01-font-family, "IBM Plex Mono", monospace);
+  font-size: 0.8125rem;
+}
+
+.markdown code {
+  padding: 0 var(--cds-spacing-02);
+  background: var(--cds-layer-accent-01);
+}
+
+.markdown pre {
+  padding: var(--cds-spacing-04);
+  overflow-x: auto;
+  background: var(--cds-layer-02);
+}
+
+.markdown table {
+  border-collapse: collapse;
+}
+
+.markdown :where(th, td) {
+  padding: var(--cds-spacing-02) var(--cds-spacing-03);
+  border: 1px solid var(--cds-border-subtle-01);
+  text-align: left;
+  vertical-align: top;
+}
+
+/* 編集 */
+.skill-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cds-spacing-05);
+  min-width: 0;
+}
+
+.skill-form :where(p) {
+  margin: 0;
+}
+
+.skill-body-input textarea {
+  font-family: var(--cds-code-01-font-family, "IBM Plex Mono", monospace);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+
+.skill-form-actions {
+  display: flex;
+  gap: var(--cds-spacing-03);
+}
+
+.draft-banner,
+.conflict-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--cds-spacing-03);
+  padding: var(--cds-spacing-03) var(--cds-spacing-04);
+  font-size: var(--cds-body-compact-01-font-size);
+}
+
+.draft-banner {
+  margin-bottom: var(--cds-spacing-04);
+  border-left: 3px solid var(--mx-ai-fg);
+  background: var(--cds-layer-02);
+}
+
+.conflict-banner {
+  border-left: 3px solid var(--cds-support-warning);
+  background: var(--cds-notification-background-warning, #fcf4d6);
+}
+
+.conflict-actions {
+  display: inline-flex;
+  gap: var(--cds-spacing-03);
+}
+
+.their-version {
+  max-height: 320px;
+  margin: 0;
+  padding: var(--cds-spacing-04);
+  overflow: auto;
+  background: var(--cds-layer-02);
+  font-family: var(--cds-code-01-font-family, "IBM Plex Mono", monospace);
+  font-size: 0.8125rem;
+  white-space: pre-wrap;
+}
+
+/* 作業画面の上: AI が Skill の案を作った */
+.skill-draft-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--cds-spacing-03);
+  padding: var(--cds-spacing-02) var(--cds-spacing-05);
+  border-left: 3px solid var(--cds-tag-color-purple, #6929c4);
+  background: var(--cds-layer-01);
+  box-shadow: inset 0 -1px 0 var(--cds-border-subtle-01);
+  font-size: var(--cds-body-compact-01-font-size);
+}
+
+.skill-draft-notice > span:first-child {
+  flex: 1 1 360px;
+  min-width: 0;
+}
+
+.skill-draft-notice-actions {
+  display: inline-flex;
+  flex: none;
+  gap: var(--cds-spacing-02);
+}
+
+/* メンバーに見せる名前（置き場所のカードの上） */
+.skills-and-dictionaries .shared-folder-member {
+  margin-bottom: var(--cds-spacing-05);
+}
+
+.draft-banner > span:first-child,
+.conflict-banner > span:first-child {
+  flex: 1 1 320px;
+}
+
+@media (max-width: 720px) {
+  .sk-row {
+    grid-template-columns: 1fr auto;
+  }
+
+  .sk-row > .sk-desc,
+  .sk-row > .muted {
+    grid-column: 1 / -1;
+  }
+
+  .skill-cols {
+    grid-template-columns: 1fr;
+  }
 }

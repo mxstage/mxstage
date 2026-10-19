@@ -8,7 +8,7 @@ import { ENVIRONMENTS_STORAGE_KEY, LicenseClient } from "../../src/app/license/c
 import { EnvironmentTag } from "../../src/app/license/EnvironmentTag";
 import type { MaximoConnectionInfo } from "../../src/app/runtime/contracts";
 import { SettingsPage, type SettingsVault } from "../../src/app/settings/SettingsPage";
-import type { SkillList } from "../../src/app/settings/logic";
+import { fakeSkillsBridge } from "./fakeSkillsBridge";
 import { licenseStatusView } from "../../src/app/tools/registry";
 import type { SettingsTab } from "../../src/app/ui/routes";
 import type { LicenseEntry } from "../../src/shared/license";
@@ -18,7 +18,6 @@ import type { LicenseEntry } from "../../src/shared/license";
 const NOW = Date.UTC(2026, 9, 1);
 const ACME: LicenseEntry = { state: "valid", licenseId: "lic_acme", org: "ACME Corp", hosts: ["https://maximo.acme.test"], expiresAt: "2027-10-31T00:00:00.000Z" };
 const INFO: MaximoConnectionInfo = { baseUrl: "https://maximo.test", via: "proxy", connectionName: "MAXADMIN@dev", userName: "MAXADMIN", connectedAt: 1 };
-const NO_SKILLS = async (): Promise<SkillList> => ({ skills: [], problems: [], userSkillsDir: null });
 
 class FakeVault implements SettingsVault {
   view: VaultView = { kind: "disconnected" };
@@ -96,7 +95,7 @@ function setValue(input: HTMLInputElement | HTMLTextAreaElement, value: string):
 
 async function renderSettings(vault: FakeVault, license: LicenseClient) {
   await act(async () => {
-    root.render(createElement(SettingsPage, { vault, license, storage: memoryStorage(), passwordCredential: null, replaceUrl: vi.fn(), clipboard: null, loadSkills: NO_SKILLS }));
+    root.render(createElement(SettingsPage, { vault, license, storage: memoryStorage(), passwordCredential: null, replaceUrl: vi.fn(), clipboard: null, ...fakeSkillsBridge() }));
   });
   await act(async () => {
     await license.refresh();
@@ -197,12 +196,12 @@ describe("設定の「ライセンス」", () => {
     expect(Array.from(container.querySelectorAll("button")).some((b) => b.textContent === "外す")).toBe(false);
   });
 
-  it("/settings#license で開くとライセンスのタブが見えている（タブの並びは 接続・デモ・ライセンス・AI アシスタント・Skill・更新・言語）", async () => {
+  it("/settings#license で開くとライセンスのタブが見えている（タブの並びは 接続・デモ・ライセンス・AI アシスタント・Skill と辞書・更新・言語）", async () => {
     window.history.replaceState(null, "", "/settings#license");
     const { client } = licenseClient([]);
     await renderSettings(new FakeVault(), client);
     const tabs = Array.from(container.querySelectorAll<HTMLElement>('[role="tab"]'));
-    expect(tabs.map((t) => t.textContent)).toEqual(["接続", "デモ", "ライセンス", "AI アシスタント", "Skill", "更新", "言語"]);
+    expect(tabs.map((t) => t.textContent)).toEqual(["接続", "デモ", "ライセンス", "AI アシスタント", "Skill と辞書", "更新", "言語"]);
     expect(q('[role="tab"][data-tab="license"]')?.getAttribute("aria-selected")).toBe("true");
     const visible = Array.from(container.querySelectorAll<HTMLElement>('[role="tabpanel"]')).filter((p) => !p.hidden);
     expect(visible.map((p) => p.dataset.tab)).toEqual(["license"]);

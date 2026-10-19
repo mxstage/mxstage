@@ -26,6 +26,7 @@ import { isPortInUseError, startBridgeServer } from "./server.ts";
 import type { LicenseStore } from "./license.ts";
 import type { ConnectionStore } from "./connections.ts";
 import type { DictionaryStore } from "./dictionaries.ts";
+import type { SkillShelf } from "./sharedSkills.ts";
 import type { UpdateManager } from "./updates.ts";
 import type { DemoManager } from "./demo.ts";
 import type { BridgeServer } from "./server.ts";
@@ -82,6 +83,8 @@ export interface BridgeCoordinatorOptions {
   demo?: DemoManager | null;
   /** 客先の辞書と共有フォルダ（primary のとき /_mxstage/dictionaries で使う） */
   dictionaries?: DictionaryStore | null;
+  /** 接続先の Skill と AI の案（primary のとき /_mxstage/skills で使う） */
+  skillShelf?: SkillShelf | null;
 }
 
 export class BridgeCoordinator {
@@ -263,6 +266,7 @@ export class BridgeCoordinator {
       updates: this.opts.updates ?? null,
       demo: this.opts.demo ?? null,
       dictionaries: this.opts.dictionaries ?? null,
+      skillShelf: this.opts.skillShelf ?? null,
     });
   }
 

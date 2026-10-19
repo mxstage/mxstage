@@ -24,7 +24,7 @@ let clock = Date.parse("2026-10-13T00:00:00Z");
 const tick = () => (clock += 1000);
 
 function store(stateDir = tempDir()): DictionaryStore {
-  return new DictionaryStore({ stateDir, now: tick, env: {} });
+  return new DictionaryStore({ stateDir, now: tick, env: {}, documentsDir: tempDir("mxs-docs-") });
 }
 
 const entry = (find: string, to: string, mode: "text" | "regex" = "text", note = "") => ({ find, to, mode, note });
@@ -111,7 +111,7 @@ describe("辞書の保存と読み込み", () => {
     const s = store(stateDir);
     const meta = await s.create(SCOPE, { name: "呼び名", kind: "alias" });
     await s.save(SCOPE, meta.id, [{ op: "put", entry: entry("ごみクレ", "ごみクレーン") }]);
-    expect(s.folderInfo(SCOPE)).toEqual({ path: null, sync: null, reachable: true, writable: true });
+    expect(s.folderInfo(SCOPE)).toMatchObject({ path: null, sync: null, reachable: true, writable: true, isDefault: true });
     const shared = tempDir("mxs-share-");
     const info = await s.setSharedFolder(SCOPE, shared, { name: "北部クリーンセンター", connections: [{ name: "本番", baseUrl: "https://maximo.example.lg.jp", environment: "production" }] });
     expect(info).toMatchObject({ path: shared, reachable: true, writable: true });
@@ -120,8 +120,9 @@ describe("辞書の保存と読み込み", () => {
     const project = JSON.parse(readFileSync(join(shared, SHARE_DIR_NAME, "project.json"), "utf8"));
     expect(project).toEqual({ format: "mxstage-project/1", name: "北部クリーンセンター", connections: [{ name: "本番", baseUrl: "https://maximo.example.lg.jp", environment: "production" }] });
     expect(existsSync(join(shared, SHARE_DIR_NAME, "README.txt"))).toBe(true);
-    // この PC の元は消さずに名前を変えて残す
-    expect(readdirSync(join(stateDir, "local-share")).some((n) => n.startsWith(`${SCOPE}.moved-`))).toBe(true);
+    // この PC の元は消さずに状態フォルダの moved/ へ動かす
+    expect(readdirSync(join(stateDir, "moved")).some((n) => n.startsWith(`${SCOPE}-`))).toBe(true);
+    expect(existsSync(join(stateDir, "local-share", SCOPE))).toBe(false);
     // 共有フォルダに届かなければ unreachable
     rmSync(shared, { recursive: true, force: true });
     expect(s.folderInfo(SCOPE)).toMatchObject({ reachable: false, writable: false });

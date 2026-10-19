@@ -54,6 +54,14 @@ export const pagesMessages = defineMessages(
       viewHint: "The view switcher is in the panel",
       sidePanel: "Commit and history panel",
       sidePanelToggle: "Show or hide the commit and history panel",
+      arrange: "Place side by side with the AI assistant",
+      arrangeFailed: {
+        no_assistant: "No AI assistant window was found. Open your AI assistant (Codex, Claude and so on), then press again.",
+        inside_assistant: "The work screen is open inside the AI assistant, so there is nothing to place.",
+        no_work_window: "The window of the work screen was not found. Press again.",
+        unsupported: "Placing windows works on Windows only.",
+        failed: "Could not place the windows.",
+      },
     },
     app: {
       views: { final: "Final", diff: "Changes", base: "Original" },
@@ -180,6 +188,14 @@ export const pagesMessages = defineMessages(
       viewHint: "表示の切替はパネルの中にあります",
       sidePanel: "反映と変更履歴のパネル",
       sidePanelToggle: "反映と変更履歴のパネルを出し入れする",
+      arrange: "AI アシスタントと左右に並べる",
+      arrangeFailed: {
+        no_assistant: "AI アシスタントの窓が見つかりませんでした。AI アシスタント（Codex・Claude など）を開いてから、もう一度押してください。",
+        inside_assistant: "作業画面が AI アシスタントの中で開いているので、並べられません。",
+        no_work_window: "作業画面の窓が見つかりませんでした。もう一度押してください。",
+        unsupported: "窓を並べるのは Windows だけです。",
+        failed: "窓を並べられませんでした。",
+      },
     },
     app: {
       views: { final: "最終", diff: "差分", base: "元の値" },

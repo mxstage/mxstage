@@ -79,6 +79,8 @@ interface TabEntry {
   sheets: number | null;
   /** このタブから最後に何か（心拍を含む）を受け取った時刻 */
   lastRecvAt: number;
+  /** タブが今つないでいる接続先（hello・tab.state。古い画面で分からなければ undefined） */
+  connection?: string | null;
 }
 
 interface PendingCall {
@@ -199,6 +201,7 @@ export class LocalHub implements HubRpc {
         this.onFocus(entry);
         return;
       case "tab.state":
+        if (msg.connection !== undefined && entry.tabId === msg.tabId) entry.connection = msg.connection;
         this.onState(entry, msg.tabId, msg.sheets);
         return;
       case "tool.ack": {
@@ -283,6 +286,7 @@ export class LocalHub implements HubRpc {
         workspace: t.workspace,
         appVersion: t.appVersion,
         connectedAt: t.connectedAt,
+        ...(t.connection !== undefined ? { connection: t.connection } : {}),
       }));
     return { tabs, primaryTabId: primary?.tabId ?? null };
   }
@@ -350,6 +354,7 @@ export class LocalHub implements HubRpc {
     entry.lastFocusAt = msg.focused ? now : lastFocusAt;
     entry.role = inheritPrimary ? "primary" : "mirror";
     entry.sheets = msg.sheets ?? null;
+    if (msg.connection !== undefined) entry.connection = msg.connection;
 
     const hasOtherPrimary = this.tabs().some((t) => t.connId !== entry.connId && t.role === "primary");
     // シートの無いタブは、フォーカスがあっても、シートのある primary を奪わない

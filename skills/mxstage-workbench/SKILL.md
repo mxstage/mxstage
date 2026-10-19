@@ -2,7 +2,7 @@
 name: mxstage-workbench
 description: "Index of the MX Stage Skills and the rules for every task: which basic operation, Maximo object and user Skill to read when. Read first, before any other MX Stage Skill."
 metadata:
-  version: "2.4.0"
+  version: "2.5.0"
   category: "index"
 ---
 
@@ -19,13 +19,13 @@ Reply to the user in the language they use.
 | Index | mxstage-workbench (this Skill) | Rules for every task, the overall flow, which Skill to read when |
 | Basic operations | mxstage-core-... | How to load, analyse, change, match, import and commit, and how the work screen behaves. The same for every object |
 | Standard Maximo objects | mxstage-obj-... | What Maximo does with each standard object (assets, locations, work orders and so on), what MX Stage can and cannot change there, and the traps |
-| User Skills | any other name | Made by the user for one customer's environment: custom objects, attributes and tables, customer rules, repeated tasks. Stored on this PC in ~/.config/mxstage/skills/ |
+| User Skills | any other name | Made for one customer's environment: custom objects, attributes and tables, customer rules, repeated tasks. Kept per connection (shared with the project members) or on this PC only. You get only those of the connection open in the work screen |
 
 Names starting with mxstage are reserved for the built-in Skills. The list of all Skills with their descriptions comes with this index (the first tool result, get_skill of this index, or list_skills).
 
 ## Which Skills to read
 
-1. **Start**: get_status (it also lists the customer's dictionaries for this connection: names, words → codes, value replacement). Then look at the user Skills. If one matches the task or the customer, read it with get_skill first.
+1. **Start**: get_status (it also lists the customer's dictionaries for this connection: names, words → codes, value replacement). Then look at the user Skills (this connection's and this PC's). If one matches the task or the customer, read it with get_skill first. Never use a Skill or dictionary of another connection.
 2. **Before each step**, read the basic operation Skill for it (once per conversation):
    - finding a structure, agreeing on the range, loading: mxstage-core-load
    - reading rows, distributions, data quality: mxstage-core-analyze
@@ -34,7 +34,7 @@ Names starting with mxstage are reserved for the built-in Skills. The list of al
    - Excel or CSV files: mxstage-core-import
    - diff, commit request, commit results: mxstage-core-commit
    - questions about what the user sees on screen: mxstage-core-screen
-   - keeping a procedure as a user Skill (save_skill, only when the user asks): mxstage-core-skills
+   - keeping a procedure as a user Skill (save_skill makes a draft the user saves; only when the user asks): mxstage-core-skills
 3. **As soon as you know the object structure**, read the object Skill for it: asset (and meters), location, classification and specifications, work order and service request, PM and job plan, item and inventory, purchasing, reference data (people, labor, crafts, person groups, companies, domains). If none matches (a custom object), say so and rely on the basic operations and the user Skills. Never guess Maximo business rules.
 4. **Tool results name the Skills for the step.** Read any of them you have not read yet.
 5. **Priority**: a user Skill may replace steps of a built-in Skill for its customer (their own mandatory attributes, status rules, naming), but never the rules below.

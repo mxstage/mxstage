@@ -11,8 +11,9 @@
 //   POST /_mxstage/member                 { name }
 // scope は作業画面の接続先（保存した接続先の ID・デモの ID・保存していない接続先の Maximo の URL）。
 
+import { mkdirSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { DictionaryError, scopeKeyOf, type DictionaryStore, type ProjectConnection, type SaveOp } from "./dictionaries.ts";
+import { DictionaryError, fallbackLabelOf, scopeKeyOf, type DictionaryStore, type ProjectConnection, type SaveOp } from "./dictionaries.ts";
 import { pickFolder } from "./folderPicker.ts";
 
 export const DICTIONARIES_PATH = "/_mxstage/dictionaries";
@@ -51,6 +52,8 @@ export interface DictionaryRouteDeps {
   reveal: (path: string) => void;
   /** フォルダを選ぶ画面（試験で差し替える） */
   pick?: (title: string) => ReturnType<typeof pickFolder>;
+  /** 接続先の AI の Skill の案（作業画面が「AI が Skill の案を作りました」と出す）。省くと返さない */
+  drafts?: (scopeKey: string) => Array<{ name: string; description: string; createdAt: string; draftScope: string }>;
 }
 
 function errorStatus(code: DictionaryError["code"]): number {
@@ -103,8 +106,11 @@ export async function handleDictionaryRequest(req: IncomingMessage, res: ServerR
       return;
     }
     if (method === "GET") {
-      const scopeKey = scopeKeyOf(url.searchParams.get("scope"));
+      const raw = url.searchParams.get("scope");
+      const scopeKey = scopeKeyOf(raw);
       if (scopeKey === null) throw new DictionaryError("invalid_scope", "scope is not a connection.");
+      // 置き場所が決まっていなければ、既定のフォルダ（ドキュメント\MX Stage\<接続先の名前>）にする
+      store.ensurePlace(scopeKey, fallbackLabelOf(raw));
       const folder = store.folderInfo(scopeKey);
       if (pathname === DICTIONARIES_PATH) {
         // 共有フォルダに届かなくても、フォルダの様子は返す（作業画面がそう出す）
@@ -112,7 +118,7 @@ export async function handleDictionaryRequest(req: IncomingMessage, res: ServerR
           send(res, 200, { ok: true, folder, member: store.member(), dictionaries: [], version: null });
           return;
         }
-        send(res, 200, { ok: true, folder, member: store.member(), dictionaries: store.list(scopeKey), version: store.version(scopeKey) });
+        send(res, 200, { ok: true, folder, member: store.member(), dictionaries: store.list(scopeKey), version: store.version(scopeKey), skillDrafts: deps.drafts?.(scopeKey) ?? [] });
         return;
       }
       const id = url.searchParams.get("id") ?? "";
@@ -146,6 +152,7 @@ export async function handleDictionaryRequest(req: IncomingMessage, res: ServerR
     }
     const scopeKey = scopeKeyOf(body.scope);
     if (scopeKey === null) throw new DictionaryError("invalid_scope", "scope is not a connection.");
+    store.ensurePlace(scopeKey, fallbackLabelOf(body.scope));
 
     if (pathname === SHARED_FOLDER_PATH) {
       const path = body.path === null ? null : typeof body.path === "string" ? body.path : undefined;
@@ -156,8 +163,10 @@ export async function handleDictionaryRequest(req: IncomingMessage, res: ServerR
     }
     if (pathname === SHARED_FOLDER_OPEN_PATH) {
       const folder = store.folderInfo(scopeKey);
-      if (folder.path === null || !folder.reachable) throw new DictionaryError("unreachable", "There is no shared folder to open.");
-      deps.reveal(folder.path);
+      if (!folder.reachable) throw new DictionaryError("unreachable", "The folder cannot be reached.");
+      // 既定のフォルダはまだ無ければ作ってから開く
+      if (folder.isDefault) mkdirSync(folder.root, { recursive: true });
+      deps.reveal(folder.isDefault ? folder.root : (folder.path ?? folder.root));
       send(res, 200, { ok: true });
       return;
     }

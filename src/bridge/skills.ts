@@ -1,8 +1,11 @@
-// Skill（作業手順書）の一覧。2 か所を分けて持つ。
+// Skill（作業手順書）の一覧。3 か所を分けて持つ。
 //   - アプリ既定: リポジトリの skills/ から生成した defaultSkills.ts。アプリと一緒に更新される。利用者は書き換えない。
-//   - 利用者の Skill: ~/.config/mxstage/skills/<name>/SKILL.md。業務や客先ごとの手順を利用者が置く。
+//   - 接続先の Skill: 接続先の置き場所（既定のフォルダか共有フォルダ）の skills/。客先ごとの手順をメンバーと共有する
+//     （src/bridge/sharedSkills.ts）。作業画面が今つないでいる接続先のものだけを AI に渡す。
+//   - この PC だけの Skill: ~/.config/mxstage/skills/<name>/SKILL.md。どの接続先の会話でも読む。
 //     リポジトリの外なので、アプリを更新しても消えず、公開もされない。読むたびに既定と同じ規則で検証する。
 // 同じ名前なら既定を優先し、利用者の方は読み込まずに問題として返す（既定の手順を黙って差し替えないため）。
+// 接続先の Skill とこの PC だけの Skill が同じ名前なら、接続先の方を使う（客先の手順を優先する）。
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -14,7 +17,7 @@ import { CONFLICT_REASONS, SKILLS as DEFAULT_SKILLS } from "./defaultSkills.ts";
 /** 利用者の Skill を置くフォルダ名（橋渡しの状態フォルダ ~/.config/mxstage の下） */
 export const USER_SKILLS_DIR_NAME = "skills";
 
-export type SkillOrigin = "default" | "user";
+export type SkillOrigin = "default" | "user" | "connection";
 
 export interface SkillEntry {
   name: string;
@@ -41,17 +44,49 @@ export interface SkillCatalog {
   problems: SkillProblem[];
   /** 利用者の Skill のフォルダ（無ければ null） */
   userDir: string | null;
+  /** 作業画面が今つないでいる接続先（分からなければ null） */
+  connection: ConnectionSkills | null;
+}
+
+/** 今の接続先の Skill（src/bridge/sharedSkills.ts で読んだもの） */
+export interface ConnectionSkills {
+  /** 接続先の名前（保存した接続先の名前・デモ・Maximo のホスト名） */
+  label: string;
+  skills: readonly { name: string; description: string; version: string; body: string }[];
 }
 
 export function userSkillsDirOf(stateDir: string): string {
   return join(stateDir, USER_SKILLS_DIR_NAME);
 }
 
-/** 既定と利用者の Skill を合わせて返す。既定を先に、利用者の Skill は名前順 */
-export function readSkillCatalog(userDir: string | null): SkillCatalog {
+/**
+ * 既定・今の接続先・この PC だけの Skill を合わせて返す。既定を先に、続けて接続先の Skill、この PC だけの Skill（どちらも名前順）。
+ * 接続先の Skill と同じ名前のこの PC だけの Skill は外して、問題（warn）として返す
+ */
+export function readSkillCatalog(userDir: string | null, connection: ConnectionSkills | null = null): SkillCatalog {
+  const pc = readUserSkills(userDir);
   const skills: SkillEntry[] = DEFAULT_SKILLS.map((s) => ({ ...s, origin: "default" as const }));
+  const problems = [...pc.problems];
+  const connectionNames = new Set<string>();
+  for (const s of connection?.skills ?? []) {
+    skills.push({ name: s.name, description: s.description, version: s.version, body: s.body, origin: "connection", category: "user" });
+    connectionNames.add(s.name);
+  }
+  for (const s of pc.skills) {
+    if (connectionNames.has(s.name)) {
+      problems.push({ name: s.name, level: "warn", message: `Not used with ${connection?.label ?? "this connection"}: the connection has a Skill of the same name, which is used instead.` });
+      continue;
+    }
+    skills.push(s);
+  }
+  return { skills, problems, userDir, connection };
+}
+
+/** この PC だけの Skill（~/.config/mxstage/skills） */
+function readUserSkills(userDir: string | null): { skills: SkillEntry[]; problems: SkillProblem[] } {
+  const skills: SkillEntry[] = [];
   const problems: SkillProblem[] = [];
-  if (userDir === null || !existsSync(userDir)) return { skills, problems, userDir };
+  if (userDir === null || !existsSync(userDir)) return { skills, problems };
 
   const defaultNames = new Set(DEFAULT_SKILLS.map((s) => s.name));
   const known = { tools: new Set<string>(TOOL_NAMES), conflictReasons: new Set<string>(CONFLICT_REASONS) };
@@ -63,7 +98,7 @@ export function readSkillCatalog(userDir: string | null): SkillCatalog {
       .sort();
   } catch (e) {
     problems.push({ name: "", level: "error", message: `Could not read the user Skills folder: ${e instanceof Error ? e.message : String(e)}` });
-    return { skills, problems, userDir };
+    return { skills, problems };
   }
 
   for (const name of names) {
@@ -93,7 +128,7 @@ export function readSkillCatalog(userDir: string | null): SkillCatalog {
     for (const w of warnings) problems.push({ name, level: "warn", message: w });
     skills.push({ name: skill.name, description: skill.description, version: skill.version, body: skill.body, origin: "user", category: "user" });
   }
-  return { skills, problems, userDir };
+  return { skills, problems };
 }
 
 // ---------------------------------------------------------------------------

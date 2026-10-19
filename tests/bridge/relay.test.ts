@@ -70,6 +70,21 @@ describe("接続", () => {
     expect(status.tabs).toHaveLength(1);
     expect(status.tabs[0]?.appVersion).toBe("test");
   });
+
+  it("status にタブが今つないでいる接続先が出る（hello と tab.state。AI に渡す客先の Skill を選ぶのに使う）", async () => {
+    const hub = new LocalHub({ timeoutScale: SCALE });
+    const bridge = await startTestBridge({ hub });
+    const tab = await FakeTab.connect(bridge, { connection: "c_00000000000000a1" });
+    expect((await hub.status()).tabs[0]?.connection).toBe("c_00000000000000a1");
+    tab.send({ type: "tab.state", tabId: tab.tabId, sheets: 0, connection: "https://maximo.example.jp" });
+    await waitFor(async () => (await hub.status()).tabs[0]?.connection === "https://maximo.example.jp");
+    tab.send({ type: "tab.state", tabId: tab.tabId, sheets: 0, connection: null });
+    await waitFor(async () => (await hub.status()).tabs[0]?.connection === null);
+    // 接続先を送らない古い画面の tab.state では変えない
+    tab.send({ type: "tab.state", tabId: tab.tabId, sheets: 1 });
+    await sleep(50);
+    expect((await hub.status()).tabs[0]?.connection).toBe(null);
+  });
 });
 
 describe("ツールの往復", () => {

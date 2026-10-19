@@ -11,7 +11,8 @@ export default defineConfig({
       },
       {
         // bridge: ローカルの橋渡し（Node の素のランタイムで動かす）
-        test: { name: "bridge", include: ["tests/bridge/**/*.test.ts"], environment: "node" },
+        // 接続先の既定のフォルダは一時フォルダに作る（tests/bridge/setup.ts）
+        test: { name: "bridge", include: ["tests/bridge/**/*.test.ts"], environment: "node", setupFiles: ["tests/bridge/setup.ts"] },
       },
       {
         // dev: 開発用の道具（偽の Maximo に載せる大きなデータの整合）

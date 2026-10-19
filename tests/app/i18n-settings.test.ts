@@ -8,7 +8,8 @@ import { VaultCore } from "../../src/app/keyvault/core";
 import { toMaximoError } from "../../src/app/maximo/client";
 import type { MaximoConnectionInfo } from "../../src/app/runtime/contracts";
 import { SettingsPage, type SettingsVault } from "../../src/app/settings/SettingsPage";
-import { connectErrorMessage, localClientStatus, validateSettingsForm, viaOptionLabel, type SkillList } from "../../src/app/settings/logic";
+import { connectErrorMessage, localClientStatus, validateSettingsForm, viaOptionLabel } from "../../src/app/settings/logic";
+import { fakeSkillsBridge } from "./fakeSkillsBridge";
 import {
   catalogMessages,
   importErrorMessages,
@@ -25,7 +26,6 @@ import { LOCALE_STORAGE_KEY, getLocale, setLocale } from "../../src/shared/i18n"
 
 const JAPANESE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
 const INFO: MaximoConnectionInfo = { baseUrl: "https://maximo.test", via: "proxy", connectionName: "MAXADMIN@dev", userName: "MAXADMIN", connectedAt: 1 };
-const NO_SKILLS = async (): Promise<SkillList> => ({ skills: [], problems: [], userSkillsDir: null });
 
 class FakeVault implements SettingsVault {
   view: VaultView = { kind: "disconnected" };
@@ -83,7 +83,7 @@ async function selectTab(id: SettingsTab): Promise<HTMLElement> {
 
 async function render(storage = memoryStorage(), vault: SettingsVault = new FakeVault()) {
   await act(async () => {
-    root.render(createElement(SettingsPage, { vault, storage, passwordCredential: null, replaceUrl: () => undefined, clipboard: null, loadSkills: NO_SKILLS }));
+    root.render(createElement(SettingsPage, { vault, storage, passwordCredential: null, replaceUrl: () => undefined, clipboard: null, ...fakeSkillsBridge() }));
   });
   return storage;
 }
@@ -106,14 +106,14 @@ describe("設定画面の英語", () => {
     expect(text).toContain("Back to work screen");
     // タブ（ライセンスを渡していないのでライセンスのタブは無い）
     expect(container.querySelector('[role="tablist"]')?.getAttribute("aria-label")).toBe("Settings sections");
-    expect(Array.from(container.querySelectorAll('[role="tab"]')).map((t) => t.textContent)).toEqual(["Connection", "Demo", "AI assistants", "Skills", "Updates", "Language"]);
+    expect(Array.from(container.querySelectorAll('[role="tab"]')).map((t) => t.textContent)).toEqual(["Connection", "Demo", "AI assistants", "Skills & dictionaries", "Updates", "Language"]);
     const connection = container.querySelector<HTMLElement>('[role="tabpanel"][data-tab="connection"]')!;
     expect(connection.hidden).toBe(false);
     expect(connection.textContent).toContain("Maximo connection");
     expect(connection.textContent).toContain("Connection name");
     expect(connection.textContent).toContain("API key");
     expect(connection.querySelector('form.connect-form button[type="submit"]')?.textContent).toBe("Connect");
-    expect((await selectTab("skills")).textContent).toContain("Skills (work procedures)");
+    expect((await selectTab("skills")).textContent).toContain("Skills and dictionaries");
     expect((await selectTab("assistants")).textContent).toContain("AI assistant connection");
     expect((await selectTab("language")).textContent).toContain("Used for the work screen. The AI replies in the language you write in.");
     expect(JAPANESE.test(text.replaceAll("日本語", ""))).toBe(false);

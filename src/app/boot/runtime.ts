@@ -144,6 +144,7 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
     getRevision: () => workspace.revision,
     getWorkspace: () => workspace.name,
     getSheetCount: () => workspace.sheets.size,
+    getConnection: () => dictionaries.currentScope(),
     onWorkspaceExport: (token) => void exportWorkspace(token),
     onWorkspaceRelease: () => {
       if (!disposed) opts.onReleased?.();
@@ -167,7 +168,13 @@ export function createRuntime(opts: RuntimeOptions): Runtime {
   const initial = relay.getStatus();
   let disposed = false;
   // シートの数が変わったら Hub に知らせる（シートのある窓が primary になるように）
-  const unsubscribeState = workspace.subscribe(() => relay.notifyState());
+  const offSheets = workspace.subscribe(() => relay.notifyState());
+  // 接続先が変わったら Hub に知らせる（AI に渡す客先の Skill を、今の接続先のものにする）
+  const offConnection = opts.connection.subscribe(() => relay.notifyState());
+  const unsubscribeState = () => {
+    offSheets();
+    offConnection();
+  };
 
   /**
    * 別の窓が「この窓に移す」を押した。作業を直列化して橋渡しへ送る（橋渡しはメモリを通すだけ）。

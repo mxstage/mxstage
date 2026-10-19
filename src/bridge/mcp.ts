@@ -2,6 +2,9 @@
 // 作業タブへ中継する。runAt:"worker" のツール（open_grid / list_skills / get_skill / save_skill /
 // create_import_session）は橋渡しの中で完結させる。
 // 会話（MCP のセッション）で最初のツール呼び出しの結果には、目次の Skill と、既定・利用者の Skill の一覧を添える（sessionGuide）。
+// 客先の Skill は、作業画面が今つないでいる接続先のものだけを渡す（Hub がタブから聞いた接続先。AI に見分けさせない）。
+// 会話の途中で作業画面の接続先が変わったら、次の結果に新しい接続先の Skill の一覧を添え、get_skill もその接続先で引き直す。
+// save_skill は Skill を保存せず、AI の案として残す（人が設定の「Skill と辞書」で確かめて保存するまで、誰にも届かない）。
 // 読み込み・変更・取り込み・反映などの入口のツールの結果には、その段階で読む既定の Skill の名前を添える（skillHints.ts）。
 // get_status と最初のツール呼び出しの結果には、古くなっているもの（橋渡しのコード・作業画面のビルド・配った Skill の写し）と
 // 直し方も添える（src/bridge/freshness.ts）。
@@ -16,7 +19,8 @@ import type { ToolName } from "../shared/toolDefs.ts";
 import { updatesText } from "./freshness.ts";
 import type { UpdateNotice } from "./freshness.ts";
 import { readSkillCatalog, saveUserSkill } from "./skills.ts";
-import type { SkillEntry } from "./skills.ts";
+import type { ConnectionSkills, SkillEntry } from "./skills.ts";
+import { PC_DRAFT_SCOPE, type SkillShelf } from "./sharedSkills.ts";
 import { skillHintText, skillsForCall } from "./skillHints.ts";
 import { createProgressForwarder, progressTokenOf } from "./progress.ts";
 import { IMPORT_MAX_BYTES } from "./importUpload.ts";
@@ -32,7 +36,7 @@ export const SERVER_INSTRUCTIONS =
   "MX Stage is a local workbench for correcting IBM Maximo data in a work screen (a browser tab). Call get_status first; if no tab is open, give the user the URL from open_grid. " +
   "The result of your first tool call includes the MX Stage rules and the index of Skills (procedures for basic operations, standard Maximo objects and the user's own tasks). Read it and follow it; read the Skills it names with get_skill before those steps. " +
   "Always load Maximo data into work screen sheets (load_sheet, load_master, scope_options) and read it from the sheets (query_rows, aggregate), so that the user can see and check the same data in the work screen. " +
-  "If the user wants to keep a procedure, show it to them, get their agreement, then save it as a user Skill with save_skill. " +
+  "If the user wants to keep a procedure, show it to them, get their agreement, then send it with save_skill: it becomes a draft that the user checks and saves in the settings. " +
   "Maximo is written to only when the user approves in the work screen. If a commit is blocked because a license is needed, tell the user what the work screen says and do not retry. Never ask for API keys in the chat. " +
   "If the user has no Maximo, they can try MX Stage with the built-in demo (a fictional Maximo with sample data, running on their PC): give them demoUrl from open_grid. " +
   "Reply to the user in the language they use.";
@@ -42,8 +46,8 @@ export const SERVER_INSTRUCTIONS =
  * Skill 機能の無いクライアント（Claude Desktop のチャット・Gemini など）にも、LLM がどのツールを最初に呼んでも届く。
  * Skill 機能のあるクライアント（Claude Code）には重なるが、1 回だけなので付ける（どのクライアントでも同じ決まりで動かすため）
  */
-export function sessionGuide(userSkillsDir: string | null): string {
-  const catalog = readSkillCatalog(userSkillsDir);
+export function sessionGuide(userSkillsDir: string | null, connection?: ConnectionSkills | null): string {
+  const catalog = readSkillCatalog(userSkillsDir, connection ?? null);
   const index = catalog.skills.find((s) => s.category === "index");
   const parts = [
     "[MX Stage rules and Skill index (Skill: " +
@@ -51,7 +55,7 @@ export function sessionGuide(userSkillsDir: string | null): string {
       "). Attached only to the result of the first tool call in this conversation. Follow it for the rest of the work.]",
   ];
   if (index !== undefined) parts.push(index.body);
-  parts.push(skillCatalogText(catalog.skills));
+  parts.push(skillCatalogText(catalog.skills, connection));
   return parts.join("\n\n");
 }
 
@@ -59,7 +63,7 @@ export function sessionGuide(userSkillsDir: string | null): string {
  * 目次の一覧: 既定の Skill を層ごとに（基本動作・標準オブジェクト）、続けて利用者の Skill。
  * 各 Skill の name と description から作る（目次の本文に手で二重に書かない）。最初の結果と、get_skill で目次を読んだときに添える
  */
-export function skillCatalogText(skills: readonly SkillEntry[]): string {
+export function skillCatalogText(skills: readonly SkillEntry[], connection?: ConnectionSkills | null): string {
   const line = (s: SkillEntry) => `- ${s.name}: ${s.description}`;
   const core = skills.filter((s) => s.category === "core");
   const objects = skills.filter((s) => s.category === "object");
@@ -68,12 +72,39 @@ export function skillCatalogText(skills: readonly SkillEntry[]): string {
     "## Built-in Skills (read the matching ones with get_skill before that step; tool results also name them)",
     `### Basic operations (any object)\n\n${core.map(line).join("\n")}`,
     `### Standard Maximo objects\n\n${objects.map(line).join("\n")}`,
-    users.length > 0
-      ? "## User Skills on this PC (made for this customer's environment; read a matching one with get_skill before starting. " +
-        `It may replace steps of the built-in Skills, never the rules)\n\n${users.map(line).join("\n")}`
-      : "## User Skills on this PC\n\nNone yet. When a procedure is worth keeping, follow mxstage-core-skills.",
   ];
+  // connection が undefined なら接続先の Skill を扱わない（古い呼び出し・試験）
+  if (connection !== undefined) parts.push(connectionSkillsText(skills, connection));
+  parts.push(
+    users.length > 0
+      ? `## User Skills on this PC (used with every connection; read a matching one with get_skill before starting. It may replace steps of the built-in Skills, never the rules)\n\n${users.map(line).join("\n")}`
+      : "## User Skills on this PC\n\nNone yet. When a procedure is worth keeping, follow mxstage-core-skills.",
+  );
   return parts.join("\n\n");
+}
+
+/** 今の接続先の Skill の節。接続先が分からなければ、そう書く */
+export function connectionSkillsText(skills: readonly SkillEntry[], connection: ConnectionSkills | null): string {
+  if (connection === null) {
+    return "## Skills of the connection\n\nThe work screen is not connected to a Maximo yet. Once it is, get_status lists the Skills of that connection (the customer's own procedures).";
+  }
+  const own = skills.filter((s) => s.origin === "connection");
+  const head = `## Skills of this connection: ${connection.label}`;
+  if (own.length === 0) return `${head}\n\nNone yet. When a procedure for this customer is worth keeping, follow mxstage-core-skills.`;
+  return (
+    `${head} (made by the project members for this customer; read a matching one with get_skill before starting. It may replace steps of the built-in Skills, never the rules)\n\n` +
+    own.map((s) => `- ${s.name}: ${s.description}`).join("\n")
+  );
+}
+
+/** 接続先が変わったときに結果に添える文 */
+export function connectionChangedText(connection: ConnectionSkills | null, hadConnection: boolean): string {
+  const skills = readSkillCatalog(null, connection).skills;
+  const list = connectionSkillsText(skills, connection).replace(/^## /, "");
+  if (connection === null) return "[The work screen is no longer connected to a Maximo. Do not use the Skills or dictionaries of the previous connection.]";
+  return hadConnection
+    ? `[The work screen is now connected to ${connection.label}. Use only the Skills and dictionaries of this connection; those of the previous connection do not apply. ${list}]`
+    : `[The work screen is now connected to ${connection.label}. ${list}]`;
 }
 
 /**
@@ -140,6 +171,8 @@ export interface BridgeMcpDeps {
   version: string;
   /** 利用者の Skill のフォルダ（~/.config/mxstage/skills）。null なら既定の Skill だけ */
   userSkillsDir?: string | null;
+  /** 接続先の Skill と AI の案（src/bridge/sharedSkills.ts）。省くと接続先の Skill を扱わず、save_skill はこの PC に保存する */
+  skillShelf?: SkillShelf | null;
   /** 古くなっているものを調べる（src/bridge/freshness.ts の checkUpdates）。省くと知らせを添えない */
   checkUpdates?: () => Promise<UpdateNotice[]>;
 }
@@ -238,6 +271,28 @@ async function tabConnected(hub: HubRpc): Promise<boolean> {
   }
 }
 
+/** 作業画面（primary のタブ）が今つないでいる接続先。分からなければ null */
+export async function currentConnectionOf(hub: HubRpc): Promise<string | null> {
+  try {
+    const status = await hub.status();
+    const tab = status.tabs.find((t) => t.tabId === status.primaryTabId) ?? status.tabs[0];
+    return typeof tab?.connection === "string" ? tab.connection : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 今の接続先の Skill。skillShelf が無ければ undefined（接続先の Skill を扱わない） */
+export async function connectionContext(deps: BridgeMcpDeps): Promise<(ConnectionSkills & { scopeKey: string }) | null | undefined> {
+  const shelf = deps.skillShelf;
+  if (shelf === undefined || shelf === null) return undefined;
+  try {
+    return shelf.connectionSkills(await currentConnectionOf(deps.hub));
+  } catch {
+    return null;
+  }
+}
+
 export async function runWorkerTool(deps: BridgeMcpDeps, name: ToolName, args: Record<string, unknown>): Promise<CallToolResult> {
   const { origin } = deps;
   switch (name) {
@@ -245,29 +300,36 @@ export async function runWorkerTool(deps: BridgeMcpDeps, name: ToolName, args: R
       return jsonResult({ appUrl: `${origin}/app`, settingsUrl: `${origin}/settings`, demoUrl: `${origin}/settings#demo`, tabConnected: await tabConnected(deps.hub) });
 
     case "list_skills": {
-      // origin: default（アプリ既定）/ user（利用者の Skill）。読み込めなかった利用者の Skill は problems に出す
-      const catalog = readSkillCatalog(deps.userSkillsDir ?? null);
+      // origin: default（アプリ既定）/ connection（今の接続先の Skill）/ user（この PC だけの Skill）。読み込めなかった利用者の Skill は problems に出す
+      const connection = await connectionContext(deps);
+      const catalog = readSkillCatalog(deps.userSkillsDir ?? null, connection ?? null);
       const value: Record<string, unknown> = {
         skills: catalog.skills.map((s) => ({ name: s.name, description: s.description, version: s.version, origin: s.origin, category: s.category })),
       };
+      if (connection !== undefined) value.connection = connection === null ? null : connection.label;
       if (catalog.userDir !== null) value.userSkillsDir = catalog.userDir;
       if (catalog.problems.length > 0) value.problems = catalog.problems;
       return jsonResult(value);
     }
 
     case "get_skill": {
-      const catalog = readSkillCatalog(deps.userSkillsDir ?? null);
+      // 読むたびに今の接続先で引き直す（会話の途中で接続先が変わっても、前の接続先の Skill を渡さない）
+      const connection = await connectionContext(deps);
+      const catalog = readSkillCatalog(deps.userSkillsDir ?? null, connection ?? null);
       const skill = catalog.skills.find((s) => s.name === args.name);
       if (!skill) {
         const problem = catalog.problems.find((p) => p.name === args.name && p.level === "error");
+        const where = connection === undefined ? "" : connection === null ? " (the work screen is not connected, so only built-in Skills and Skills of this PC are available)" : ` for the connection of the work screen (${connection.label})`;
         return simpleError(
-          problem ? `Skill "${String(args.name)}" could not be read: ${problem.message}` : `There is no Skill "${String(args.name)}". Check the name with list_skills.`,
+          problem ? `Skill "${String(args.name)}" could not be read: ${problem.message}` : `There is no Skill "${String(args.name)}"${where}. Check the name with list_skills.`,
           { available: catalog.skills.map((s) => s.name) },
         );
       }
       // 目次は、本文に Skill の一覧を足して返す（一覧は各 Skill の説明から作るので、本文には書いていない）
-      const body = skill.category === "index" ? `${skill.body}\n\n${skillCatalogText(catalog.skills)}` : skill.body;
-      return jsonResult({ name: skill.name, version: skill.version, description: skill.description, origin: skill.origin, category: skill.category, body });
+      const body = skill.category === "index" ? `${skill.body}\n\n${skillCatalogText(catalog.skills, connection)}` : skill.body;
+      const value: Record<string, unknown> = { name: skill.name, version: skill.version, description: skill.description, origin: skill.origin, category: skill.category, body };
+      if (skill.origin === "connection" && connection) value.connection = connection.label;
+      return jsonResult(value);
     }
 
     case "save_skill": {
@@ -278,6 +340,27 @@ export async function runWorkerTool(deps: BridgeMcpDeps, name: ToolName, args: R
         ...(typeof args.version === "string" ? { version: args.version } : {}),
         ...(args.overwrite === true ? { overwrite: true } : {}),
       };
+      if (deps.skillShelf !== undefined && deps.skillShelf !== null) {
+        // 保存せず、AI の案として残す。人が設定の「Skill と辞書」で確かめて保存するまで、メンバーにも AI にも届かない
+        const connection = await connectionContext(deps);
+        const scope = connection ? connection.scopeKey : PC_DRAFT_SCOPE;
+        const drafted = deps.skillShelf.saveDraft(scope, input);
+        if (!drafted.ok) {
+          const errors = [...drafted.check.errors, ...drafted.check.secrets.map((s) => `line ${s.line}: looks like ${s.kind === "assignment" ? "a password or an API key" : "a secret"} (${s.excerpt})`)];
+          return simpleError(`${drafted.message} Nothing was kept.`, { errors });
+        }
+        const value: Record<string, unknown> = {
+          draft: drafted.draft.name,
+          version: drafted.draft.version,
+          connection: connection ? connection.label : null,
+          settingsUrl: `${origin}/settings#skills`,
+          message:
+            `Kept the Skill ${drafted.draft.name} as a draft${connection ? ` for ${connection.label}` : " (the work screen is not connected, so it is a draft for this PC)"}. It is not used until the user checks it and presses Save in Settings > Skills and dictionaries ` +
+            "(the work screen also shows a notice). Tell the user this in their language; do not say that it was saved.",
+        };
+        if (drafted.warnings.length > 0) value.warnings = drafted.warnings;
+        return jsonResult(value);
+      }
       const saved = saveUserSkill(deps.userSkillsDir ?? null, input);
       if (!saved.ok) return simpleError(saved.message, saved.errors !== undefined ? { errors: saved.errors } : undefined);
       const value: Record<string, unknown> = {
@@ -327,6 +410,8 @@ export function buildBridgeMcpServer(deps: BridgeMcpDeps): McpServer {
   let guided = false;
   // この会話で読んだ・知らせた既定の Skill（同じ Skill を何度も知らせない）
   const hinted = new Set<string>();
+  // この会話で AI に一覧を渡した接続先（変わったら新しい一覧を添える）。undefined はまだ渡していない
+  let listedScope: string | null | undefined = undefined;
   for (const name of TOOL_NAMES) {
     const def = TOOL_DEFS[name];
     // 既定値を外した形で公開する（既定値は作業タブが入れる。src/shared/toolDefs.ts の publishedInputSchema）
@@ -345,7 +430,11 @@ export function buildBridgeMcpServer(deps: BridgeMcpDeps): McpServer {
           const text = updatesText(await collectUpdates(deps));
           if (text !== null) result = withGuide(result, text);
         }
-        if (first) result = withGuide(result, sessionGuide(deps.userSkillsDir ?? null));
+        const connection = await connectionContext(deps);
+        const scope = connection === undefined ? undefined : (connection?.scopeKey ?? null);
+        if (first) result = withGuide(result, sessionGuide(deps.userSkillsDir ?? null, connection));
+        else if (scope !== undefined && listedScope !== undefined && scope !== listedScope) result = withGuide(result, connectionChangedText(connection ?? null, listedScope !== null));
+        if (scope !== undefined && (first || scope !== listedScope)) listedScope = scope;
         if (name === "get_skill" && typeof args.name === "string") hinted.add(args.name);
         const hint = skillHintText(nextSkillHints(name, args, hinted));
         return hint === null ? result : withGuide(result, hint);

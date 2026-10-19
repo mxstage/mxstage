@@ -4,7 +4,7 @@
 // 期待値として固定しているので、判定を変えると試験が知らせる。
 
 import { RelayErrorCode } from "../shared/protocol.ts";
-import type { ChunkMsg, ErrorMsg, HelloMsg, ProgressMsg, TabToHub, ToolResultPayload } from "../shared/protocol.ts";
+import type { ChunkMsg, ErrorMsg, HelloMsg, ProgressMsg, TabStateMsg, TabToHub, ToolResultPayload } from "../shared/protocol.ts";
 
 const MAX_MESSAGE_TEXT = 4_000;
 
@@ -14,6 +14,8 @@ export const MAX_APP_VERSION_LENGTH = 64;
 export const MAX_WORKSPACE_LENGTH = 256;
 /** hello の diag（タブが知らせる直前の様子）の上限 */
 export const MAX_DIAG_LENGTH = 1_000;
+/** 接続先（保存した接続先の ID・デモの ID・Maximo の URL）の長さの上限 */
+export const MAX_CONNECTION_LENGTH = 512;
 
 type Obj = Record<string, unknown>;
 
@@ -27,6 +29,13 @@ function finite(v: unknown): v is number {
 
 function optText(v: unknown): string | undefined {
   return typeof v === "string" ? v.slice(0, MAX_MESSAGE_TEXT) : undefined;
+}
+
+/** 接続先。送られていなければ undefined（古い画面）、つないでいなければ null。長すぎるものは使わない */
+function connectionOf(v: unknown): string | null | undefined {
+  if (v === null) return null;
+  if (typeof v !== "string") return undefined;
+  return v === "" || v.length > MAX_CONNECTION_LENGTH ? null : v;
 }
 
 /**
@@ -57,11 +66,17 @@ export function parseTabMessage(data: string | ArrayBuffer): TabToHub | null {
       };
       if (finite(v.sheets) && v.sheets >= 0) hello.sheets = Math.floor(v.sheets);
       if (typeof v.diag === "string" && v.diag.trim() !== "") hello.diag = v.diag.slice(0, MAX_DIAG_LENGTH);
+      const connection = connectionOf(v.connection);
+      if (connection !== undefined) hello.connection = connection;
       return hello;
     }
-    case "tab.state":
+    case "tab.state": {
       if (typeof v.tabId !== "string" || !finite(v.sheets) || v.sheets < 0) return null;
-      return { type: "tab.state", tabId: v.tabId, sheets: Math.floor(v.sheets) };
+      const state: TabStateMsg = { type: "tab.state", tabId: v.tabId, sheets: Math.floor(v.sheets) };
+      const connection = connectionOf(v.connection);
+      if (connection !== undefined) state.connection = connection;
+      return state;
+    }
     case "tab.focus":
       return { type: "tab.focus", tabId: typeof v.tabId === "string" ? v.tabId : "" };
     case "tool.ack":

@@ -171,6 +171,8 @@ export interface RelaySocketOptions {
   getWorkspace(): string | null;
   /** 作業にあるシートの数（hello と tab.state で知らせる。シートの無い窓はフォーカスしても primary を奪わない） */
   getSheetCount?(): number;
+  /** 今つないでいる接続先（hello と tab.state で知らせる。AI に渡す客先の Skill を橋渡しが選ぶのに使う）。つないでいなければ null */
+  getConnection?(): string | null;
   /** 作業を別の窓へ移すよう頼まれた（workspace.export） */
   onWorkspaceExport?(token: string): void;
   /** 作業が別の窓へ移り終わった（workspace.release） */
@@ -370,6 +372,9 @@ export class RelaySocket {
   private readonly handler: ToolHandler;
   private readonly onSheetOps: ((msg: SheetOpsMsg) => void) | undefined;
   private readonly getSheetCountFn: (() => number) | undefined;
+  private readonly getConnectionFn: (() => string | null) | undefined;
+  /** 直前に知らせた接続先（undefined はまだ知らせていない） */
+  private sentConnection: string | null | undefined = undefined;
   private readonly onWorkspaceExport: ((token: string) => void) | undefined;
   private readonly onWorkspaceRelease: ((token: string) => void) | undefined;
   /** 最後に Hub へ知らせたシートの数 */
@@ -440,6 +445,7 @@ export class RelaySocket {
     this.handler = opts.handler;
     this.onSheetOps = opts.onSheetOps;
     this.getSheetCountFn = opts.getSheetCount;
+    this.getConnectionFn = opts.getConnection;
     this.onWorkspaceExport = opts.onWorkspaceExport;
     this.onWorkspaceRelease = opts.onWorkspaceRelease;
     this.onStatus = opts.onStatus;
@@ -507,9 +513,15 @@ export class RelaySocket {
     const ws = this.ws;
     if (!ws || !this.helloSent) return;
     const sheets = this.currentSheets();
-    if (sheets === null || sheets === this.sentSheets) return;
+    const connection = this.currentConnection();
+    const connectionChanged = connection !== undefined && connection !== this.sentConnection;
+    if (sheets === null || (sheets === this.sentSheets && !connectionChanged)) return;
     const msg: TabStateMsg = { type: "tab.state", tabId: this.tabId, sheets };
-    if (this.sendJson(ws, msg)) this.sentSheets = sheets;
+    if (connection !== undefined) msg.connection = connection;
+    if (this.sendJson(ws, msg)) {
+      this.sentSheets = sheets;
+      if (connection !== undefined) this.sentConnection = connection;
+    }
   }
 
   getStatus(): RelayStatus {
@@ -563,7 +575,10 @@ export class RelaySocket {
     const sheets = this.currentSheets();
     if (sheets !== null) hello.sheets = sheets;
     if (this.notes.length > 0) hello.diag = this.notes.splice(0).join("; ");
+    const connection = this.currentConnection();
+    if (connection !== undefined) hello.connection = connection;
     this.sentSheets = sheets;
+    this.sentConnection = connection;
     this.sendJson(ws, hello);
     this.helloSent = true;
     this.scheduleHeartbeat(ws);
@@ -1037,6 +1052,17 @@ export class RelaySocket {
       return finite(r) ? r : 0;
     } catch {
       return 0;
+    }
+  }
+
+  /** 今の接続先（getConnection が無ければ undefined） */
+  private currentConnection(): string | null | undefined {
+    if (!this.getConnectionFn) return undefined;
+    try {
+      const c = this.getConnectionFn();
+      return typeof c === "string" && c !== "" ? c : null;
+    } catch {
+      return null;
     }
   }
 

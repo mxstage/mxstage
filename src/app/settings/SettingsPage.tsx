@@ -1,10 +1,10 @@
 // API 設定画面 /settings（トップレベルのページ。iframe に入れない）。
 // Maximo への接続は、パスワードマネージャーが保存を検知できる標準のログインフォームの形にする。
 // API キーの入力欄は React の state に持たない（非制御の入力欄から読んで Web Worker に渡し、すぐ空にする）。
-// 節はタブに分ける（接続・デモ・ライセンス・AI アシスタント・Skill・更新・言語）。選んだタブは URL のハッシュ（/settings#license）に出す。
+// 節はタブに分ける（接続・デモ・ライセンス・AI アシスタント・Skill と辞書・更新・言語）。選んだタブは URL のハッシュ（/settings#license）に出す。
+// 接続先ごとの辞書と Skill の置き場所（共有フォルダ）は「Skill と辞書」で選ぶ（接続のタブは接続先だけ）。
 // タブを切り替えても各節は描いたまま（隠すだけ）にして、入力途中の値を失わない。
 
-import { SharedFolderField } from "./SharedFolderField";
 import { Button, Checkbox, Form, Layer, RadioButton, RadioButtonGroup, Select, SelectItem, Tab, TabList, TabPanel, TabPanels, Tabs, TextInput } from "@carbon/react";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from "react";
 import { LOCALES, getLocale, isLocale, subscribeLocale } from "../../shared/i18n";
@@ -28,9 +28,12 @@ import { LicenseSection } from "./LicenseSection";
 import { UpdatesSection } from "./UpdatesSection";
 import type { UpdatesApi } from "./updates";
 import { LANGUAGE_NAMES, settingsMessages as m } from "./messages";
+import { skillMessages } from "./skillMessages";
+import { SkillsSection } from "./SkillsSection";
+import type { SkillsApi } from "./skillsApi";
+import type { DictionaryClient } from "../dictionaries/client";
 import {
   connectErrorMessage,
-  fetchSkillList,
   isVia,
   loadSavedSettings,
   localClientStatus,
@@ -39,7 +42,6 @@ import {
   validateSettingsForm,
   viaOptionLabel,
   type SettingsFormErrors,
-  type SkillList,
   type StorageLike,
 } from "./logic";
 
@@ -69,8 +71,14 @@ export interface SettingsPageProps {
   /** 接続に成功したときの history.replaceState */
   replaceUrl?: (url: string) => void;
   clipboard?: ClipboardLike | null;
-  /** Skill の一覧を読む（省略時は橋渡しの /_mxstage/skills） */
-  loadSkills?: () => Promise<SkillList>;
+  /** 「Skill と辞書」の窓口（省略時は橋渡しの /_mxstage/skills） */
+  skillsApi?: SkillsApi;
+  /** 辞書と置き場所の窓口（省略時は橋渡しの /_mxstage/dictionaries） */
+  dictionaryClient?: DictionaryClient;
+  /** 辞書を作業画面で開く（省くと「Skill と辞書」の辞書に［開く］を出さない） */
+  openDictionary?: (name: string) => void;
+  /** 終わったことを知らせる（トースト） */
+  notify?: (text: string, tone?: "info" | "error") => void;
   /** ライセンスキーと接続先ごとの環境（本番／テスト）。省くとライセンスの節と環境の選択を出さない */
   license?: LicenseClient;
   /** 橋渡しに保存した接続先。省くと保存の機能を出さない（API キーはこのタブのメモリだけ） */
@@ -182,8 +190,12 @@ export function SettingsPage(props: SettingsPageProps) {
   const subscribe = useCallback((l: () => void) => vault.subscribe(l), [vault]);
   const getView = useCallback(() => vault.getView(), [vault]);
   const view = useSyncExternalStore(subscribe, getView);
-  // 描画のたびに作り直すと、一覧の読み込みが繰り返されるので固定する
-  const loadSkills = useMemo(() => props.loadSkills ?? (() => fetchSkillList()), [props.loadSkills]);
+  // 保存した接続先（「Skill と辞書」の置き場所のカードに並べる）
+  const savedSnapshot = useSyncExternalStore(
+    useCallback((l: () => void) => props.connections?.subscribe(l) ?? (() => undefined), [props.connections]),
+    useCallback(() => props.connections?.snapshot() ?? null, [props.connections]),
+  );
+  const savedList = useMemo(() => (savedSnapshot !== null && savedSnapshot.status !== "unavailable" ? savedSnapshot.connections.map((c) => ({ id: c.id, name: c.name })) : []), [savedSnapshot]);
 
   const [requested, selectTab] = useSelectedTab();
 
@@ -220,7 +232,20 @@ export function SettingsPage(props: SettingsPageProps) {
     },
     ...(props.license ? [{ id: "license" as const, label: licenseMessages().section.title, content: <LicenseSection license={props.license} /> }] : []),
     { id: "assistants", label: tabs.assistants, content: <LlmSection clipboard={clipboard} /> },
-    { id: "skills", label: tabs.skills, content: <SkillsSection load={loadSkills} /> },
+    {
+      id: "skills",
+      label: skillMessages().tab,
+      content: (
+        <SkillsSection
+          currentScope={view.kind === "disconnected" ? null : (view.info.savedId ?? view.info.baseUrl)}
+          saved={savedList}
+          {...(props.skillsApi ? { api: props.skillsApi } : {})}
+          {...(props.dictionaryClient ? { dictionaryClient: props.dictionaryClient } : {})}
+          {...(props.openDictionary ? { openDictionary: props.openDictionary } : {})}
+          {...(props.notify ? { notify: props.notify } : {})}
+        />
+      ),
+    },
     { id: "updates", label: tabs.updates, content: <UpdatesSection {...(props.updates ? { api: props.updates } : {})} /> },
     { id: "language", label: m().language.title, content: <LanguageSection storage={storage} /> },
   ];
@@ -260,111 +285,6 @@ export function SettingsPage(props: SettingsPageProps) {
         </TabPanels>
       </Tabs>
     </main>
-  );
-}
-
-/**
- * Skill（作業手順書）の一覧。アプリ既定と利用者の Skill を分けて出す。
- * - アプリ既定: MX Stage と一緒に入り、更新で置き換わる。書き換えない。
- * - 利用者の Skill: 業務や客先ごとの手順。利用者のフォルダに置き、MX Stage を更新しても残る。
- */
-function SkillsSection({ load }: { load: () => Promise<SkillList> }) {
-  const [state, setState] = useState<{ kind: "loading" } | { kind: "ok"; list: SkillList } | { kind: "error"; message: string }>({ kind: "loading" });
-  useEffect(() => {
-    let alive = true;
-    load().then(
-      (list) => {
-        if (alive) setState({ kind: "ok", list });
-      },
-      (e: unknown) => {
-        if (alive) setState({ kind: "error", message: errorText(e) });
-      },
-    );
-    return () => {
-      alive = false;
-    };
-  }, [load]);
-
-  const defaults = state.kind === "ok" ? state.list.skills.filter((s) => s.origin === "default") : [];
-  const users = state.kind === "ok" ? state.list.skills.filter((s) => s.origin === "user") : [];
-  const problems = state.kind === "ok" ? state.list.problems : [];
-  const t = m().skills;
-  return (
-    <section className="card skills">
-      <h2>{t.title}</h2>
-      <p className="muted">{t.intro}</p>
-      {state.kind === "loading" && <p className="muted">{t.loading}</p>}
-      {state.kind === "error" && <Notice kind="warning">{state.message}</Notice>}
-      {state.kind === "ok" && (
-        <>
-          <h3>{t.defaultsTitle}</h3>
-          <p className="muted small">{t.defaultsHelp}</p>
-          {defaults.some((s) => typeof s.category === "string") ? (
-            // 層ごとに分ける（目次・基本動作・標準オブジェクト）。層を返さない古い橋渡しなら 1 つの一覧
-            (
-              [
-                ["index", t.groupIndex],
-                ["core", t.groupCore],
-                ["object", t.groupObject],
-              ] as const
-            ).map(([category, label]) => {
-              const items = defaults.filter((s) => s.category === category);
-              return items.length === 0 ? null : (
-                <div key={category} className="skill-group">
-                  <h4>{label}</h4>
-                  <SkillItems items={items} empty={t.defaultsEmpty} />
-                </div>
-              );
-            })
-          ) : (
-            <SkillItems items={defaults} empty={t.defaultsEmpty} />
-          )}
-          <h3>{t.userTitle}</h3>
-          <p className="muted small">
-            {t.userIntro}
-            {state.list.userSkillsDir !== null ? (
-              <>
-                {" "}
-                {t.userPlaceBefore}
-                <code className="mono">{state.list.userSkillsDir}</code>
-                {t.userPlaceMiddle}
-                <code className="mono">&lt;{t.userPlaceName}&gt;/SKILL.md</code>
-                {t.userPlaceAfter}
-              </>
-            ) : null}
-            {t.userKeep}
-          </p>
-          <SkillItems items={users} empty={t.userEmpty} />
-          {problems.length > 0 && (
-            <ul className="plain skill-problems">
-              {problems.map((p, i) => (
-                <li key={i}>
-                  <Notice kind={p.level === "error" ? "error" : "warning"}>
-                    {p.name !== "" && <code className="mono">{p.name}</code>} {p.level === "error" ? t.problemError : t.problemWarn}
-                    {p.message}
-                  </Notice>
-                </li>
-              ))}
-            </ul>
-          )}
-        </>
-      )}
-    </section>
-  );
-}
-
-function SkillItems({ items, empty }: { items: SkillList["skills"]; empty: string }) {
-  if (items.length === 0) return <p className="muted small">{empty}</p>;
-  return (
-    <ul className="plain skill-list">
-      {items.map((s) => (
-        <li key={s.name}>
-          <code className="mono">{s.name}</code>
-          {s.version && <span className="muted small">{m().skills.version(s.version)}</span>}
-          <p className="muted small">{s.description}</p>
-        </li>
-      ))}
-    </ul>
   );
 }
 
@@ -543,10 +463,6 @@ function MaximoSection({ vault, view, storage, passwordCredential, replaceUrl, l
       <section className="card">
         <h2>{t.title}</h2>
         <ConnectedInfo info={view.info} license={license} onReconnect={() => setShowForm(true)} onDisconnect={disconnect} />
-        <SharedFolderField
-          scope={view.info.savedId ?? view.info.baseUrl}
-          project={{ name: view.info.connectionName, connections: [{ name: view.info.connectionName, baseUrl: view.info.baseUrl, environment: license?.environmentOf(view.info.baseUrl) ?? null }] }}
-        />
         <PastStatusField baseUrl={view.info.baseUrl} storage={storage} />
         {savedList}
       </section>
@@ -711,7 +627,6 @@ function SavedConnections(p: {
                   {hostOf(c.baseUrl)}
                   {c.environment !== null ? ` · ${c.environment === "production" ? env.production : env.test}` : ""}
                 </span>
-                {p.currentId !== c.id && <SharedFolderField compact scope={c.id} project={{ name: c.name, connections: [{ name: c.name, baseUrl: c.baseUrl, environment: c.environment }] }} />}
               </div>
               <div className="saved-actions">
                 {p.currentId === c.id ? (

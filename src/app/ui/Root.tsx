@@ -10,7 +10,7 @@ import type { AppServices } from "../boot/types";
 import { AppPage } from "../pages/AppPage";
 import { SettingsPage } from "../settings/SettingsPage";
 import { StructuresPage } from "../structures/StructuresPage";
-import { NAVIGATE_EVENT, navigate, resolveRoute } from "./routes";
+import { APP_PATH, NAVIGATE_EVENT, navigate, resolveRoute } from "./routes";
 import { uiMessages } from "./messages";
 import { Toasts } from "./toast";
 
@@ -29,6 +29,12 @@ export function Root({ services }: { services: AppServices }) {
   const [path, setPath] = useState(() => window.location.pathname);
   const [runtime, setRuntime] = useState<Runtime | null>(null);
   const runtimeRef = useRef<Runtime | null>(null);
+  // 設定の「Skill と辞書」で［開く］を押した辞書（作業画面に移ってから開く）
+  const pendingDictionary = useRef<string | null>(null);
+  const openDictionary = useCallback((name: string) => {
+    pendingDictionary.current = name;
+    navigate(APP_PATH);
+  }, []);
   // 言語を切り替えたら画面を作り直す（作業データは runtime にあるので消えない）
   const [locale, setLocale] = useState(getLocale);
   useEffect(() => subscribeLocale(setLocale), []);
@@ -142,6 +148,8 @@ export function Root({ services }: { services: AppServices }) {
           license={services.license}
           connections={services.connections}
           autoConnect={services.autoConnect}
+          openDictionary={openDictionary}
+          notify={(text, tone) => services.toasts.show(text, tone)}
         />
         <Toasts store={services.toasts} />
       </>
@@ -157,7 +165,7 @@ export function Root({ services }: { services: AppServices }) {
     );
   }
   if (route.kind === "app" && runtime) {
-    return <AppPage key={locale} runtime={runtime} vault={services.vault} toasts={services.toasts} catalog={services.catalog} license={services.license} onEndWork={endWork} onMoveWorkHere={moveWorkHere} keepWorkForReload={keepWorkForReload} />;
+    return <AppPage key={locale} runtime={runtime} vault={services.vault} toasts={services.toasts} catalog={services.catalog} license={services.license} onEndWork={endWork} onMoveWorkHere={moveWorkHere} keepWorkForReload={keepWorkForReload} pendingDictionary={pendingDictionary} />;
   }
   return null;
 }

@@ -581,7 +581,7 @@ export const TOOL_DEFS = {
     name: "list_skills",
     title: "List Skills",
     description:
-      "Lists the Skills: the index, basic operations (core), standard Maximo objects (object) and the user's Skills for their environment (user). Use it in clients without built-in Skill support.",
+      "Lists the Skills: the index, basic operations (core), standard Maximo objects (object), the Skills of the connection open in the work screen (origin connection) and the Skills of this PC (origin user). Use it in clients without built-in Skill support.",
     inputSchema: z.strictObject({}),
     annotations: RO,
     runAt: "worker",
@@ -597,11 +597,11 @@ export const TOOL_DEFS = {
   }),
   save_skill: tool({
     name: "save_skill",
-    title: "Save a user Skill",
+    title: "Keep a Skill as a draft",
     description:
-      "Saves a procedure worked out in the conversation as a user Skill on this PC (~/.config/mxstage/skills/<name>/SKILL.md). " +
-      "**Call it only when the user asks, after showing them the name, description and body and getting their agreement.** Saved Skills can be read with list_skills and get_skill from the next conversation on. " +
-      "To replace an existing user Skill, pass overwrite: true (also with the user's agreement). A user Skill cannot take the name of a built-in Skill. Never put API keys or passwords in the body.",
+      "Keeps a procedure worked out in the conversation as a draft Skill for the connection open in the work screen. " +
+      "**Call it only when the user asks, after showing them the name, description and body and getting their agreement.** The draft is not used until the user checks it and presses Save in Settings > Skills and dictionaries; tell them so. " +
+      "To change an existing Skill, send the whole new text with a higher version. A user Skill cannot take the name of a built-in Skill. Never put API keys or passwords in the body (such drafts are refused).",
     inputSchema: z.strictObject({
       name: z.string().min(1).max(64).describe("Lowercase letters, digits and hyphens (e.g. permit-date-update)"),
       description: z
@@ -611,7 +611,7 @@ export const TOOL_DEFS = {
         .describe("When to use this procedure (up to 200 characters, e.g. Use in MX Stage to bulk update the completion date of permits under work orders)"),
       body: z.string().min(1).describe("Body of the procedure (Markdown, under 8,000 bytes)"),
       version: z.string().regex(/^\d+\.\d+\.\d+$/).optional().describe("Version (default 0.1.0; raise it when replacing)"),
-      overwrite: z.boolean().optional().describe("Replace an existing user Skill"),
+      overwrite: z.boolean().optional().describe("Not needed (a draft of the same name is replaced); kept for older clients"),
     }),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     runAt: "worker",

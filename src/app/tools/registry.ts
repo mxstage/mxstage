@@ -489,8 +489,16 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
       if (workspace.dictionarySheet(name) !== null) continue;
       if (deps.dictionaries === undefined) throw toolError(`The dictionary ${name} is not available in this work screen.`);
       const res = await deps.dictionaries.openDictionary(name);
-      if (!res.ok) throw toolError(`Could not open the dictionary ${name}: ${res.message}. ${dictionaryListNote()}`);
+      if (!res.ok) throw toolError(`${dictionaryOpenFailure(name, res.message)} ${dictionaryListNote()}`);
     }
+  }
+
+  /** 辞書を開けなかった理由。ほかの接続先の辞書なら、そう言う（その辞書をこの接続先のデータに当てない） */
+  function dictionaryOpenFailure(name: string, message: string): string {
+    if (workspace.dictionaryOfOtherScope(name) !== null) {
+      return `The dictionary ${name} belongs to another connection (another customer), so it is not used with the connection of this work screen.`;
+    }
+    return `Could not open the dictionary ${name}: ${message}.`;
   }
 
   /** 今の接続先の辞書の名前（エラーの案内に添える） */
@@ -1468,7 +1476,7 @@ export const createToolRegistry: CreateToolRegistry = (deps) => {
       const res = await deps.dictionaries.openDictionary(args.name);
       if (!res.ok) {
         if (res.error === "not_connected") throw toolError(notConnected);
-        throw toolError(`Could not open the dictionary ${args.name}: ${res.message}. ${dictionaryListNote()}`);
+        throw toolError(`${dictionaryOpenFailure(args.name, res.message)} ${dictionaryListNote()}`);
       }
       return dictionaryResult(res.value.sheet);
     },

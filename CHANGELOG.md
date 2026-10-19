@@ -2,6 +2,25 @@
 
 All notable changes to MX Stage are listed here. Versions follow [Semantic Versioning](https://semver.org/). Each version becomes available under the Apache License 2.0 four years after its release (see [LICENSE](LICENSE)).
 
+## Unreleased
+
+### Added
+
+- **Settings → Skills & dictionaries.** The Skills tab becomes Skills & dictionaries. For each connection it shows where its dictionaries and Skills are kept, with Open and Change; the dictionaries and Skills of the connected customer; drafts made by the AI; the Skills of this PC only; and the built-in Skills, folded, with a short description each. A Skill opens on its own page: the text, how the AI gets it, the history (restore any version), Edit, Delete (restorable from the history) and, for a Skill of this PC, Move to the connection's folder.
+- **Skills per connection, shared with the members.** A customer's Skills are kept with its dictionaries, in the connection's folder. The AI gets only the Skills of the connection open in the work screen: the bridge learns the connection from the work screen, lists those Skills in the first tool result, lists the new connection's Skills when the work screen switches during a conversation, and get_skill looks names up in the current connection only. A Skill of the connection is used instead of a Skill of this PC with the same name. Each save adds a new version file, so two members saving at the same time never create sync conflicts; if someone saved after you opened a Skill, Save shows it and lets you look at their version first.
+- **The AI's Skills are drafts.** save_skill no longer saves: it keeps a draft for the connection of the work screen, and the work screen shows a notice. The draft is used by no one until you check it and press Save in Settings. Text that looks like an API key or a password is refused, and names of other customers' connections are pointed out before saving.
+- **Place side by side with the AI assistant.** A button in the top bar of the work screen (Windows) puts the AI assistant you were using on the left of the screen and the work screen on the right, in one press. It finds Codex, Claude, VS Code-based assistants, Cursor, ChatGPT and terminals; nothing happens when the work screen is open inside the assistant.
+- **A default folder for every connection.** Without a shared folder, a connection's dictionaries and Skills are kept in Documents\MX Stage\<connection name> (created when something is first saved). Choosing a shared folder with Change moves them there.
+
+### Changed
+
+- Settings → Connection no longer shows a shared folder; it is chosen in Skills & dictionaries.
+- After switching the work screen to another connection, the previous connection's dictionary tabs close (tabs with unsaved changes stay open, but neither the AI nor matching uses them), so one customer's dictionary is never applied to another customer's data. The AI is told when a dictionary name belongs to another connection.
+
+### Fixed
+
+- Choosing a shared folder whose path has Japanese or full-width characters (for example OneDrive - 北部CC 保守（本番）) could stop the bridge: Node's folder copy crashes on such paths on Windows. MX Stage now copies the files itself.
+
 ## 0.2.8 — 2026-10-15
 
 ### Added

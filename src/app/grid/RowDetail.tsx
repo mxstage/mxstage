@@ -31,6 +31,13 @@ export function RowDetail({ title, items, emptyLast = true }: RowDetailProps) {
             <dt title={item.attr ?? undefined}>
               <span className="label">{item.label}</span>
             </dt>
+            {/* 変えたセルは元の値を上に取り消し線で添える（新しい値と見比べられるように） */}
+            {item.before !== undefined && (
+              <dd className="before" title={t.rowDetail.before}>
+                <span className="cds--visually-hidden">{t.rowDetail.before}</span>
+                <del>{item.before === "" ? t.hover.empty : item.before}</del>
+              </dd>
+            )}
             <dd style={item.changed && item.author ? { color: TONE_STYLE[item.author].fg } : undefined}>{item.empty ? t.hover.empty : item.value}</dd>
           </div>
         ))}

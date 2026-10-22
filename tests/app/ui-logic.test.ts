@@ -6,7 +6,7 @@ import { toMaximoError, MaximoNetworkError } from "../../src/app/maximo/client";
 import type { RelayStatus } from "../../src/app/relay";
 import type { CommitPanelState } from "../../src/app/runtime/contracts";
 import { CompactSelection, type GridSelection } from "@glideapps/glide-data-grid";
-import { cellTone, formatCellValue, hoverLines, isCellEditable, parseEditedText } from "../../src/app/grid/cellStyle";
+import { cellTone, diffCellTexts, formatCellValue, hoverLines, isCellEditable, parseEditedText } from "../../src/app/grid/cellStyle";
 import { conflictSummary } from "../../src/app/grid/edits";
 import { clampSelection, isReclickOnSelected, singleSelectedCell } from "../../src/app/grid/selection";
 import {
@@ -342,6 +342,19 @@ describe("セルの色分け", () => {
     expect(parseEditedText("2026-09-30")).toBe("2026-09-30");
     expect(formatCellValue(null)).toBe("");
     expect(formatCellValue(12)).toBe("12");
+  });
+});
+
+describe("差分ビューの 2 段のセル", () => {
+  it("元の値と新しい値を出し、空は（空）と書く", () => {
+    expect(diffCellTexts({ type: "string" }, "OPERATING", "ACTIVE")).toEqual({ before: "OPERATING", after: "ACTIVE" });
+    expect(diffCellTexts({ type: "string" }, null, "BR320")).toEqual({ before: "（空）", after: "BR320" });
+  });
+
+  it("日付は読みやすい形にそろえる", () => {
+    const t = diffCellTexts({ type: "date" }, "2026-10-01T00:00:00+09:00", "2026-10-15T00:00:00+09:00");
+    expect(t.before).toBe("2026-10-01");
+    expect(t.after).toBe("2026-10-15");
   });
 });
 

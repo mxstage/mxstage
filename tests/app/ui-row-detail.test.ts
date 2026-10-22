@@ -85,6 +85,26 @@ describe("RowDetail", () => {
     expect(dd("作業内容（詳細）")?.style.color).toBe(colorOf(TONE_STYLE.user.fg));
     expect(dd("WONUM")?.style.color).toBe("");
   });
+
+  it("変更したセルは元の値を取り消し線で上に添える。空にした変更は（空）と出し、前に残す", async () => {
+    const items = rowDetailItems(COLUMNS, (c) => {
+      if (c === "DESCRIPTION") return { value: "P-2501B 動作不良", changed: true, author: "llm", before: "P-2501B 動作不良の件" };
+      if (c === "EXT_NOTES") return { value: "", changed: true, author: "user", before: "旧備考" };
+      if (c === "WONUM") return { value: VALUES[c] ?? "", changed: false, before: "使わない" };
+      if (c === "EXT_WORKDETAIL") return { value: "", changed: false };
+      return { value: VALUES[c] ?? "", changed: false };
+    });
+    await act(async () => root.render(createElement(RowDetail, { title: "WO101001", items })));
+    const item = (name: string) => Array.from(container.querySelectorAll<HTMLElement>(".item")).find((i) => i.querySelector(".label")?.textContent === name);
+    expect(item("説明")?.querySelector("dd.before del")?.textContent).toBe("P-2501B 動作不良の件");
+    expect(item("備考")?.querySelector("dd.before del")?.textContent).toBe("旧備考");
+    expect(item("備考")?.querySelector("dd:not(.before)")?.textContent).toBe("（空）");
+    // 変更していないセルには元の値を出さない
+    expect(item("WONUM")?.querySelector("dd.before")).toBeNull();
+    const names = Array.from(container.querySelectorAll(".item dt .label")).map((e) => e.textContent);
+    // 変えていない空の列（作業内容）だけを後ろに回す
+    expect(names[names.length - 1]).toBe("作業内容（詳細）");
+  });
 });
 
 /** style.color に入れた色が読み戻される形（happy-dom は #rrggbb のまま、ブラウザは rgb() になる） */

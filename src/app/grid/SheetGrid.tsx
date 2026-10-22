@@ -25,11 +25,12 @@ import {
 } from "@glideapps/glide-data-grid";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { Checkbox } from "@carbon/react";
 import type { BatchAuthor, CellEdit, CellValue, ColumnSchema } from "../../shared/model";
 import type { ValueListService } from "../maximo/valueList";
 import type { ViewKind, Workspace } from "../store";
 import type { RowState } from "../store/sheet";
-import { TONE_STYLE, cellTone, formatCellValue, formatColumnValue, hoverLines, isCellEditable, parseEditedText } from "./cellStyle";
+import { TONE_STYLE, cellTone, diffCellTexts, formatCellValue, formatColumnValue, hoverLines, isCellEditable, parseEditedText } from "./cellStyle";
 import { CellEditorContext, DATE_EDITOR, LIST_EDITOR, booleanFromKey, booleanFromText, type CellEditorTarget, type CellListSource } from "./editors";
 import { masterListFor, maximoListTarget, mayHaveMaximoList } from "./valueLists";
 import { ColumnFilterBar, ColumnFilterMenu, useColumnOptions } from "./ColumnFilterBar";
@@ -38,7 +39,7 @@ import { conflictSummary, storeErrorMessage } from "./edits";
 import { gridMessages } from "./messages";
 import { applyGridFilters, changeCounts, matchRange, rowCountLabel, setFilter, type ChangeKind, type GridFilter } from "./filters";
 export type { GridFilter } from "./filters";
-import { defaultColumnWidth, freezeCountForWidth, frozenColumnsFor, headerHeightFor, orderForFreeze, togglePinned } from "./layout";
+import { changedColumnsOnly, defaultColumnWidth, freezeCountForWidth, frozenColumnsFor, headerHeightFor, orderForFreeze, togglePinned } from "./layout";
 import { scopeColumns, scopeRows, type PaneScope } from "../pages/panes";
 import { RowDetail } from "./RowDetail";
 import { longCellLines, rowDetailItems } from "./detailItems";
@@ -164,6 +165,10 @@ const MATCH_LINE = "#0043ce";
 export const ROW_HIGHLIGHT = "rgba(141, 141, 141, 0.20)";
 /** 行の高さ（Carbon の DataTable の sm） */
 export const ROW_HEIGHT = 32;
+/** 差分ビューの行の高さ。変えたセルに元の値（12px）と新しい値（14px）を 2 段で出す */
+export const DIFF_ROW_HEIGHT = 44;
+/** 差分ビューで上の段に出す元の値の色（text-helper） */
+const DIFF_BEFORE_COLOR = "#6f6f6f";
 
 /** 見出しの印（Carbon の chevron--down 16px と filter 32px のパス）。Path2D が無い環境（試験）では作らない */
 const CHEVRON_DOWN_16 = "M8 11 3 6 3.7 5.3 8 9.6 12.3 5.3 13 6z";
@@ -246,6 +251,8 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
   const [hover, setHover] = useState<HoverState | null>(null);
   // 選んだ行の全列を縦に読む（列が多いとき・長文のセル・画面が狭いとき）
   const [showDetail, setShowDetail] = useState(false);
+  // 差分ビューで、キーの列と変更のあった列だけを出す（既定で出す。差分ビューの外では使わない）
+  const [changedOnly, setChangedOnly] = useState(true);
   // 表の幅。狭いときは固定列を外す（固定列だけが見えて中身が読めなくなるのを防ぐ）
   const [paneWidth, setPaneWidth] = useState(0);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -299,7 +306,20 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
     const present = new Set(scopedColumns.map((c) => c.name));
     return frozenColumnsFor(sheet?.meta.keyColumns ?? [], pinned).filter((n) => present.has(n));
   }, [scopedColumns, sheet, pinned]);
-  const ordered = useMemo(() => orderForFreeze(scopedColumns, frozen), [scopedColumns, frozen]);
+  // 差分ビューで「変更のあった列だけ」にしたときの列。キー列と固定した列は残す。
+  // 変えたセルのある列と、追加行で値の入った列を出す（削除行はキーの列で見分ける）
+  const diffColumns = useMemo(() => {
+    if (!sheet || view !== "diff" || !changedOnly) return scopedColumns;
+    const keep = [...sheet.meta.keyColumns, ...frozen];
+    return changedColumnsOnly(scopedColumns, keep, scopedRows, (row: RowState, col) => {
+      const status = sheet.rowStatus(row);
+      if (status === "added") return formatCellValue(sheet.finalValue(row, col)) !== "";
+      return status === "changed" && sheet.isCellChanged(row, col);
+    });
+    // version: 行の値が変わったら選び直す
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sheet, view, changedOnly, scopedColumns, scopedRows, frozen, version]);
+  const ordered = useMemo(() => orderForFreeze(diffColumns, frozen), [diffColumns, frozen]);
   const freeze = ordered.freeze;
   // 表示だけの列を、指定の列の右（無ければ末尾）に入れる
   const columns = useMemo(() => {
@@ -492,12 +512,13 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
     [subLabels, filterByCol],
   );
 
-  // セルに描き足す: 「文字を含む」で当たった部分の印と、削除行の取り消し線（セルの themeOverride だけでは描けない）
+  // セルに描き足す: 「文字を含む」で当たった部分の印と、削除行の取り消し線（セルの themeOverride だけでは描けない）。
+  // 差分ビューの変えたセルは自前で 2 段に描く（上に元の値を小さく取り消し線で、下に新しい値を作者の色で）
   const drawCell = useCallback<DrawCellCallback>(
     (args, drawContent) => {
-      drawContent();
       const extra = extraById.get(columnsRef.current[args.col]?.name ?? "");
       if (extra) {
+        drawContent();
         // 表示だけの列: 先頭の印・文字・操作の名前（青）を描く（セルの文字は空にしてある）
         const row = rowsRef.current[args.row];
         const c = row ? extra.cell(row) : null;
@@ -543,12 +564,51 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
         ctx.restore();
         return;
       }
-      if (!sheet || args.cell.kind !== GridCellKind.Text) return;
-      const text = args.cell.displayData.split("\n")[0] ?? "";
-      if (text === "") return;
       const { ctx, rect, theme } = args;
       const pad = theme.cellHorizontalPadding;
       const maxX = rect.x + rect.width - pad;
+      const diffRow = sheet && view === "diff" && args.cell.kind === GridCellKind.Text ? rowsRef.current[args.row] : undefined;
+      const diffCol = diffRow ? columnsRef.current[args.col] : undefined;
+      const twoLine = sheet !== undefined && diffRow !== undefined && diffCol !== undefined && sheet.rowStatus(diffRow) === "changed" && sheet.isCellChanged(diffRow, diffCol.name);
+      // 文字の段の中心。差分ビューの文字のセルは、変えていないセルも下の段にそろえる（行を横に読んだときに高さがずれないように）。
+      // 当たった部分の印と取り消し線もここに合わせる
+      const lowerLine = sheet !== undefined && view === "diff" && args.cell.kind === GridCellKind.Text;
+      const midY = lowerLine ? rect.y + rect.height - 13 : rect.y + rect.height / 2;
+      if (twoLine && sheet && diffRow && diffCol) {
+        // 地は Glide が塗り終えている（選んだ行の塗りも）。文字だけを描く
+        const texts = diffCellTexts(diffCol, sheet.baseValue(diffRow, diffCol.name), sheet.finalValue(diffRow, diffCol.name));
+        const fg = args.cell.themeOverride?.textDark ?? theme.textDark;
+        const x = rect.x + pad;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(x, rect.y, Math.max(0, rect.width - pad * 2), rect.height);
+        ctx.clip();
+        ctx.textBaseline = "middle";
+        const beforeY = rect.y + 12;
+        const before = texts.before.split("\n")[0] ?? "";
+        ctx.font = `400 12px ${theme.fontFamily}`;
+        ctx.fillStyle = DIFF_BEFORE_COLOR;
+        ctx.fillText(before, x, beforeY);
+        ctx.fillRect(x, Math.round(beforeY), Math.max(0, Math.min(ctx.measureText(before).width, rect.width - pad * 2)), 1);
+        ctx.font = `${theme.baseFontStyle} ${theme.fontFamily}`;
+        ctx.fillStyle = fg;
+        ctx.fillText(texts.after.split("\n")[0] ?? "", x, midY);
+        ctx.restore();
+      } else if (lowerLine) {
+        // Glide はセルの中心に描くので、下の段まで下げて描かせる（地は塗り終えているので文字だけが動く）
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(rect.x, rect.y, rect.width, rect.height);
+        ctx.clip();
+        ctx.translate(0, midY - (rect.y + rect.height / 2));
+        drawContent();
+        ctx.restore();
+      } else {
+        drawContent();
+      }
+      if (!sheet || args.cell.kind !== GridCellKind.Text) return;
+      const text = args.cell.displayData.split("\n")[0] ?? "";
+      if (text === "") return;
       const filter = filterByCol.get(columnsRef.current[args.col]?.name ?? "");
       if (filter?.kind === "contains") {
         const hit = matchRange(text, filter.text);
@@ -559,7 +619,7 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
           const x1 = Math.min(maxX, x0 + ctx.measureText(text.slice(hit.start, hit.end)).width);
           if (x0 < maxX) {
             const h = 20;
-            const top = Math.round(rect.y + (rect.height - h) / 2);
+            const top = Math.round(midY - h / 2);
             ctx.fillStyle = MATCH_FILL;
             ctx.fillRect(x0, top, x1 - x0, h);
             ctx.fillStyle = MATCH_LINE;
@@ -574,7 +634,7 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
       ctx.save();
       ctx.font = `${theme.baseFontStyle} ${theme.fontFamily}`;
       const width = Math.min(ctx.measureText(text).width, rect.width - pad * 2);
-      const y = Math.round(rect.y + rect.height / 2) + 0.5;
+      const y = Math.round(midY) + 0.5;
       ctx.strokeStyle = TONE_STYLE.deleted.fg;
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -829,7 +889,9 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
       ? []
       : rowDetailItems(scopedColumns, (col) => {
           const changed = view !== "base" && sheet.isCellChanged(selectedRow, col);
-          return { value: displayValue(selectedRow, col), changed, ...(changed ? { author: cellAuthor(selectedRow, col) } : {}) };
+          if (!changed) return { value: displayValue(selectedRow, col), changed };
+          const before = formatColumnValue(sheet.column(col), sheet.baseValue(selectedRow, col));
+          return { value: displayValue(selectedRow, col), changed, author: cellAuthor(selectedRow, col), before };
         });
   const detailTitle = selectedRow === null ? "" : (sheet.meta.keyColumns.map((k) => displayValue(selectedRow, k)).filter((v) => v !== "").join(" / ") || selectedRow.rowKey);
 
@@ -841,6 +903,17 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
         detailOpen: showDetail,
         toggleDetail: () => setShowDetail((s) => !s),
       })}
+      {view === "diff" && (
+        <div className="diff-bar" title={gridMessages().sheetGrid.changedOnlyTitle}>
+          <Checkbox
+            id={`${sheetName}-${paneScope.kind}-${(paneScope as { name?: string }).name ?? ""}-changed-only`}
+            labelText={gridMessages().sheetGrid.changedOnly}
+            checked={changedOnly}
+            onChange={(_, { checked }) => setChangedOnly(checked)}
+          />
+          {changedOnly && <span className="count">{gridMessages().sheetGrid.changedOnlyCount(diffColumns.length, scopedColumns.length)}</span>}
+        </div>
+      )}
       <ColumnFilterBar
         filters={filters}
         shown={rows.length}
@@ -864,7 +937,7 @@ export function SheetGrid({ workspace, sheetName, view, version, isBusy, onMessa
         headerHeight={headerHeightFor(columns)}
         drawHeader={drawHeader}
         drawCell={drawCell}
-        rowHeight={ROW_HEIGHT}
+        rowHeight={view === "diff" ? DIFF_ROW_HEIGHT : ROW_HEIGHT}
         verticalBorder={false}
         highlightRegions={highlightRegions}
         onHeaderClicked={(col, args) => {

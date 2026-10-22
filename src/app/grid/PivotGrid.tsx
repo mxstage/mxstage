@@ -524,7 +524,18 @@ export function PivotGrid({ workspace, sheetName, view, version, isBusy, onMessa
           const text = cell.row === null ? "" : formatColumnValue(sheet.column(cell.valueCol), value(cell.row, cell.valueCol));
           const changed = cell.row !== null && view !== "base" && sheet.isCellChanged(cell.row, cell.valueCol);
           const author = changed && cell.row !== null ? cellAuthor(cell.row, cell.valueCol) : null;
-          return { name: column.key, label: column.section === null ? column.attr : `${column.attr}（${column.section}）`, attr: null, value: text, changed, ...(author ? { author } : {}), long: false, empty: text === "" };
+          const before = changed && cell.row !== null ? formatColumnValue(sheet.column(cell.valueCol), sheet.baseValue(cell.row, cell.valueCol)) : undefined;
+          return {
+            name: column.key,
+            label: column.section === null ? column.attr : `${column.attr}（${column.section}）`,
+            attr: null,
+            value: text,
+            changed,
+            ...(author ? { author } : {}),
+            ...(before !== undefined ? { before } : {}),
+            long: false,
+            empty: text === "",
+          };
         });
   const detailTitle = selectedRow === null ? "" : labelCols.map((c) => labelText(selectedRow, c)).filter((v) => v !== "").join(" / ");
   const tooltipLeft = hover ? Math.max(4, Math.min(hover.x, (typeof window !== "undefined" ? window.innerWidth : 1200) - 364)) : 0;

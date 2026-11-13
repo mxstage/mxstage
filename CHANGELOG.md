@@ -2,6 +2,14 @@
 
 All notable changes to MX Stage are listed here. Versions follow [Semantic Versioning](https://semver.org/). Each version becomes available under the Apache License 2.0 four years after its release (see [LICENSE](LICENSE)).
 
+## 0.2.10 — 2026-11-13
+
+### Changed
+
+- **Compare changed values with the originals.** In the Changes view, each changed cell shows the original value above, small and struck through, and the new value below in the colour of who changed it, so you can read down a column without pointing at each cell. Unchanged cells of the same rows line up with the new values.
+- **Changed columns only.** The Changes view shows only the key columns and the columns changed in at least one row (and the columns with values in added rows). A check box above the table turns it off to see every column.
+- Row details show the original value above the new value for every changed item, including values that were emptied, in both the one-row-per-item and the one-row-per-record views.
+
 ## 0.2.9 — 2026-10-20
 
 ### Added

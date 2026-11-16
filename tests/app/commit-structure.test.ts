@@ -7,14 +7,14 @@ import { describe, expect, it } from "vitest";
 import { ObjectStructureCatalog } from "../../src/app/catalog/catalog";
 import { structureDriftProblems } from "../../src/app/catalog/drift";
 import { createCommitController } from "../../src/app/commit/controller";
-import { MaximoClient } from "../../src/app/maximo/client";
-import type { ObjectStructureInfo } from "../../src/app/maximo/meta";
+import { MaximoClient } from "@mxstage/eam-connectors";
+import type { ObjectStructureInfo } from "@mxstage/eam-connectors";
 import type { ToolContext } from "../../src/app/relay";
 import type { MaximoConnection } from "../../src/app/runtime/contracts";
 import { JobRegistry, Workspace } from "../../src/app/store";
 import { createToolRegistry } from "../../src/app/tools/registry";
 import type { InvokeMsg } from "../../src/shared/protocol";
-import { makeChildRowKey, makeParentKey, type SheetMeta } from "../../src/shared/sheet";
+import { makeChildRowKey, makeParentKey, type SheetMeta } from "@mxstage/eam-connectors";
 import type { ToolName } from "../../src/shared/toolDefs";
 import { createFakeMaximo, sampleSeed } from "../fakes/fake-maximo";
 

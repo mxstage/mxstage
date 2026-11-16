@@ -6,8 +6,8 @@
 // - 横持ちのセルを直すと、対応する縦持ちの行の値の列（数値なら NUMVALUE、文字なら ALNVALUE）が変わる。
 // - 縦持ちの行が無い項目のセルは空で、値を入れると縦持ちの行を足す。
 
-import type { CellValue, ColumnSchema } from "../../shared/model";
-import type { SheetMeta } from "../../shared/sheet";
+import type { CellValue, ColumnSchema } from "@mxstage/eam-connectors";
+import type { SheetMeta } from "@mxstage/eam-connectors";
 import type { RowState } from "../store/sheet";
 
 /** 横持ちにできる子の表の形 */

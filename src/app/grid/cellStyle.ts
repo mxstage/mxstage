@@ -1,6 +1,6 @@
 // グリッドのセルの色分け・編集可否・ホバーの文言（純関数）。
 
-import type { BatchAuthor, CellValue, ColumnSchema } from "../../shared/model";
+import type { BatchAuthor, CellValue, ColumnSchema } from "@mxstage/eam-connectors";
 import { formatDateForDisplay, type RowStatus, type ViewKind } from "../store";
 import { gridMessages } from "./messages";
 

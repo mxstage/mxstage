@@ -3,7 +3,7 @@
 // - 区切りはカンマ。拡張子が .tsv か、1 行目にタブがありカンマが無ければタブ。
 // - 値は文字のまま（先頭の 0 や桁の多い番号を数値にして崩さない）。空は null。
 
-import type { CellValue } from "../../shared/model";
+import type { CellValue } from "@mxstage/eam-connectors";
 import { IMPORT_MAX_COLUMNS, IMPORT_MAX_ROWS, ImportError, type ImportWorkbook, type RawRow, type RawTable } from "./table";
 
 export interface DecodedText {

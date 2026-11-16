@@ -7,16 +7,16 @@
 
 import { Button, Checkbox, Form, Layer, RadioButton, RadioButtonGroup, Select, SelectItem, Tab, TabList, TabPanel, TabPanels, Tabs, TextInput } from "@carbon/react";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from "react";
-import { LOCALES, getLocale, isLocale, subscribeLocale } from "../../shared/i18n";
+import { LOCALES, getLocale, isLocale, subscribeLocale } from "@mxstage/eam-connectors";
 import type { AutoConnector } from "../connections/auto";
 import type { SavedConnection, SavedConnectionsClient, SaveProblem } from "../connections/client";
 import type { DemoApi } from "../demo/client";
 import { demoMessages } from "../demo/messages";
 import type { ConnectInput, VaultView } from "../keyvault/client";
-import type { Environment, LicenseClient } from "../license/client";
-import { licenseMessages } from "../license/messages";
-import type { MaximoVia } from "../maximo/client";
-import { pastStatusOf, setPastStatus, type PastStatus } from "../maximo/statusPrefs";
+import type { Environment, LicenseClient } from "@mxstage/eam-connectors/license";
+import { licenseMessages } from "@mxstage/eam-connectors/license";
+import type { MaximoVia } from "@mxstage/eam-connectors";
+import { pastStatusOf, setPastStatus, type PastStatus } from "@mxstage/eam-connectors";
 import { hostOf } from "../pages/status";
 import type { MaximoConnectionInfo } from "../runtime/contracts";
 import { Link, spaClick } from "../ui/Link";

@@ -24,7 +24,8 @@ export {
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SKILLS_DIR = join(ROOT, "skills");
 export const TOOL_DEFS_FILE = join(ROOT, "src", "shared", "toolDefs.ts");
-export const MODEL_FILE = join(ROOT, "src", "shared", "model.ts");
+// シートの型（model.ts）は部品 @mxstage/eam-connectors に移した。配った型の宣言（dist/model.d.ts）を読む
+export const MODEL_FILE = join(ROOT, "node_modules", "@mxstage", "eam-connectors", "dist", "model.d.ts");
 export const GENERATED_FILE = join(ROOT, "src", "bridge", "defaultSkills.ts");
 
 /** 先頭に並べる Skill（利用者の Skill が前提にする基本手順） */
@@ -95,7 +96,7 @@ export function renderGenerated(skills: readonly SkillSource[], conflictReasons:
   }
   lines.push(
     "",
-    "/** Skill の本文に書いてよい ConflictInfo.reason（src/shared/model.ts から読む）。利用者の Skill の検証に使う */",
+    "/** Skill の本文に書いてよい ConflictInfo.reason（@mxstage/eam-connectors の model から読む）。利用者の Skill の検証に使う */",
     `export const CONFLICT_REASONS: readonly string[] = ${JSON.stringify([...conflictReasons].sort())};`,
   );
   return `${lines.join("\n")}\n`;
@@ -162,7 +163,7 @@ export function collectSkills(): CollectResult {
   problems.push(...toolErrors.map((e) => `src/shared/toolDefs.ts: ${e}`));
   const modelErrors: string[] = [];
   const conflictReasons = readConflictReasons(readFileSync(MODEL_FILE, "utf8"), modelErrors);
-  problems.push(...modelErrors.map((e) => `src/shared/model.ts: ${e}`));
+  problems.push(...modelErrors.map((e) => `@mxstage/eam-connectors/dist/model.d.ts: ${e}`));
   const known: KnownNames = { tools, conflictReasons };
 
   const entries = existsSync(SKILLS_DIR) ? readdirSync(SKILLS_DIR, { withFileTypes: true }) : [];

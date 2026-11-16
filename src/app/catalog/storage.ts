@@ -3,7 +3,7 @@
 // - 保存するのは jsonschemas から読んだ属性の定義と、オブジェクト構造の一覧（apimeta と MXAPIINTOBJECT）だけ。API キーや行データは入れない。
 // - IndexedDB が使えない環境（プライベートウィンドウ、試験など）ではメモリに置く（タブを閉じると消える）。
 
-import type { DefinedObjectStructure, ObjectStructureInfo, ObjectStructureListItem } from "../maximo/meta";
+import type { DefinedObjectStructure, ObjectStructureInfo, ObjectStructureListItem } from "@mxstage/eam-connectors";
 import { catalogMessages as m } from "../settings/messages";
 
 /** 保存したオブジェクト構造 1 つ */
@@ -47,7 +47,7 @@ export interface CatalogStorage {
 }
 
 /** 保存のキーにする接続先（決め方は橋渡しと共通。src/shared/scope.ts） */
-export { normalizeScope } from "../../shared/scope";
+export { normalizeScope } from "@mxstage/eam-connectors";
 
 const entryId = (baseUrl: string, os: string) => `${baseUrl}\n${os}`;
 

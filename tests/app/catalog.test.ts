@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { startCatalogAutoSync } from "../../src/app/catalog/autosync";
 import { ObjectStructureCatalog } from "../../src/app/catalog/catalog";
 import { createMemoryCatalogStorage, normalizeScope, type CatalogStorage } from "../../src/app/catalog/storage";
-import { MaximoClient, type FetchLike } from "../../src/app/maximo/client";
+import { MaximoClient, type FetchLike } from "@mxstage/eam-connectors";
 import type { ConnectionProvider, MaximoConnection } from "../../src/app/runtime/contracts";
 import { createFakeMaximo, sampleSeed, withDefinitions } from "../fakes/fake-maximo";
 

@@ -1,6 +1,6 @@
 // 設定の「デモ」（Maximo が無くても試す）の文言。英語が正、日本語は同じ形（src/shared/i18n.ts）。使うときに m() を呼ぶ。
 
-import { defineMessages } from "../../shared/i18n";
+import { defineMessages } from "@mxstage/eam-connectors";
 
 const MB = (bytes: number): string => (bytes / 1_000_000).toFixed(1);
 

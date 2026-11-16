@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Workspace } from "../store";
-import { getLocale, subscribeLocale } from "../../shared/i18n";
+import { getLocale, subscribeLocale } from "@mxstage/eam-connectors";
 import { confirmWorkMoved, fetchWorkFromOtherWindow, parkWork, unparkWork, type SessionStorageLike } from "../boot/handoff";
 import type { Runtime } from "../boot/runtime";
 import type { AppServices } from "../boot/types";

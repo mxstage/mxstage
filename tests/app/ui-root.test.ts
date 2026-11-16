@@ -10,14 +10,14 @@ import type { AppServices } from "../../src/app/boot/types";
 import { AutoConnector } from "../../src/app/connections/auto";
 import { SavedConnectionsClient } from "../../src/app/connections/client";
 import type { KeyVault, VaultView } from "../../src/app/keyvault/client";
-import { LicenseClient } from "../../src/app/license/client";
+import { LicenseClient } from "@mxstage/eam-connectors/license";
 import { REOPEN_HINT_AFTER } from "../../src/app/pages/status";
 import type { RelayStatus } from "../../src/app/relay";
 import type { CommitController, CommitPanelState } from "../../src/app/runtime/contracts";
 import { Workspace } from "../../src/app/store";
 import { Root } from "../../src/app/ui/Root";
 import { navigate } from "../../src/app/ui/routes";
-import { getLocale } from "../../src/shared/i18n";
+import { getLocale } from "@mxstage/eam-connectors";
 import { ToastStore } from "../../src/app/ui/toast";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

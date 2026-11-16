@@ -8,8 +8,8 @@
 // - 保存するのは属性の定義だけ。API キーや行データは持たない。
 // - 保存に失敗したら、そのタブの間はメモリに置いて続ける（画面に知らせる）。
 
-import type { MaximoClient } from "../maximo/client";
-import { getObjectStructureInfo, listDefinedObjectStructures, mergeStructureLists, parseApiMeta } from "../maximo/meta";
+import type { MaximoClient } from "@mxstage/eam-connectors";
+import { getObjectStructureInfo, listDefinedObjectStructures, mergeStructureLists, parseApiMeta } from "@mxstage/eam-connectors";
 import {
   createMemoryCatalogStorage,
   normalizeScope,

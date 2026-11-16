@@ -5,14 +5,14 @@
 
 import type { DictionaryService } from "../dictionaries/service";
 import type { MatchViewStore } from "../match/views";
-import type { BatchAuthor, CommitRowResult, CommitState } from "../../shared/model";
+import type { BatchAuthor, CommitRowResult, CommitState } from "@mxstage/eam-connectors";
 import type { ObjectStructureCatalog } from "../catalog/catalog";
 import type { ImportStore } from "../imports";
-import type { LicenseGate } from "../license/client";
-import type { MaximoClient, MaximoVia } from "../maximo/client";
+import type { LicenseGate } from "@mxstage/eam-connectors/license";
+import type { ConnectionProvider as PackageConnectionProvider, MaximoClient, MaximoVia } from "@mxstage/eam-connectors";
 import type { ReportSnapshot } from "../commit/diffReport";
-import type { WriteLogEntry } from "../maximo/commit";
-import type { StatusPrefs } from "../maximo/statusPrefs";
+import type { WriteLogEntry } from "@mxstage/eam-connectors";
+import type { StatusPrefs } from "@mxstage/eam-connectors";
 import type { ToolHandler } from "../relay";
 import type { JobRegistry, Workspace } from "../store";
 
@@ -34,11 +34,8 @@ export interface MaximoConnection {
   client: MaximoClient;
 }
 
-/** 現在の Maximo 接続。未接続・自動ロック中は null */
-export interface ConnectionProvider {
-  current(): MaximoConnection | null;
-  subscribe(listener: () => void): () => void;
-}
+/** 現在の Maximo 接続。未接続・自動ロック中は null（型は部品 @mxstage/eam-connectors の ConnectionProvider） */
+export type ConnectionProvider = PackageConnectionProvider<MaximoConnection>;
 
 export interface CommitCounts {
   parents: number;

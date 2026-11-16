@@ -1,7 +1,7 @@
 // 公開するデモのファイル（dist/demo-data/v<版>/ の中身）をメモリの上で作る。書き出しは scripts/demo-build.ts。
 // 試験（tests/dev/demo-files.test.ts）も同じものを作り、目録の SHA-256 が製品に埋め込んだ値（src/shared/demo.ts）と合うかを確かめる。
 
-import type { FakeSeed } from "../../src/demo/fakeMaximo.ts";
+import type { FakeSeed } from "@mxstage/eam-connectors/testing";
 import { DEMO_FORMAT, seedToFiles, sha256, type DemoManifest, type ManifestFile } from "../../src/demo/format.ts";
 import { DATASET_VERSION } from "../datasets/plants/index.ts";
 import type { PlantsData } from "../datasets/plants/generate.ts";

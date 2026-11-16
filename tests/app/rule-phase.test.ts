@@ -1,11 +1,11 @@
 // apply_rule の phase（行の時期で値を選ぶ。作業指示などのステータス）と、接続先ごとの過去の作業のステータスの試験。
 
 import { describe, expect, it } from "vitest";
-import { createStatusPrefs, DEFAULT_PAST_STATUS, PAST_STATUS_STORAGE_KEY, pastStatusOf, setPastStatus } from "../../src/app/maximo/statusPrefs";
+import { createStatusPrefs, DEFAULT_PAST_STATUS, PAST_STATUS_STORAGE_KEY, pastStatusOf, setPastStatus } from "@mxstage/eam-connectors";
 import { StoreError } from "../../src/app/store/errors";
 import { Workspace } from "../../src/app/store/workspace";
-import type { CellValue, ColumnSchema, RuleValue } from "../../src/shared/model";
-import { makeParentKey, type SheetMeta } from "../../src/shared/sheet";
+import type { CellValue, ColumnSchema, RuleValue } from "@mxstage/eam-connectors";
+import { makeParentKey, type SheetMeta } from "@mxstage/eam-connectors";
 import { TOOL_DEFS } from "../../src/shared/toolDefs";
 
 const WO = "wo";

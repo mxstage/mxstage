@@ -6,13 +6,13 @@ import { AutoConnector } from "../../src/app/connections/auto";
 import { SELECTED_CONNECTION_KEY, SavedConnectionsClient, type SavedConnection } from "../../src/app/connections/client";
 import { parseDemoStatus, type DemoApi, type DemoState } from "../../src/app/demo/client";
 import type { VaultView } from "../../src/app/keyvault/client";
-import { LicenseClient } from "../../src/app/license/client";
+import { LicenseClient } from "@mxstage/eam-connectors/license";
 import type { MaximoConnectionInfo } from "../../src/app/runtime/contracts";
 import { DemoSection } from "../../src/app/settings/DemoSection";
 import { validateSettingsForm } from "../../src/app/settings/logic";
 import type { SettingsVault } from "../../src/app/settings/SettingsPage";
 import { demoStatusView } from "../../src/app/tools/registry";
-import { setLocale } from "../../src/shared/i18n";
+import { setLocale } from "@mxstage/eam-connectors";
 import { DEMO_ORIGINS, type DemoLang, type DemoStatus } from "../../src/shared/demo";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

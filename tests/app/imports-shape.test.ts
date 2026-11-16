@@ -2,7 +2,7 @@
 // データはすべて架空。
 
 import { describe, expect, it } from "vitest";
-import type { CellValue } from "../../src/shared/model";
+import type { CellValue } from "@mxstage/eam-connectors";
 import { afterLabel, buildShapedSheet, formHint, mergeSummary, shapeImport, shapeImportMany, splitTokens, type ShapeOptions } from "../../src/app/imports/shape";
 import { ImportError, type MergeRange, type RawTable } from "../../src/app/imports/table";
 import { parseXlsx } from "../../src/app/imports/xlsx";

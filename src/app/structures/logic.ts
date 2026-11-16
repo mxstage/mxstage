@@ -1,9 +1,9 @@
 // オブジェクト構造の画面 /structures の純ロジック: 属性の絞り込み、子オブジェクトの要約、一覧の内訳、読み込み失敗の文言。
 
-import type { ColumnSchema } from "../../shared/model";
+import type { ColumnSchema } from "@mxstage/eam-connectors";
 import { foldText, type StoredObjectStructure } from "../catalog/catalog";
-import { MaximoError, MaximoNetworkError } from "../maximo/client";
-import type { DefinedObjectStructure } from "../maximo/meta";
+import { MaximoError, MaximoNetworkError } from "@mxstage/eam-connectors";
+import type { DefinedObjectStructure } from "@mxstage/eam-connectors";
 import { structuresMessages } from "./messages";
 
 export { sheetsByStructure } from "../catalog/usage";

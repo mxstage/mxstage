@@ -3,11 +3,11 @@
 // 読み込んだ後に作業画面が定義を取り直し（「すべて取り直す」・再読み込み）、反映に使う列が変わっていたら、
 // 古い定義のまま送らずに止める（例: 列が無くなった・読み取り専用になった・型が変わった・子を特定する属性が変わった）。
 
-import type { ColumnSchema } from "../../shared/model";
-import { parseRowKey, type SheetMeta } from "../../shared/sheet";
-import type { CommitChanges } from "../maximo/commit";
-import type { ObjectStructureInfo } from "../maximo/meta";
-import { commitMessages } from "../commit/messages";
+import type { ColumnSchema } from "@mxstage/eam-connectors";
+import { parseRowKey, type SheetMeta } from "@mxstage/eam-connectors";
+import type { CommitChanges } from "@mxstage/eam-connectors";
+import type { ObjectStructureInfo } from "@mxstage/eam-connectors";
+import { commitMessages } from "@mxstage/eam-connectors";
 
 /** 反映に使う列と子オブジェクト（変更したセル・追加した行の列、変更・追加・削除する子） */
 function usedByChanges(changes: CommitChanges): { columns: Set<string>; children: Set<string> } {

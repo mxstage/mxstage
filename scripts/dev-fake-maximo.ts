@@ -16,7 +16,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { countsTable, plantsSeed } from "../dev/datasets/plants/index.ts";
-import { createFakeMaximo, sampleSeed, withDefinitions, type FakeMaximo } from "../src/demo/fakeMaximo.ts";
+import { createFakeMaximo, sampleSeed, withDefinitions, type FakeMaximo } from "@mxstage/eam-connectors/testing";
 
 const DEFAULT_PORT = 9797;
 

@@ -7,7 +7,7 @@
 //   画面では親の列だけ／子の列だけに分けて別のペインに出す。編集はどちらも同じシートの同じ行に入る。
 // - load_master で読んだマスタ（機器台帳・ロケーション）は別のシートで、meta.link で参照元とつながっている。
 
-import type { SheetLink, SheetMeta } from "../../shared/sheet";
+import type { SheetLink, SheetMeta } from "@mxstage/eam-connectors";
 import { pagesMessages } from "./messages";
 
 export type PaneScope = { kind: "all" } | { kind: "parent" } | { kind: "child"; name: string };

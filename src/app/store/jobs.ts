@@ -1,6 +1,6 @@
 // 長い処理（load_sheet など）の進捗。タブのメモリにだけ持ち、保存しない。
 
-import type { JobState, JobStatus } from "../../shared/model";
+import type { JobState, JobStatus } from "@mxstage/eam-connectors";
 import { StoreError } from "./errors";
 
 export type JobKind = JobStatus["kind"];

@@ -1,6 +1,6 @@
 // セル値の型検査・変換と、数値・日付の比較。
 
-import type { CellValue, ColumnSchema } from "../../shared/model";
+import type { CellValue, ColumnSchema } from "@mxstage/eam-connectors";
 
 /** null と空文字（空白だけの文字列は含まない）を「値なし」とみなす */
 export function isBlank(v: CellValue | undefined): boolean {

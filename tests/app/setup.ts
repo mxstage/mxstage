@@ -3,7 +3,7 @@
 // 英語を確かめる試験は、その中で setLocale("en") にする（次の試験の前に日本語へ戻る）。
 
 import { beforeEach } from "vitest";
-import { setLocale } from "../../src/shared/i18n";
+import { setLocale } from "@mxstage/eam-connectors";
 
 setLocale("ja");
 

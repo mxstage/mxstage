@@ -1,6 +1,6 @@
 import fc, { type Arbitrary } from "fast-check";
 import { describe, expect, it } from "vitest";
-import { MaximoClient, type FetchLike } from "../../src/app/maximo/client";
+import { MaximoClient, type FetchLike } from "@mxstage/eam-connectors";
 import {
   assertSafePatchRequest,
   buildPatchRequest,
@@ -15,11 +15,11 @@ import {
   type CommitRowOutcome,
   type ExecuteCommitOptions,
   type PatchRequest,
-} from "../../src/app/maximo/commit";
-import { loadRecords } from "../../src/app/maximo/load";
-import { getObjectStructureInfo } from "../../src/app/maximo/meta";
-import type { CellValue, ColumnSchema } from "../../src/shared/model";
-import { makeChildRowKey, makeParentKey, type MaximoRecord, type ParentCommitPlan, type SheetMeta } from "../../src/shared/sheet";
+} from "@mxstage/eam-connectors";
+import { loadRecords } from "@mxstage/eam-connectors";
+import { getObjectStructureInfo } from "@mxstage/eam-connectors";
+import type { CellValue, ColumnSchema } from "@mxstage/eam-connectors";
+import { makeChildRowKey, makeParentKey, type MaximoRecord, type ParentCommitPlan, type SheetMeta } from "@mxstage/eam-connectors";
 import { createFakeMaximo, sampleSeed, type FakeMaximo, type FakeRecord, type FakeRecordSeed } from "../fakes/fake-maximo";
 
 // ---------------------------------------------------------------------------

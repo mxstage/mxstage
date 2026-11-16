@@ -5,7 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ConnectInput, VaultView } from "../../src/app/keyvault/client";
 import { VaultCore } from "../../src/app/keyvault/core";
-import { toMaximoError } from "../../src/app/maximo/client";
+import { toMaximoError } from "@mxstage/eam-connectors";
 import type { MaximoConnectionInfo } from "../../src/app/runtime/contracts";
 import { SettingsPage, type SettingsVault } from "../../src/app/settings/SettingsPage";
 import { connectErrorMessage, localClientStatus, validateSettingsForm, viaOptionLabel } from "../../src/app/settings/logic";
@@ -20,7 +20,7 @@ import {
 } from "../../src/app/settings/messages";
 import { VaultRequestError } from "../../src/app/keyvault/client";
 import type { SettingsTab } from "../../src/app/ui/routes";
-import { LOCALE_STORAGE_KEY, getLocale, setLocale } from "../../src/shared/i18n";
+import { LOCALE_STORAGE_KEY, getLocale, setLocale } from "@mxstage/eam-connectors";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

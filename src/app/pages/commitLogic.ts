@@ -1,9 +1,9 @@
 // 反映パネルの純ロジック: ボタンの有効条件、確認の要否、結果の文言、ログのファイル名。
 
-import type { CommitRowResult, CommitState } from "../../shared/model";
-import { parseRowKey } from "../../shared/sheet";
+import type { CommitRowResult, CommitState } from "@mxstage/eam-connectors";
+import { parseRowKey } from "@mxstage/eam-connectors";
 import type { CommitCounts, CommitPanelState } from "../runtime/contracts";
-import { commitMessages as m } from "../commit/messages";
+import { commitMessages as m } from "@mxstage/eam-connectors";
 
 /** 行キーを人が読める形にする（例 "BEDFORD / WO062041 #EXT_WOPERMIT:12"） */
 export function displayRowKey(rowKey: string): string {

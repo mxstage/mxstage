@@ -5,7 +5,7 @@
 // - 言葉はすべて当たる構造を優先し、1 つも無ければ一部だけ当たる構造を partial として返す。
 // - 点数が同じなら MXAPI で始まる構造（REST API 向けに用意された構造）を先に並べる。
 
-import type { ColumnSchema, ColumnType } from "../../shared/model";
+import type { ColumnSchema, ColumnType } from "@mxstage/eam-connectors";
 import { foldText, type StoredObjectStructure } from "./catalog";
 
 export interface StructureSearchColumn {

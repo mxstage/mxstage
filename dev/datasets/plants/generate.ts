@@ -3,7 +3,7 @@
 // 判定はすべて日本語の正本（catalog.ts）で行い、表に書く文だけを text.ts で言語（日本語・英語）にする。
 // 日英で引く乱数は同じなので、ID・件数・数値・日付は言語によらず同じになる（金額と人の ID を除く）。
 
-import type { CellValue } from "../../../src/shared/model";
+import type { CellValue } from "@mxstage/eam-connectors";
 import {
   ATTRS, CAUSES, CAUSE_REMEDIES, CLASSES, CLASS_MAKERS, COMPANIES, CRAFTS, DEPTS, FAILURE_CLASSES, FAILURE_TREE, INSTRUMENTS,
   ITEMSETID, ITEM_TEMPLATES, LEDGER_CUTOFF, MEASURE_UNITS, METERS, MODEL_PREFIX, ORGID, ORG_DESCRIPTION, OVERHAUL_CLASSES, PM_PROGRAMS, PROBLEMS,

@@ -4,8 +4,8 @@
 // - 値の種類が多すぎる軸は候補から外し、skipped に出す
 
 import { describe, expect, it } from "vitest";
-import { MaximoClient } from "../../src/app/maximo/client";
-import { getObjectStructureInfo } from "../../src/app/maximo/meta";
+import { MaximoClient } from "@mxstage/eam-connectors";
+import { getObjectStructureInfo } from "@mxstage/eam-connectors";
 import { axesFor, pickScopeAxes } from "../../src/app/scope/axes";
 import { keyPattern, scanScope } from "../../src/app/scope/scan";
 import { createFakeMaximo, type FakeRecordSeed, type FakeSeed } from "../fakes/fake-maximo";

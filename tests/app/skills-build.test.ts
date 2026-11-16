@@ -12,7 +12,7 @@
 
 import ts from "typescript";
 import { beforeAll, describe, expect, it } from "vitest";
-import type { ConflictInfo } from "../../src/shared/model";
+import type { ConflictInfo } from "@mxstage/eam-connectors";
 import { TOOL_DEFS } from "../../src/shared/toolDefs";
 
 interface SkillSource {
@@ -43,14 +43,18 @@ interface BuildSkillsModule {
 
 const BUILD_SCRIPT = "../../scripts/build-skills.ts";
 
-const RAW = import.meta.glob<string>(["../../src/shared/toolDefs.ts", "../../src/shared/model.ts", "../../src/bridge/defaultSkills.ts"], {
+// シートの型は部品 @mxstage/eam-connectors に移した（import.meta.glob は node_modules を見ないので、直に読む）
+import MODEL_DTS from "../../node_modules/@mxstage/eam-connectors/dist/model.d.ts?raw";
+const MODEL_FILE = "../../node_modules/@mxstage/eam-connectors/dist/model.d.ts";
+
+const RAW = import.meta.glob<string>(["../../src/shared/toolDefs.ts", "../../src/bridge/defaultSkills.ts"], {
   query: "?raw",
   import: "default",
   eager: true,
 });
 
 function raw(path: string): string {
-  const text = RAW[path];
+  const text = path === MODEL_FILE ? MODEL_DTS : RAW[path];
   if (text === undefined) throw new Error(`${path} を読めない`);
   return text;
 }
@@ -167,7 +171,7 @@ describe("build-skills: 定義の読み取り", () => {
 
   it("model.ts から読んだ ConflictInfo の reason が型と一致する", () => {
     const errors: string[] = [];
-    const reasons = build.readConflictReasons(raw("../../src/shared/model.ts"), errors);
+    const reasons = build.readConflictReasons(raw(MODEL_FILE), errors);
     expect(errors).toEqual([]);
     expect([...reasons].sort()).toEqual(Object.keys(CONFLICT_REASONS).sort());
   });

@@ -5,9 +5,9 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import type { ClientRequest, IncomingMessage } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
-import { ConnectionStore, normalizeConnectionUrl } from "../../src/bridge/connections.ts";
-import type { UpstreamRequest } from "../../src/bridge/mx.ts";
-import { SecretBox, type CommandRunner } from "../../src/bridge/secretBox.ts";
+import { ConnectionStore, normalizeConnectionUrl } from "@mxstage/eam-connectors/node";
+import type { UpstreamRequest } from "@mxstage/eam-connectors/node";
+import { SecretBox, type CommandRunner } from "@mxstage/eam-connectors/node";
 import { CONNECTIONS_PATH, CONNECTIONS_REMOVE_PATH, CONNECTIONS_USE_PATH } from "../../src/bridge/server.ts";
 import { rawRequest, startTestBridge, stopAll } from "./support.ts";
 

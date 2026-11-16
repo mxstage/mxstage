@@ -3,7 +3,7 @@
 // 人が見ている表は人が選んだものなので、人がタブを選んだ直後（FOLLOW_PAUSE_MS の間）は動かさない。
 // 人の直接の編集は、そのシートを見ているときにしか起きないので移らない。
 
-import type { BatchAuthor } from "../../shared/model";
+import type { BatchAuthor } from "@mxstage/eam-connectors";
 import type { ChangeEvent } from "../store";
 
 /** 人がタブを選んでから、AI の作業に表示を合わせないでおく時間 */

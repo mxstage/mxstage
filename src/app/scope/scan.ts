@@ -5,11 +5,11 @@
 // - 列を絞るので 1 ページを大きく取れる（既定 1,000 件）。全件読み込みより速く、往復も少ない。
 // - where で絞ってから呼び直すと、その中での分布が返る（期間で絞ってから部署で絞る、のように詰められる）。
 
-import type { CellValue, TypedFilter } from "../../shared/model";
-import type { MaximoRecord } from "../../shared/sheet";
-import type { MaximoClient } from "../maximo/client";
-import { loadRecords } from "../maximo/load";
-import type { ObjectStructureInfo } from "../maximo/meta";
+import type { CellValue, TypedFilter } from "@mxstage/eam-connectors";
+import type { MaximoRecord } from "@mxstage/eam-connectors";
+import type { MaximoClient } from "@mxstage/eam-connectors";
+import { loadRecords } from "@mxstage/eam-connectors";
+import type { ObjectStructureInfo } from "@mxstage/eam-connectors";
 import type { ScopeAxis, ScopeAxisKind } from "./axes";
 
 export const SCAN_PAGE_SIZE = 1_000;

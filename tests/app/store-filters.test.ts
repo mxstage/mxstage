@@ -2,7 +2,7 @@
 
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import type { CellValue, TypedFilter } from "../../src/shared/model";
+import type { CellValue, TypedFilter } from "@mxstage/eam-connectors";
 import { StoreError } from "../../src/app/store/errors";
 import { compareValues, compileFilters, inListMatcher, likeMatcher, valuesEqual } from "../../src/app/store/filters";
 import { JobRegistry } from "../../src/app/store/jobs";

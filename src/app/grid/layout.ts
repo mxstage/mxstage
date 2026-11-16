@@ -1,7 +1,7 @@
 // グリッドの寸法の決め方。狭い画面（チャットと半々に並べるなど）で固定列だけが見えて
 // 中身が読めなくなるのを防ぐ。canvas に渡す前の純関数なのでここで試験する。
 
-import type { ColumnSchema } from "../../shared/model";
+import type { ColumnSchema } from "@mxstage/eam-connectors";
 import { headerLines } from "../../shared/columnLabel";
 
 /** これより狭いと固定列を外す（固定列だけで埋まってしまうため） */

@@ -6,7 +6,7 @@
 
 import { demoLangOfConnectionId } from "../../shared/demo";
 import { demoMessages } from "../demo/messages";
-import type { Environment } from "../license/client";
+import type { Environment } from "@mxstage/eam-connectors/license";
 
 export const CONNECTIONS_ENDPOINT = "/_mxstage/connections";
 export const CONNECTIONS_REMOVE_ENDPOINT = "/_mxstage/connections/remove";

@@ -7,7 +7,7 @@
 
 import { createHash } from "node:crypto";
 import { gunzipSync, gzipSync } from "node:zlib";
-import type { FakeOsSeed, FakeRecordSeed, FakeSeed } from "./fakeMaximo.ts";
+import type { FakeOsSeed, FakeRecordSeed, FakeSeed } from "@mxstage/eam-connectors/testing";
 
 export const DEMO_FORMAT = 1;
 

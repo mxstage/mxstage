@@ -24,8 +24,8 @@ import { BRIDGE_KEY_FILE_ENV, BridgeKeyStore, LEGACY_BRIDGE_KEY_FILE_ENV, defaul
 import { BridgeCoordinator, CLIENT_WATCH_INTERVAL_MS } from "./coordinator.ts";
 import { CodeFingerprint, checkUpdates, isDefaultAppDir } from "./freshness.ts";
 import { migrateLegacyFiles } from "./legacy.ts";
-import { LicenseStore, licenseTestKeysAllowed, readDevLicenses } from "./license.ts";
-import { ConnectionStore } from "./connections.ts";
+import { LicenseStore, licenseTestKeysAllowed, readDevLicenses } from "@mxstage/eam-connectors/node";
+import { ConnectionStore } from "@mxstage/eam-connectors/node";
 import { DictionaryStore } from "./dictionaries.ts";
 import { DemoManager } from "./demo.ts";
 import { UpdateManager, revealInFolder } from "./updates.ts";

@@ -4,7 +4,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConnectInput, VaultView } from "../../src/app/keyvault/client";
-import { toMaximoError } from "../../src/app/maximo/client";
+import { toMaximoError } from "@mxstage/eam-connectors";
 import type { MaximoConnectionInfo } from "../../src/app/runtime/contracts";
 import { CONNECTED_URL, SettingsPage, type SettingsPageProps, type SettingsVault } from "../../src/app/settings/SettingsPage";
 import { STORAGE_KEYS } from "../../src/app/settings/logic";

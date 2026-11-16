@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MaximoClient, MaximoError, MaximoNetworkError, toMaximoError, type FetchLike } from "../../src/app/maximo/client";
+import { MaximoClient, MaximoError, MaximoNetworkError, toMaximoError, type FetchLike } from "@mxstage/eam-connectors";
 
 interface Call {
   url: string;

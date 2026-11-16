@@ -1,7 +1,7 @@
 // 作業タブ（メインスレッド）と、API キーを持つ専用 Web Worker の間のメッセージ。
 // キーは unlock でメインスレッドから Worker へ 1 回だけ渡り、Worker からメインスレッドへは戻らない。
 
-import type { MaximoVia } from "../maximo/client";
+import type { MaximoVia } from "@mxstage/eam-connectors";
 
 /** MaximoClient に API キーの代わりに渡す文字列。Worker が送信直前に本物のキーへ置き換える（秘密ではない） */
 export const VAULT_SENTINEL = "mxstage-vault-sentinel";

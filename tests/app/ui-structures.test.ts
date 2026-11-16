@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ObjectStructureCatalog } from "../../src/app/catalog/catalog";
 import { createMemoryCatalogStorage } from "../../src/app/catalog/storage";
 import type { VaultView } from "../../src/app/keyvault/client";
-import { MaximoClient, type FetchLike } from "../../src/app/maximo/client";
+import { MaximoClient, type FetchLike } from "@mxstage/eam-connectors";
 import type { MaximoConnection } from "../../src/app/runtime/contracts";
 import { STORAGE_KEYS, type StorageLike } from "../../src/app/settings/logic";
 import { Workspace } from "../../src/app/store";
@@ -18,7 +18,7 @@ import { filterColumns, groupByUseWith, loadErrorMessage, normalizeOsName } from
 import { StructuresPage, type StructuresPageProps, type StructuresVault } from "../../src/app/structures/StructuresPage";
 import { resolveRoute } from "../../src/app/ui/routes";
 import { ToastStore } from "../../src/app/ui/toast";
-import type { SheetMeta } from "../../src/shared/sheet";
+import type { SheetMeta } from "@mxstage/eam-connectors";
 import { createFakeMaximo, sampleSeed, withDefinitions, type FakeMaximo } from "../fakes/fake-maximo";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

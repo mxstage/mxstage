@@ -4,7 +4,7 @@
 // 戻せないステータスは人の確認が要る）を確かめる。
 
 import { describe, expect, it } from "vitest";
-import { MaximoClient } from "../../src/app/maximo/client";
+import { MaximoClient } from "@mxstage/eam-connectors";
 import {
   assertSafePatchRequest,
   buildPatchRequest,
@@ -20,11 +20,11 @@ import {
   type CommitChanges,
   type CommitPlan,
   type ExecuteCommitOptions,
-} from "../../src/app/maximo/commit";
-import { loadRecords } from "../../src/app/maximo/load";
-import { getObjectStructureInfo } from "../../src/app/maximo/meta";
-import { canChangeStatus, isIrreversibleStatus, STATUS_RULES, statusObjectKind, WO_TRANSITIONS } from "../../src/shared/status";
-import { makeParentKey, type MaximoRecord, type ParentCommitPlan, type SheetMeta } from "../../src/shared/sheet";
+} from "@mxstage/eam-connectors";
+import { loadRecords } from "@mxstage/eam-connectors";
+import { getObjectStructureInfo } from "@mxstage/eam-connectors";
+import { canChangeStatus, isIrreversibleStatus, STATUS_RULES, statusObjectKind, WO_TRANSITIONS } from "@mxstage/eam-connectors";
+import { makeParentKey, type MaximoRecord, type ParentCommitPlan, type SheetMeta } from "@mxstage/eam-connectors";
 import { createFakeMaximo, FAKE_STATUSFUL, FAKE_WO_TRANSITIONS, sampleSeed, type FakeMaximo, type FakeSeed } from "../fakes/fake-maximo";
 
 // ---------------------------------------------------------------------------

@@ -2,7 +2,7 @@
 // 規則は scripts/build-skills.ts と同じものを、ここでは独立に実装して二重に検査する。
 
 import { describe, expect, it } from "vitest";
-import type { ConflictInfo } from "../../src/shared/model";
+import type { ConflictInfo } from "@mxstage/eam-connectors";
 import { TOOL_DEFS } from "../../src/shared/toolDefs";
 import { SKILLS } from "../../src/bridge/defaultSkills";
 

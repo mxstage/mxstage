@@ -1,6 +1,6 @@
 // TypedFilter をシートの行に対する述語にする。複数の条件は AND で結ぶ。
 
-import type { CellValue, TypedFilter } from "../../shared/model";
+import type { CellValue, TypedFilter } from "@mxstage/eam-connectors";
 import { StoreError } from "./errors";
 import { compareParsedDates, isBlank, parseIsoDate, toNumber } from "./values";
 

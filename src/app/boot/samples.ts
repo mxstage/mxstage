@@ -4,8 +4,8 @@
 // 本番のビルドには入らない（boot/services.ts が import.meta.env.DEV の中で動的に import する）。
 // ここで作るのは「Maximo から読み込んだ形」のシート。作業指示（MXAPIWODETAIL）＋機器台帳＋ロケーションを模した架空のデータ。
 
-import type { CellValue, ColumnSchema } from "../../shared/model";
-import { makeChildRowKey, makeParentKey, type SheetMeta, type SheetRow } from "../../shared/sheet";
+import type { CellValue, ColumnSchema } from "@mxstage/eam-connectors";
+import { makeChildRowKey, makeParentKey, type SheetMeta, type SheetRow } from "@mxstage/eam-connectors";
 import type { Workspace } from "../store";
 
 const STATUSES = ["作成中", "承認済み", "工事中", "工事完了", "キャンセル"];

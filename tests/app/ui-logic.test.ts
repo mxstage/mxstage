@@ -1,8 +1,8 @@
 // 画面の純ロジック（ルート解決・状態の文言・設定フォームの検査・セルの色分け・反映パネル）の試験。
 import { describe, expect, it } from "vitest";
-import type { CommitRowResult } from "../../src/shared/model";
-import { makeChildRowKey, makeParentKey } from "../../src/shared/sheet";
-import { toMaximoError, MaximoNetworkError } from "../../src/app/maximo/client";
+import type { CommitRowResult } from "@mxstage/eam-connectors";
+import { makeChildRowKey, makeParentKey } from "@mxstage/eam-connectors";
+import { toMaximoError, MaximoNetworkError } from "@mxstage/eam-connectors";
 import type { RelayStatus } from "../../src/app/relay";
 import type { CommitPanelState } from "../../src/app/runtime/contracts";
 import { CompactSelection, type GridSelection } from "@glideapps/glide-data-grid";

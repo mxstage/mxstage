@@ -4,8 +4,8 @@ import { PassThrough } from "node:stream";
 import { request as httpRequest } from "node:http";
 import type { ClientRequest, IncomingMessage } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
-import { MX_UPSTREAM_TIMEOUT_MS, checkProxyPath, forwardHeaders, parseMaximoBase, sanitizeUpstreamHeaders } from "../../src/bridge/mx.ts";
-import type { UpstreamRequest } from "../../src/bridge/mx.ts";
+import { MX_UPSTREAM_TIMEOUT_MS, checkProxyPath, forwardHeaders, parseMaximoBase, sanitizeUpstreamHeaders } from "@mxstage/eam-connectors/node";
+import type { UpstreamRequest } from "@mxstage/eam-connectors/node";
 import { rawRequest, startTestBridge, stopAll, waitFor } from "./support.ts";
 
 afterEach(async () => {

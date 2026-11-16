@@ -11,8 +11,8 @@
 import { Calendar, WarningAltFilled } from "@carbon/icons-react";
 import { GridCellKind, type GridCell, type ProvideEditorCallbackResult, type ProvideEditorComponent } from "@glideapps/glide-data-grid";
 import { createContext, useContext, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type MutableRefObject } from "react";
-import type { ColumnSchema } from "../../shared/model";
-import type { ValueListItem, ValueListState } from "../maximo/valueList";
+import type { ColumnSchema } from "@mxstage/eam-connectors";
+import type { ValueListItem, ValueListState } from "@mxstage/eam-connectors";
 import { formatDateForDisplay, normalizeDateInput, parseDateInput } from "../store";
 import { gridMessages } from "./messages";
 import { filterItems, isInList } from "./valueLists";

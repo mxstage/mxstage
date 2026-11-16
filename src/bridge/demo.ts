@@ -12,7 +12,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync 
 import { readFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { join } from "node:path";
-import { createFakeMaximo, type FakeMaximo, type FakeSeed } from "../demo/fakeMaximo.ts";
+import { createFakeMaximo, type FakeMaximo, type FakeSeed } from "@mxstage/eam-connectors/testing";
 import { DEMO_FORMAT, filesToSeed, sha256, type DemoManifest, type ManifestFile } from "../demo/format.ts";
 import {
   DEMO_CLOSE_PATH,
@@ -33,7 +33,7 @@ import {
   type DemoLanguageStatus,
   type DemoStatus,
 } from "../shared/demo.ts";
-import { checkProxyPath, forwardHeaders, sanitizeUpstreamHeaders } from "./mx.ts";
+import { checkProxyPath, forwardHeaders, sanitizeUpstreamHeaders } from "@mxstage/eam-connectors/node";
 import { readBody } from "./peer.ts";
 
 /** 置き場所を差し替える環境変数（公開の前の確かめ用。目録の SHA-256 は変えられないので、同じデータしか読めない） */

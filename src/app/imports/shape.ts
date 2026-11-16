@@ -5,8 +5,8 @@
 //   - fillDown: 空のセル（結合の 2 行目以降だけ、または空のセル全部）と「〃」「同上」を上の値で埋める。帳票をまたがない
 //   - unpivot: 横に並んだ列（年度・月など）を縦の行に直す。1 つのセルの複数の印を分け、数量の行を号機ごとに分ける
 
-import type { CellValue, ColumnSchema, SheetSource } from "../../shared/model";
-import type { SheetMeta, SheetRow } from "../../shared/sheet";
+import type { CellValue, ColumnSchema, SheetSource } from "@mxstage/eam-connectors";
+import type { SheetMeta, SheetRow } from "@mxstage/eam-connectors";
 import {
   cellFor,
   columnIndex,

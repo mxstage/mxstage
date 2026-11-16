@@ -2,6 +2,12 @@
 
 All notable changes to MX Stage are listed here. Versions follow [Semantic Versioning](https://semver.org/). Each version becomes available under the Apache License 2.0 four years after its release (see [LICENSE](LICENSE)).
 
+## 0.3.0 — 2026-11-16
+
+### Changed
+
+- **The Maximo connection, the commit engine, license keys and saved connections now come from a shared package,** [@mxstage/eam-connectors](https://github.com/mxstage/eam-connectors), which other TSUNAGI tools use too. Nothing changes for you: the work screen, commits, prices, license keys and where MX Stage keeps its data (`~/.config/mxstage`, the keychain item "MX Stage", the Windows DPAPI protection and the browser's `mxstage.*` settings) stay as they were.
+
 ## 0.2.10 — 2026-11-13
 
 ### Changed

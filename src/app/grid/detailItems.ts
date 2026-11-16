@@ -1,7 +1,7 @@
 // 「行の詳細」に並べる項目。画面が狭いときや、工事内容のような長文・改行のあるセルを読むために、
 // 選んだ 1 行の全列を縦に並べる。値の取り出しは呼び出し側に任せ、ここは並べ方だけを決める（試験できるように）。
 
-import type { BatchAuthor, ColumnSchema } from "../../shared/model";
+import type { BatchAuthor, ColumnSchema } from "@mxstage/eam-connectors";
 import { headerLines } from "../../shared/columnLabel";
 
 /** これより長い、または改行を含む値は幅いっぱいに出す */

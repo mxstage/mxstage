@@ -8,7 +8,8 @@
 |---|---|---|
 | 作業画面 | `src/app/` | ブラウザのタブ。シート（正本）・グリッド・反映パネル・設定・オブジェクト構造の画面。ツールはここで実行する |
 | 橋渡し | `src/bridge/` | この PC の Node のプロセス 1 つ。画面の配信・stdio の MCP サーバ・タブへの中継（`/ws`）・Maximo への中継（`/mx`）・取り込み（`/import`）・状態と Skill の一覧（`/_mxstage`） |
-| 共有 | `src/shared/` | ツールの定義・中継の取り決め・シートの型・SKILL.md の読み取りと検証 |
+| 共有 | `src/shared/` | ツールの定義・中継の取り決め・SKILL.md の読み取りと検証 |
+| 部品 | `@mxstage/eam-connectors`（別のリポジトリ） | Maximo のクライアント・読み込み・書き込みエンジン・シートの型・ライセンスキー・保存した接続先・中継・偽の Maximo（MOYAI と共有） |
 | アプリ既定の Skill | `skills/` | 目次（`mxstage-workbench`）・基本動作 8 本（`mxstage-core-*`）・標準オブジェクト 8 本（`mxstage-obj-*`）。層は `metadata.category`。ビルドで `src/bridge/defaultSkills.ts` に同梱する（仕様は `docs/skills-spec.md`） |
 | 導入 | `scripts/setup-local.mjs`・`mxstage.cmd` | 依存とビルド・橋渡しの起動・Claude への登録・Skill の配置・自動起動とショートカット |
 
@@ -62,7 +63,7 @@
 - **範囲を先に決めます**（`scope_options`。`src/app/scope/`）。構造の属性から絞り込みの軸（状態・分類・担当・種別・場所・期間・番号の規則）を
   機械的に選び、キー列と軸の列だけをシート「範囲 <構造>」に読み込んで画面に出し、そのシートの行から軸ごとの候補値と件数を返します。
 - 1 ページの件数は列の数と子の有無で決め（親の列だけで 40 列以内なら 1,000 件、子を含むなら 200 件）、2 ページ目以降は `pageno` で
-  **並列に 4 ページずつ**取ります（`src/app/maximo/load.ts`）。数万件の資産を 7 列で約 1 分で読み込めることを実機で確かめています
+  **並列に 4 ページずつ**取ります（`@mxstage/eam-connectors` の `src/maximo/load.ts`）。数万件の資産を 7 列で約 1 分で読み込めることを実機で確かめています
   （並列化の前は約 5 分）。
 - `load_master` は、読み込み済みのシートが指している値だけに絞って、参照先のマスタを読み込みます（画面で連動します）。
 
@@ -87,7 +88,7 @@
   反映に使う列が変わったときは、反映しません（`src/app/catalog/drift.ts`）。
 - 送信先はシートの構造のレコード（`/api/os/<構造>/...`）に限ります。
 
-### Maximo への書き込みエンジン（`src/app/maximo/commit.ts`）
+### Maximo への書き込みエンジン（`@mxstage/eam-connectors` の `src/maximo/commit.ts`）
 
 - PATCH は必ず `patchtype: MERGE`。送り先は読み込み時の `href` だけ。送る属性は、変更された・読み取り専用でない・キー列でない列だけ。
 - 子の変更・削除は、読み込み時に ID が分かっている子だけ。削除は親あたり 10 件・全体 50 件まで。超えるときと、空への変更を含むときは画面での確認が要ります。
@@ -98,7 +99,7 @@
 - `add_rows` の `children`: 複数の親の子の行を 1 回で足します（1 回 200 行まで。取り消しは 1 まとまり）。
 - `add_rows` の `from`: 取り込んだシートなど別のシートの行から、作業画面の中で新しいレコードの行を作ります（行の値は LLM を通らない。1 回 200 行まで）。
 - 通信エラーや reasonCode の無い 5xx は「結果不明」として扱います。反映を確認できた親だけ Maximo から読み直して作業画面の値を置き換えます。
-- **ステータスの変更**（`src/shared/status.ts`）: STATUS は属性として送りません（PATCH・作成の本文に入れない。I12）。中身の更新・作成を確かめてから、
+- **ステータスの変更**（`@mxstage/eam-connectors` の `src/status.ts`）: STATUS は属性として送りません（PATCH・作成の本文に入れない。I12）。中身の更新・作成を確かめてから、
   レコードに `?action=wsmethod:changeStatus`（x-method-override: PATCH、本文 `{status, memo}`）を送り、読み直して確かめます。日付は送りません
   （ステータスの日付は前の変更より後でなければならず、作ったばかりの記録に過去の日付は付けられないため。過去の作業の日付は ACTSTART・ACTFINISH に書く）。
   - 送る直前に STATUS と HISTORYFLAG も読み、履歴（作業指示の CLOSE・CAN）・改訂の要る注文書（WAPPR・PNDREV 以外）・作業指示で移れないステータス
@@ -108,7 +109,7 @@
   - 作った後にステータスだけ失敗したら、作ったレコードに行を付け替え、ステータスの変更を作業画面に残します（次の反映でステータスだけを送る）。
 - **時期でステータスを決める**（`apply_rule` の `phase`。`src/app/store/workspace.ts`）: 終わりの日が今日（asOf）以前なら過去、始まりの日が今日以前なら仕掛かり、
   どちらかの日付があれば先。既定は足した行だけを変えます（今ある記録は、ステータスはそのままで中身を直す）。過去の値を省くと、接続先ごとの設定
-  （設定 → Maximo への接続 → 過去の作業のステータス。既定は完了 COMP、選べばクローズ CLOSE。`src/app/maximo/statusPrefs.ts`）を使います。
+  （設定 → Maximo への接続 → 過去の作業のステータス。既定は完了 COMP、選べばクローズ CLOSE。`@mxstage/eam-connectors` の `src/maximo/statusPrefs.ts`）を使います。
 
 ### 作業画面が AI の作業を追う（`src/app/pages/follow.ts`）
 
@@ -123,7 +124,7 @@
 ### 設定（`/settings`）
 
 - Maximo への接続（URL・接続方式 proxy / direct・接続名・API キー）。`whoami` で確かめてから接続します。
-- 「この PC に保存」を選んだ接続先は、橋渡しが API キーを AES-256-GCM で暗号化して保存します（鍵は DPAPI。`src/bridge/connections.ts`・`secretBox.ts`）。作業画面には渡しません。
+- 「この PC に保存」を選んだ接続先は、橋渡しが API キーを AES-256-GCM で暗号化して保存します（鍵は DPAPI。`@mxstage/eam-connectors/node` の `connections.ts`・`secretBox.ts`）。作業画面には渡しません。
 - 保存しないで接続した API キーは専用の Web Worker（keyvault）に渡し、メインスレッドには残しません。30 分操作が無ければ自動でロックします。
   **Claude のツール実行も「作業中」として数えます**（会話しながらの作業で途中でロックされないように）。
 - タブは、接続・デモ・AI アシスタント・Skill・更新・ライセンス・言語。

@@ -3,9 +3,9 @@
 // ここに規則を置く理由: LLM がその場で思い付いた軸を出すと、同じ依頼でも毎回違う聞き方になり再現性が無い。
 // 軸の選び方を 1 か所に固定しておけば、どの構造でも（工事管理でも機器台帳でも）同じ順序・同じ観点で聞ける。
 
-import type { ColumnSchema } from "../../shared/model";
+import type { ColumnSchema } from "@mxstage/eam-connectors";
 import { foldText } from "../catalog/catalog";
-import type { ObjectStructureInfo } from "../maximo/meta";
+import type { ObjectStructureInfo } from "@mxstage/eam-connectors";
 
 export type ScopeAxisKind = "value" | "date" | "key";
 

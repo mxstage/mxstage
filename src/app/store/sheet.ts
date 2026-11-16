@@ -3,9 +3,9 @@
 //   最終ビュー（base + overlay）・差分ビュー（base と異なる行）・元の値ビュー（base）を返す。
 // 変更の検査・バッチ・revision の採番は Workspace が行い、ここは状態の保持と読み出しに徹する。
 
-import type { BatchAuthor, CellValue, ColumnSchema, SheetSummary } from "../../shared/model";
-import type { MaximoRecord, SheetMeta, SheetRow } from "../../shared/sheet";
-import { makeParentKey, parseRowKey } from "../../shared/sheet";
+import type { BatchAuthor, CellValue, ColumnSchema, SheetSummary } from "@mxstage/eam-connectors";
+import type { MaximoRecord, SheetMeta, SheetRow } from "@mxstage/eam-connectors";
+import { makeParentKey, parseRowKey } from "@mxstage/eam-connectors";
 import { StoreError } from "./errors";
 import { sameCellValue } from "./values";
 

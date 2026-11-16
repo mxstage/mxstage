@@ -5,8 +5,8 @@ import { Workspace } from "../../src/app/store";
 import { StoreError } from "../../src/app/store/errors";
 import { classifyText, compileCodes, compileValues, entryProblem, normalizeRegexPattern, replaceValue } from "../../src/shared/dictionary";
 import { DICT_COLUMN, DICT_FIELD, DICT_FIND, DICT_MODE, DICT_SCOPE, DICT_TO } from "../../src/shared/dictionarySheet";
-import type { CellValue } from "../../src/shared/model";
-import { makeChildRowKey, makeParentKey } from "../../src/shared/sheet";
+import type { CellValue } from "@mxstage/eam-connectors";
+import { makeChildRowKey, makeParentKey } from "@mxstage/eam-connectors";
 
 const code = (id: string, find: string, field: string, to: string, scope?: string, mode: "text" | "regex" = "text") => ({ id, find, field, to, mode, ...(scope ? { scope } : {}) });
 

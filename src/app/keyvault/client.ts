@@ -4,7 +4,7 @@
 // - Worker が自動ロックしたら current() は null になる。
 
 import type { ConnectionProvider, MaximoConnection, MaximoConnectionInfo } from "../runtime/contracts";
-import { MaximoClient, isRecord, type FetchLike, type MaximoClientOptions, type MaximoVia } from "../maximo/client";
+import { MaximoClient, isRecord, type FetchLike, type MaximoClientOptions, type MaximoVia } from "@mxstage/eam-connectors";
 import { VAULT_SENTINEL, type MainToVault, type VaultErrorCode, type VaultFetchResponse, type VaultLockReason, type VaultToMain } from "./protocol";
 import { vaultClientMessages as m } from "../settings/messages";
 

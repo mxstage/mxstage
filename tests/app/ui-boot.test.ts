@@ -6,7 +6,7 @@ import { RELAY_SUBPROTOCOL } from "../../src/shared/protocol";
 import { createRuntime, commitRequesterOf, defaultWorkspaceName, type RuntimeFactories } from "../../src/app/boot/runtime";
 import type { WebSocketFactory, WebSocketLike } from "../../src/app/relay";
 import type { CommitController, CommitPanelState, ConnectionProvider, ToolRegistryDeps } from "../../src/app/runtime/contracts";
-import type { SheetMeta } from "../../src/shared/sheet";
+import type { SheetMeta } from "@mxstage/eam-connectors";
 
 class FakeWebSocket implements WebSocketLike {
   static instances: FakeWebSocket[] = [];

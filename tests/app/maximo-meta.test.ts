@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MaximoClient } from "../../src/app/maximo/client";
+import { MaximoClient } from "@mxstage/eam-connectors";
 import {
   describeObjectStructure,
   getObjectStructureInfo,
@@ -9,7 +9,7 @@ import {
   mergeStructureLists,
   parseApiMeta,
   parseJsonSchema,
-} from "../../src/app/maximo/meta";
+} from "@mxstage/eam-connectors";
 import { createFakeMaximo, sampleSeed, withDefinitions, type FakeMaximo } from "../fakes/fake-maximo";
 
 function clientFor(fake: FakeMaximo): MaximoClient {

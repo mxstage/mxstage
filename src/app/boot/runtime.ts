@@ -1,9 +1,9 @@
 // 起動時の結線: Workspace・反映コントローラ・ツール実行・中継ソケットを作ってつなぐ。
 
 import type { ObjectStructureCatalog } from "../catalog/catalog";
-import type { LicenseGate } from "../license/client";
-import type { StatusPrefs } from "../maximo/statusPrefs";
-import { ValueListService } from "../maximo/valueList";
+import type { LicenseGate } from "@mxstage/eam-connectors/license";
+import type { StatusPrefs } from "@mxstage/eam-connectors";
+import { ValueListService } from "@mxstage/eam-connectors";
 import type { ImportStore } from "../imports";
 import { RelaySocket, type RelaySocketOptions, type RelayStatus } from "../relay";
 import type { ImportErrorReason, ImportedFile } from "../relay";

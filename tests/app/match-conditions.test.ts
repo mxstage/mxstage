@@ -2,8 +2,8 @@
 // 決まりは AI が作り、照合はタブ内で行う。候補が 1 件に決まる行だけを結ぶ。
 
 import { describe, expect, it } from "vitest";
-import type { MatchConditions, RuleValue } from "../../src/shared/model";
-import type { SheetMeta, SheetRow } from "../../src/shared/sheet";
+import type { MatchConditions, RuleValue } from "@mxstage/eam-connectors";
+import type { SheetMeta, SheetRow } from "@mxstage/eam-connectors";
 import { StoreError } from "../../src/app/store/errors";
 import { dayOfCell } from "../../src/app/store/matcher";
 import { Workspace } from "../../src/app/store/workspace";

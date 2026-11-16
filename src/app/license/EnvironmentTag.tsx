@@ -7,9 +7,9 @@ import { demoLangOfBaseUrl } from "../../shared/demo";
 import { demoMessages } from "../demo/messages";
 import { Link } from "../ui/Link";
 import { settingsPath } from "../ui/routes";
-import type { LicenseClient } from "./client";
-import { environmentBadge } from "./gate";
-import { licenseMessages as m } from "./messages";
+import type { LicenseClient } from "@mxstage/eam-connectors/license";
+import { environmentBadge } from "@mxstage/eam-connectors/license";
+import { licenseMessages as m } from "@mxstage/eam-connectors/license";
 
 const TAG_TYPE = { test: "gray", licensed: "blue", readonly: "warm-gray", undeclared: "magenta" } as const;
 

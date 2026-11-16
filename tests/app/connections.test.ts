@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { AutoConnector, isRetryable } from "../../src/app/connections/auto";
 import { SELECTED_CONNECTION_KEY, SavedConnectionsClient, type SavedConnection } from "../../src/app/connections/client";
-import { MaximoClient, MaximoError, MaximoNetworkError } from "../../src/app/maximo/client";
+import { MaximoClient, MaximoError, MaximoNetworkError } from "@mxstage/eam-connectors";
 import type { MaximoConnectionInfo } from "../../src/app/runtime/contracts";
 
 function conn(id: string, name = id, extra: Partial<SavedConnection> = {}): SavedConnection {

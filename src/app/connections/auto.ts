@@ -4,8 +4,8 @@
 //   API キーが通らないとき（401・403）や接続先が消されたときは、やり直さずに設定画面で知らせる。
 // - 利用者が「接続を切る」を押した窓では、自分でつなぎ直すまで自動ではつながない。
 
-import { MaximoError, MaximoNetworkError } from "../maximo/client";
-import type { Environment } from "../license/client";
+import { MaximoError, MaximoNetworkError } from "@mxstage/eam-connectors";
+import type { Environment } from "@mxstage/eam-connectors/license";
 import type { MaximoConnectionInfo } from "../runtime/contracts";
 import type { SavedConnection, SavedConnectionsClient } from "./client";
 

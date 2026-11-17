@@ -10,9 +10,9 @@ import { createToolRegistry } from "../../src/app/tools/registry";
 import { ObjectStructureCatalog } from "../../src/app/catalog/catalog";
 import type { DictionaryEntry } from "../../src/shared/dictionary";
 import { DICT_FIND, DICT_MODE, DICT_TO } from "../../src/shared/dictionarySheet";
-import type { CellValue } from "../../src/shared/model";
+import type { CellValue } from "@mxstage/eam-connectors";
 import type { InvokeMsg } from "../../src/shared/protocol";
-import { makeParentKey, type SheetRow } from "../../src/shared/sheet";
+import { makeParentKey, type SheetRow } from "@mxstage/eam-connectors";
 import type { ToolName } from "../../src/shared/toolDefs";
 
 const SCOPE = "c_0123456789abcdef";

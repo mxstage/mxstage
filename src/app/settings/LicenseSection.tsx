@@ -3,10 +3,10 @@
 
 import { Button, Layer, Tag, TextArea } from "@carbon/react";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import type { LicenseEntry } from "../../shared/license";
-import type { LicenseClient } from "../license/client";
-import { getLocale } from "../../shared/i18n";
-import { LICENSE_URL, licenseMessages as m } from "../license/messages";
+import type { LicenseEntry } from "@mxstage/eam-connectors/license";
+import type { LicenseClient } from "@mxstage/eam-connectors/license";
+import { getLocale } from "@mxstage/eam-connectors";
+import { LICENSE_URL, licenseMessages as m } from "@mxstage/eam-connectors/license";
 import { Notice } from "../ui/Notice";
 
 function formatDate(iso: string | undefined): string {

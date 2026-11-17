@@ -4,7 +4,7 @@
 // keyvault の Worker の中では言語を切り替えないので、Worker が返す文言はいつも英語になる。
 // 画面に出すときは localizeVaultMessage で今の言語に直す（LLM に渡る Maximo のエラーは英語のまま）。
 
-import { defineMessages, getLocale, type MessagesOf } from "../../shared/i18n";
+import { defineMessages, getLocale, type MessagesOf } from "@mxstage/eam-connectors";
 
 /** 言語の名前（どちらの言語でも、その言語自身の書き方で出す） */
 export const LANGUAGE_NAMES = { en: "English", ja: "日本語" } as const;

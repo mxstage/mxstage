@@ -1,7 +1,7 @@
 // 突合キーの正規化（match_sheets と apply_rule の lookup で使う）。
 // 指定の順序に結果が左右されないよう、適用順は NORMALIZE_ORDER に固定する。
 
-import type { CellValue, NormalizeOption } from "../../shared/model";
+import type { CellValue, NormalizeOption } from "@mxstage/eam-connectors";
 
 export const NORMALIZE_ORDER: readonly NormalizeOption[] = ["nfkc", "trim", "removeSpaces", "removeHyphens", "upper", "lower"];
 

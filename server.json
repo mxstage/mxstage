@@ -3,7 +3,7 @@
   "name": "io.github.mxstage/mxstage",
   "title": "MX Stage",
   "description": "Local AI workbench for IBM Maximo data: every change is staged, diffed and approved before commit.",
-  "version": "0.2.10",
+  "version": "0.3.0",
   "websiteUrl": "https://mxstage.tsunagi.app",
   "repository": {
     "url": "https://github.com/mxstage/mxstage",
@@ -12,8 +12,8 @@
   "packages": [
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/mxstage/mxstage/releases/download/v0.2.10/mxstage-0.2.10.mcpb",
-      "version": "0.2.10",
+      "identifier": "https://github.com/mxstage/mxstage/releases/download/v0.3.0/mxstage-0.3.0.mcpb",
+      "version": "0.3.0",
       "fileSha256": "69311835bd5764ed72e4b0c671201b1b36df645a0d72d331da0973b0e9d85c7c",
       "transport": {
         "type": "stdio"
@@ -23,7 +23,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@mxstage/mxstage",
-      "version": "0.2.10",
+      "version": "0.3.0",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"

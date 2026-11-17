@@ -1,7 +1,7 @@
 // 列の見出しに出す文字列。Maximo の属性名だけでは何の列か分からないので、
 // 画面表示名（日本語ラベル）を主に、属性名を添えて出す。canvas に描く前の純関数なのでここで試験する。
 
-import type { ColumnSchema } from "./model";
+import type { ColumnSchema } from "@mxstage/eam-connectors";
 
 export interface HeaderLines {
   /** 上の行（日本語ラベル。無ければ属性名） */

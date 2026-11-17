@@ -7,15 +7,15 @@
 
 import type { z } from "zod";
 import { demoLangOfBaseUrl } from "../../shared/demo";
-import type { ApplyResult, CellValue, ColumnSchema, CommitRowResult, SheetSummary } from "../../shared/model";
+import type { ApplyResult, CellValue, ColumnSchema, CommitRowResult, SheetSummary } from "@mxstage/eam-connectors";
 import { RelayErrorCode, type InvokeMsg } from "../../shared/protocol";
-import type { SheetRow } from "../../shared/sheet";
+import type { SheetRow } from "@mxstage/eam-connectors";
 import { TOOL_DEFS, type ToolArgs, type ToolName } from "../../shared/toolDefs";
 import { foldText, type CatalogSyncState, type EnsureResult } from "../catalog/catalog";
 import { searchStructures } from "../catalog/search";
 import { sheetsByStructure } from "../catalog/usage";
-import type { LicenseGate } from "../license/client";
-import { licenseBlocker } from "../license/gate";
+import type { LicenseGate } from "@mxstage/eam-connectors/license";
+import { licenseBlocker } from "@mxstage/eam-connectors/license";
 import {
   buildImportSheet,
   dataRows,
@@ -37,9 +37,9 @@ import {
   type RawRow,
   type RawTable,
 } from "../imports";
-import { MaximoError } from "../maximo/client";
-import { loadRecords, recordsToRows } from "../maximo/load";
-import { DEFAULT_PAST_STATUS } from "../maximo/statusPrefs";
+import { MaximoError } from "@mxstage/eam-connectors";
+import { loadRecords, recordsToRows } from "@mxstage/eam-connectors";
+import { DEFAULT_PAST_STATUS } from "@mxstage/eam-connectors";
 import type { ToolContext, ToolHandler, ToolOutcome } from "../relay";
 import type { CommitPanelState, CreateToolRegistry, MaximoConnection, ToolRegistryDeps } from "../runtime/contracts";
 import { axesFor, pickScopeAxes } from "../scope/axes";

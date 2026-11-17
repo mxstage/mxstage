@@ -2,7 +2,7 @@
 // 文字列が属性の最大長に収まる、場所の階層（PRIMARY・ELEC）、Maximo を入れた日、回転資産と在庫、外注の場面、正解の参照先。
 
 import { describe, expect, it } from "vitest";
-import type { CellValue } from "../../src/shared/model";
+import type { CellValue } from "@mxstage/eam-connectors";
 import { EN_DUPLICATE_KEYS } from "../../dev/datasets/plants/en";
 import { plantsSeed } from "../../dev/datasets/plants/index";
 import { NOW } from "../../dev/datasets/plants/generate";

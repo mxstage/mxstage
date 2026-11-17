@@ -18,8 +18,8 @@ import {
 import { loadOrientations, orientationKey, saveOrientations } from "../../src/app/pages/orientation";
 import { specificationNote } from "../../src/app/tools/loadSheet";
 import { Workspace } from "../../src/app/store/workspace";
-import type { ColumnSchema } from "../../src/shared/model";
-import { makeChildRowKey, makeParentKey, type SheetMeta, type SheetRow } from "../../src/shared/sheet";
+import type { ColumnSchema } from "@mxstage/eam-connectors";
+import { makeChildRowKey, makeParentKey, type SheetMeta, type SheetRow } from "@mxstage/eam-connectors";
 
 const SPEC_COLUMNS: ColumnSchema[] = [
   { name: "ASSETNUM", type: "string" },

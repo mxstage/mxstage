@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { columnLabel, columnTitleMap, headerLines } from "../../src/shared/columnLabel";
 import { HOVER_MAX_CHARS, HOVER_MAX_LINES, isLongValue, longCellLines, rowDetailItems, sortDetailItems, LONG_VALUE_CHARS } from "../../src/app/grid/detailItems";
 import { changedColumnsOnly, freezeCountForWidth, frozenColumnsFor, headerHeightFor, MAX_FROZEN, MEDIUM_WIDTH, NARROW_WIDTH, orderForFreeze, togglePinned } from "../../src/app/grid/layout";
-import type { ColumnSchema } from "../../src/shared/model";
+import type { ColumnSchema } from "@mxstage/eam-connectors";
 
 const col = (name: string, title?: string): ColumnSchema => (title === undefined ? { name, type: "string" } : { name, title, type: "string" });
 

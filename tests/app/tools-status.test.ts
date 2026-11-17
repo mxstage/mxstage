@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { ObjectStructureCatalog } from "../../src/app/catalog/catalog";
 import { createCommitController } from "../../src/app/commit/controller";
-import { MaximoError } from "../../src/app/maximo/client";
+import { MaximoError } from "@mxstage/eam-connectors";
 import type { ToolContext } from "../../src/app/relay";
 import type { CommitPanelState, CommitRequester, ConnectionProvider } from "../../src/app/runtime/contracts";
 import { JobRegistry, Workspace } from "../../src/app/store";
@@ -11,8 +11,8 @@ import { MAX_REASON_CODE_CHARS, MAXIMO_MESSAGE_NOTICE, toRelayError, type ErrorC
 import { COMMIT_RESULT_NOTICE, createToolRegistry, SHEETS_NOTE } from "../../src/app/tools/registry";
 import { MAX_RESULT_TEXT_BYTES } from "../../src/app/tools/results";
 import { RelayErrorCode } from "../../src/shared/protocol";
-import type { CellValue, ColumnSchema } from "../../src/shared/model";
-import { makeParentKey, type SheetMeta, type SheetRow } from "../../src/shared/sheet";
+import type { CellValue, ColumnSchema } from "@mxstage/eam-connectors";
+import { makeParentKey, type SheetMeta, type SheetRow } from "@mxstage/eam-connectors";
 import type { ToolName } from "../../src/shared/toolDefs";
 
 const APP_URL = "https://mxstage.test/app";

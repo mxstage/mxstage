@@ -4,8 +4,8 @@
 import { describe, expect, it } from "vitest";
 import { paneLink } from "../../src/app/pages/AppPage";
 import { addPane, arrangePanes, clampSplit, EMPTY_LAYOUT, EVEN_SPLIT, MIN_PANE_PX, ownPanes, paneGridTemplate, panesFor, scopeColumns, scopeRows, splitAxes, swapPanes, togglePane, type PaneLayout } from "../../src/app/pages/panes";
-import type { ColumnSchema } from "../../src/shared/model";
-import type { SheetLink, SheetMeta } from "../../src/shared/sheet";
+import type { ColumnSchema } from "@mxstage/eam-connectors";
+import type { SheetLink, SheetMeta } from "@mxstage/eam-connectors";
 
 function maximoSheet(name: string, os: string, columns: ColumnSchema[], childIdAttrs: Record<string, string | null> = {}, link?: SheetLink): SheetMeta {
   const meta: SheetMeta = {

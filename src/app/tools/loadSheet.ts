@@ -1,10 +1,10 @@
 // load_sheet の計画: オブジェクト構造の属性で select / where / orderBy を検査し、シートの列・キー列・子の ID 属性を決める。
 
-import type { ColumnSchema, TypedFilter } from "../../shared/model";
-import type { SheetMeta } from "../../shared/sheet";
+import type { ColumnSchema, TypedFilter } from "@mxstage/eam-connectors";
+import type { SheetMeta } from "@mxstage/eam-connectors";
 import type { ToolArgs } from "../../shared/toolDefs";
-import type { ObjectStructureInfo } from "../maximo/meta";
-import { buildOrderBy, buildSelect, buildWhere, QueryBuildError, splitColumnName } from "../maximo/query";
+import type { ObjectStructureInfo } from "@mxstage/eam-connectors";
+import { buildOrderBy, buildSelect, buildWhere, QueryBuildError, splitColumnName } from "@mxstage/eam-connectors";
 import { compileFilters } from "../store";
 import { findClassDefs, findClassLabels, parentClassColumn, pivotSpecFor, type DefinitionSheet } from "../grid/pivot";
 import { invalidArgs, messageOf, withSuggestions } from "./errors";

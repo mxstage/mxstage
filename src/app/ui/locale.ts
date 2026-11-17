@@ -1,6 +1,6 @@
 // 画面の言語を選んで覚える（設定の「言語」から使う）。決め方と切り替えの仕組みは src/shared/i18n.ts。
 
-import { LOCALE_STORAGE_KEY, setLocale, type Locale } from "../../shared/i18n";
+import { LOCALE_STORAGE_KEY, setLocale, type Locale } from "@mxstage/eam-connectors";
 import { browserStorage } from "../boot/migrate";
 
 /** 言語を切り替え、次に開いたときも同じ言語にする（保存できなくても切り替えはする） */

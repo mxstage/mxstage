@@ -9,12 +9,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import fc from "fast-check";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { LICENSES_DIR_NAME, LicenseStore, licenseTestKeysAllowed } from "../../src/bridge/license.ts";
+import { LICENSES_DIR_NAME, LicenseStore, licenseTestKeysAllowed } from "@mxstage/eam-connectors/node";
 import { LICENSE_AUTHORIZE_PATH, LICENSE_BODY_LIMIT, LICENSE_PATH, LICENSE_REMOVE_PATH } from "../../src/bridge/server.ts";
-import { base64UrlDecode, base64UrlEncode, encodeLicenseKey, licenseHostOf, parseLicenseKey } from "../../src/shared/license.ts";
-import type { LicensePayload } from "../../src/shared/license.ts";
-import { LICENSE_PUBLIC_KEYS } from "../../src/shared/licenseKeys.ts";
-import type { LicensePublicKey } from "../../src/shared/licenseKeys.ts";
+import { base64UrlDecode, base64UrlEncode, encodeLicenseKey, licenseHostOf, parseLicenseKey } from "@mxstage/eam-connectors/license";
+import type { LicensePayload } from "@mxstage/eam-connectors/license";
+import { LICENSE_PUBLIC_KEYS } from "@mxstage/eam-connectors/license";
+import type { LicensePublicKey } from "@mxstage/eam-connectors/license";
 import { rawRequest, startTestBridge, stopAll } from "./support.ts";
 
 const NOW = Date.UTC(2026, 9, 1); // 2026-10-01

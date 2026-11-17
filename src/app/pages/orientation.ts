@@ -1,7 +1,7 @@
 // 子の表の縦持ち・横持ちを、利用者が選んだとおりに覚える（構造と子ごと。このブラウザの localStorage）。
 // 選んでいない表は、表の形から決める（grid/pivot.ts の preferPivot）。
 
-import type { SheetMeta } from "../../shared/sheet";
+import type { SheetMeta } from "@mxstage/eam-connectors";
 
 export type Orientation = "vertical" | "horizontal";
 

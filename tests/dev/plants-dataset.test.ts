@@ -2,7 +2,7 @@
 // 期間を絞った古い施設で確かめる（資産・場所・PM は全部、作業指示・SR・メーターの読みは期間の分だけ）。
 
 import { describe, expect, it } from "vitest";
-import type { CellValue } from "../../src/shared/model";
+import type { CellValue } from "@mxstage/eam-connectors";
 import { createFakeMaximo } from "../fakes/fake-maximo";
 import { generatePlants, plantsSeed, type PlantsData } from "../../dev/datasets/plants/index";
 import { NOW } from "../../dev/datasets/plants/generate";

@@ -3,11 +3,11 @@
 import { Accordion, AccordionItem, Button, Checkbox, ListItem, NumberInput, RadioButton, RadioButtonGroup, Table, TableBody, TableCell, TableRow, UnorderedList } from "@carbon/react";
 import { useEffect, useId, useMemo, useState } from "react";
 import { diffReportFileName, diffReportMessages, diffReportXlsx, takeReportSnapshot } from "../commit/diffReport";
-import { commitMessages } from "../commit/messages";
-import type { LicenseClient } from "../license/client";
+import { commitMessages } from "@mxstage/eam-connectors";
+import type { LicenseClient } from "@mxstage/eam-connectors/license";
 import type { Workspace } from "../store";
 import type { CommitBatchSize, CommitController, CommitPanelState } from "../runtime/contracts";
-import { DEFAULT_COMMIT_BATCH } from "../maximo/commit";
+import { DEFAULT_COMMIT_BATCH } from "@mxstage/eam-connectors";
 import { batchSizeOf } from "../commit/controller";
 import { Dialog } from "../ui/Dialog";
 import { Notice } from "../ui/Notice";
@@ -27,7 +27,7 @@ import {
   writeLogFileName,
   type ConfirmChecks,
 } from "./commitLogic";
-import { isIrreversibleStatus } from "../../shared/status";
+import { isIrreversibleStatus } from "@mxstage/eam-connectors";
 
 export interface CommitPanelProps {
   commits: CommitController;

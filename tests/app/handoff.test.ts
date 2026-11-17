@@ -4,7 +4,7 @@ import { PARKED_TOKEN_KEY, confirmWorkMoved, fetchWorkFromOtherWindow, parkWork,
 import { HANDOFF_ENDPOINTS } from "../../src/app/boot/runtime";
 import { RelaySocket, type WebSocketLike } from "../../src/app/relay/socket";
 import { Workspace } from "../../src/app/store/workspace";
-import { makeParentKey, type SheetMeta, type SheetRow } from "../../src/shared/sheet";
+import { makeParentKey, type SheetMeta, type SheetRow } from "@mxstage/eam-connectors";
 
 class FakeWs implements WebSocketLike {
   static last: FakeWs | null = null;

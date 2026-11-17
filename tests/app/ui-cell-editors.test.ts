@@ -5,8 +5,8 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { CellEditorContext, DateCellEditor, ValueListCellEditor, booleanFromKey, booleanFromText, type CellEditorTarget } from "../../src/app/grid/editors";
-import type { ValueListState } from "../../src/app/maximo/valueList";
-import { setLocale } from "../../src/shared/i18n";
+import type { ValueListState } from "@mxstage/eam-connectors";
+import { setLocale } from "@mxstage/eam-connectors";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

@@ -16,16 +16,16 @@ import {
   createCommitController,
   describePlanError,
 } from "../../src/app/commit/controller";
-import { MaximoClient } from "../../src/app/maximo/client";
-import { CommitInvariantError } from "../../src/app/maximo/commit";
+import { MaximoClient } from "@mxstage/eam-connectors";
+import { CommitInvariantError } from "@mxstage/eam-connectors";
 import type { ToolContext } from "../../src/app/relay";
 import type { MaximoConnection } from "../../src/app/runtime/contracts";
 import { JobRegistry, Workspace } from "../../src/app/store";
 import { createToolRegistry } from "../../src/app/tools/registry";
 import { MAX_RESULT_TEXT_BYTES } from "../../src/app/tools/results";
-import type { CellValue, ColumnSchema } from "../../src/shared/model";
+import type { CellValue, ColumnSchema } from "@mxstage/eam-connectors";
 import type { InvokeMsg } from "../../src/shared/protocol";
-import { makeChildRowKey, makeParentKey, type MaximoRecord, type SheetMeta, type SheetRow } from "../../src/shared/sheet";
+import { makeChildRowKey, makeParentKey, type MaximoRecord, type SheetMeta, type SheetRow } from "@mxstage/eam-connectors";
 import type { ToolName } from "../../src/shared/toolDefs";
 import { createFakeMaximo, sampleSeed, type FakeMaximo, type FakeRecordSeed, type FakeSeed } from "../fakes/fake-maximo";
 

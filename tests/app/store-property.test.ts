@@ -3,8 +3,8 @@
 
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import type { CellValue, ColumnSchema, RuleValue } from "../../src/shared/model";
-import { makeChildRowKey, makeParentKey, type SheetMeta, type SheetRow } from "../../src/shared/sheet";
+import type { CellValue, ColumnSchema, RuleValue } from "@mxstage/eam-connectors";
+import { makeChildRowKey, makeParentKey, type SheetMeta, type SheetRow } from "@mxstage/eam-connectors";
 import { Workspace } from "../../src/app/store/workspace";
 
 const S = "s";

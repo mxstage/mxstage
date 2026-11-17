@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { AiFollower, FOLLOW_PAUSE_MS } from "../../src/app/pages/follow";
 import { Workspace } from "../../src/app/store";
-import { makeParentKey, type SheetMeta, type SheetRow } from "../../src/shared/sheet";
+import { makeParentKey, type SheetMeta, type SheetRow } from "@mxstage/eam-connectors";
 
 function sheet(workspace: Workspace, name: string): string {
   const meta: SheetMeta = {

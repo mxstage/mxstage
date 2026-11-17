@@ -10,14 +10,14 @@
 //
 // 属性値をそのまま書くので、Maximo のデータを含むファイルになる。扱いは利用者の組織の決まりに従う（画面の説明にも書く）。
 
-import type { BatchAuthor, BatchInfo, CellValue } from "../../shared/model";
+import type { BatchAuthor, BatchInfo, CellValue } from "@mxstage/eam-connectors";
 import { headerLines } from "../../shared/columnLabel";
-import { defineMessages } from "../../shared/i18n";
-import { parseRowKey, type SheetMeta } from "../../shared/sheet";
-import type { WriteLogEntry } from "../maximo/commit";
+import { defineMessages } from "@mxstage/eam-connectors";
+import { parseRowKey, type SheetMeta } from "@mxstage/eam-connectors";
+import type { WriteLogEntry } from "@mxstage/eam-connectors";
 import type { CommitPanelState } from "../runtime/contracts";
 import type { DiffItem, Workspace } from "../store";
-import { commitMessages } from "./messages";
+import { commitMessages } from "@mxstage/eam-connectors";
 import { XLSX_STYLE, buildXlsx, type XlsxCell, type XlsxRow, type XlsxSheet } from "./xlsxWriter";
 
 export const diffReportMessages = defineMessages(

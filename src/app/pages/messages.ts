@@ -1,6 +1,6 @@
 // 作業画面（上部バー・ペイン・シートタブ・変更履歴・接続の表示）の文言。英語が正、日本語は同じ形（src/shared/i18n.ts）。
 
-import { defineMessages } from "../../shared/i18n";
+import { defineMessages } from "@mxstage/eam-connectors";
 
 export const pagesMessages = defineMessages(
   {

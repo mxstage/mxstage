@@ -5,7 +5,7 @@ import { Button, IconButton, Toggletip, ToggletipButton, ToggletipContent } from
 import { useCallback, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { ObjectStructureCatalog } from "../catalog/catalog";
 import { LEGEND_TONES, PIVOT_CELL_STYLE, PIVOT_WARN_MARK, TONE_STYLE, toneLabel } from "../grid/cellStyle";
-import type { LicenseClient } from "../license/client";
+import type { LicenseClient } from "@mxstage/eam-connectors/license";
 import { EnvironmentTag } from "../license/EnvironmentTag";
 import { Link, spaClick } from "../ui/Link";
 import { SETTINGS_PATH, STRUCTURES_PATH, settingsPath } from "../ui/routes";

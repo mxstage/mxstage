@@ -3,9 +3,20 @@
 // - 落としたファイルは目録（manifest.json）の SHA-256 で確かめる。目録の SHA-256 はここに埋め込む（データを変えたら製品の版も上げる）。
 // - デモの接続先は予約の ID（demo-ja・demo-en）と、DNS に出ない予約のオリジン（*.mxstage.invalid）で表す。
 //   橋渡しはこの ID を手元の仮想 Maximo（src/bridge/demo.ts）にしかつながない。普通の接続先としては保存も中継もできない。
+//   予約の ID・オリジンとその判定は部品（@mxstage/eam-connectors の demo）にあり、ここから同じものを出す。
 
-export type DemoLang = "ja" | "en";
-export const DEMO_LANGS: readonly DemoLang[] = ["ja", "en"];
+import type { DemoLang } from "@mxstage/eam-connectors";
+
+export {
+  DEMO_CONNECTION_IDS,
+  DEMO_LANGS,
+  DEMO_ORIGINS,
+  demoLangOfBaseUrl,
+  demoLangOfConnectionId,
+  isReservedDemoHost,
+  type DemoLang,
+} from "@mxstage/eam-connectors";
+
 
 /** データの置き場所（静的なファイルだけ。何も送らない） */
 export const DEMO_DATA_URL = "https://mxstage-demo.pages.dev";
@@ -14,14 +25,6 @@ export const DEMO_DATA_VERSION = 3;
 /** v<版>/manifest.json の SHA-256（npm run demo:build が最後に出す値） */
 export const DEMO_MANIFEST_SHA256 = "331a9238411e1f881c154dbe237934c10db506f484109ed588ecdfc86426aea4";
 
-/** 予約の接続先 ID（保存した接続先の ID は c_<16 桁>なので重ならない） */
-export const DEMO_CONNECTION_IDS: Readonly<Record<DemoLang, string>> = { ja: "demo-ja", en: "demo-en" };
-/** 予約の Maximo のオリジン（.invalid は DNS で引けない。RFC 2606） */
-export const DEMO_ORIGINS: Readonly<Record<DemoLang, string>> = {
-  ja: "https://demo-ja.mxstage.invalid",
-  en: "https://demo-en.mxstage.invalid",
-};
-const RESERVED_DOMAIN = "mxstage.invalid";
 
 /** サンプルの Excel（置き場所の v<版>/<言語>/excel/<id>.xlsx） */
 export const DEMO_EXCEL_IDS = ["purchase-orders", "legacy-register", "repair-log", "east-register", "star-chart"] as const;
@@ -35,25 +38,6 @@ export function isDemoExcelId(value: unknown): value is DemoExcelId {
   return typeof value === "string" && (DEMO_EXCEL_IDS as readonly string[]).includes(value);
 }
 
-/** 予約の接続先 ID ならその言語 */
-export function demoLangOfConnectionId(id: string | null | undefined): DemoLang | null {
-  for (const lang of DEMO_LANGS) if (DEMO_CONNECTION_IDS[lang] === id) return lang;
-  return null;
-}
-
-/** デモのオリジン（末尾の / は問わない）ならその言語 */
-export function demoLangOfBaseUrl(baseUrl: string | null | undefined): DemoLang | null {
-  if (typeof baseUrl !== "string") return null;
-  const trimmed = baseUrl.trim().replace(/\/+$/, "").toLowerCase();
-  for (const lang of DEMO_LANGS) if (DEMO_ORIGINS[lang] === trimmed) return lang;
-  return null;
-}
-
-/** 予約のホスト（普通の接続先として保存・中継しない） */
-export function isReservedDemoHost(hostname: string): boolean {
-  const h = hostname.trim().toLowerCase().replace(/\.$/, "");
-  return h === RESERVED_DOMAIN || h.endsWith(`.${RESERVED_DOMAIN}`);
-}
 
 /** 1 つの言語のデータの状態 */
 export interface DemoLanguageStatus {

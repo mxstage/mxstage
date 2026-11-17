@@ -3,12 +3,12 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { ConnectionStore, normalizeConnectionUrl } from "../../src/bridge/connections.ts";
+import { ConnectionStore, normalizeConnectionUrl } from "@mxstage/eam-connectors/node";
 import { DemoManager, parseManifest, normalizeDataUrl, DEMO_FILE_LIMIT } from "../../src/bridge/demo.ts";
-import { parseMaximoBase, type UpstreamRequest } from "../../src/bridge/mx.ts";
-import { SecretBox } from "../../src/bridge/secretBox.ts";
+import { parseMaximoBase, type UpstreamRequest } from "@mxstage/eam-connectors/node";
+import { SecretBox } from "@mxstage/eam-connectors/node";
 import { CONNECTIONS_PATH, CONNECTIONS_USE_PATH } from "../../src/bridge/server.ts";
-import { sampleSeed } from "../../src/demo/fakeMaximo.ts";
+import { sampleSeed } from "@mxstage/eam-connectors/testing";
 import { DEMO_FORMAT, seedToFiles, sha256 } from "../../src/demo/format.ts";
 import {
   DEMO_CLOSE_PATH,

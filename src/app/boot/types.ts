@@ -4,7 +4,7 @@ import type { ObjectStructureCatalog } from "../catalog/catalog";
 import type { AutoConnector } from "../connections/auto";
 import type { SavedConnectionsClient } from "../connections/client";
 import type { KeyVault } from "../keyvault/client";
-import type { LicenseClient } from "../license/client";
+import type { LicenseClient } from "@mxstage/eam-connectors/license";
 import type { ImportStore } from "../imports";
 import type { ToastStore } from "../ui/toast";
 import type { Workspace } from "../store";

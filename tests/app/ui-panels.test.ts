@@ -4,7 +4,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root as ReactRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { WriteLogEntry } from "../../src/app/maximo/commit";
+import type { WriteLogEntry } from "@mxstage/eam-connectors";
 import { CommitPanel, type CommitPanelProps } from "../../src/app/pages/CommitPanel";
 import type { CommitController, CommitPanelState } from "../../src/app/runtime/contracts";
 

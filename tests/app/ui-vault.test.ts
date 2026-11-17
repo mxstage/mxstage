@@ -3,7 +3,7 @@
 // KeyVault: Worker との往復を偽の transport で行い、メインスレッド側に本物のキーが出ないことを確かめる。
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MaximoClient, MaximoError, MaximoNetworkError } from "../../src/app/maximo/client";
+import { MaximoClient, MaximoError, MaximoNetworkError } from "@mxstage/eam-connectors";
 import { KeyVault, VaultRequestError, whoamiUserName, type VaultTransport } from "../../src/app/keyvault/client";
 import { VaultCore, VaultError, createVaultEndpoint, parseVaultBaseUrl } from "../../src/app/keyvault/core";
 import { VAULT_IDLE_MS, VAULT_SENTINEL, type MainToVault, type VaultFetchRequest, type VaultToMain } from "../../src/app/keyvault/protocol";

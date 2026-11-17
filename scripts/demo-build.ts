@@ -12,7 +12,7 @@ import { buildDemoData } from "../dev/demo/build.ts";
 import { filesToSeed } from "../src/demo/format.ts";
 import { DATASET_VERSION, plantsSeed } from "../dev/datasets/plants/index.ts";
 import type { Lang } from "../dev/datasets/plants/text.ts";
-import { createFakeMaximo } from "../src/demo/fakeMaximo.ts";
+import { createFakeMaximo } from "@mxstage/eam-connectors/testing";
 import { DEMO_DATA_VERSION, DEMO_MANIFEST_SHA256 } from "../src/shared/demo.ts";
 
 const ROOT = join(import.meta.dirname, "..");

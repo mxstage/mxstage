@@ -5,7 +5,7 @@
 // - 利用者の操作が idleMs 無ければキーを消す（自動ロック）。
 // - キー・ヘッダ・本文をログにもエラーメッセージにも入れない。
 
-import type { MaximoVia } from "../maximo/client";
+import type { MaximoVia } from "@mxstage/eam-connectors";
 import {
   VAULT_IDLE_MS,
   VAULT_SENTINEL,

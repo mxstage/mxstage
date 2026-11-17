@@ -4,7 +4,7 @@
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it } from "vitest";
-import { setLocale } from "../../src/shared/i18n";
+import { setLocale } from "@mxstage/eam-connectors";
 import { gridMessages } from "../../src/app/grid/messages";
 import { filterLabel, rowCountLabel } from "../../src/app/grid/filters";
 import { conflictSummary } from "../../src/app/grid/edits";

@@ -1,7 +1,7 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import type { TypedFilter } from "../../src/shared/model";
-import { buildOrderBy, buildSelect, buildWhere, MAX_IN_VALUES, QueryBuildError, splitColumnName } from "../../src/app/maximo/query";
+import type { TypedFilter } from "@mxstage/eam-connectors";
+import { buildOrderBy, buildSelect, buildWhere, MAX_IN_VALUES, QueryBuildError, splitColumnName } from "@mxstage/eam-connectors";
 
 const known = new Set([
   "SITEID",

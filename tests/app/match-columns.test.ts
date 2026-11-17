@@ -4,7 +4,7 @@ import { hitsColumn, matchColumn, targetText } from "../../src/app/match/columns
 import { MatchViewStore } from "../../src/app/match/views";
 import { Workspace } from "../../src/app/store";
 import { DICT_FIND, DICT_MODE, DICT_TO } from "../../src/shared/dictionarySheet";
-import type { CellValue } from "../../src/shared/model";
+import type { CellValue } from "@mxstage/eam-connectors";
 
 function sheet(ws: Workspace, name: string, kind: "excel" | "maximo", cols: string[], rows: Array<Record<string, CellValue>>, key: string) {
   ws.createSheet(

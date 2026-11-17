@@ -2,8 +2,8 @@
 // 削除した行に残った親の列の変更を捨てないこと、行が 1 つも残らない親は知らせることを確かめる。
 
 import { describe, expect, it } from "vitest";
-import type { ColumnSchema } from "../../src/shared/model";
-import { makeChildRowKey, makeParentKey, type MaximoRecord, type SheetMeta, type SheetRow } from "../../src/shared/sheet";
+import type { ColumnSchema } from "@mxstage/eam-connectors";
+import { makeChildRowKey, makeParentKey, type MaximoRecord, type SheetMeta, type SheetRow } from "@mxstage/eam-connectors";
 import { Workspace } from "../../src/app/store/workspace";
 
 const WO = "wo";

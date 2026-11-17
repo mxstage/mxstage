@@ -3,14 +3,14 @@
 import { describe, expect, it } from "vitest";
 import { formatColumnValue } from "../../src/app/grid/cellStyle";
 import { filterItems, isInList, masterListFor, maximoListTarget, mayHaveMaximoList } from "../../src/app/grid/valueLists";
-import { MaximoClient } from "../../src/app/maximo/client";
-import { getObjectStructureInfo, parseJsonSchema } from "../../src/app/maximo/meta";
-import { fetchValueList, parseValueList, ValueListService } from "../../src/app/maximo/valueList";
+import { MaximoClient } from "@mxstage/eam-connectors";
+import { getObjectStructureInfo, parseJsonSchema } from "@mxstage/eam-connectors";
+import { fetchValueList, parseValueList, ValueListService } from "@mxstage/eam-connectors";
 import type { MaximoConnection } from "../../src/app/runtime/contracts";
 import { browserOffset, coerceValue, formatDateForDisplay, normalizeDateInput, parseDateInput } from "../../src/app/store/values";
 import { Workspace } from "../../src/app/store/workspace";
-import type { CellValue, ColumnSchema } from "../../src/shared/model";
-import { makeChildRowKey, makeParentKey, type MaximoRecord, type SheetMeta, type SheetRow } from "../../src/shared/sheet";
+import type { CellValue, ColumnSchema } from "@mxstage/eam-connectors";
+import { makeChildRowKey, makeParentKey, type MaximoRecord, type SheetMeta, type SheetRow } from "@mxstage/eam-connectors";
 import { createFakeMaximo, sampleSeed } from "../fakes/fake-maximo";
 
 // ---------------------------------------------------------------------------

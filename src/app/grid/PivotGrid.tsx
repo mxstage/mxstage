@@ -12,7 +12,7 @@
 
 import { DataEditor, GridCellKind, type DrawHeaderCallback, type EditListItem, type GridCell, type GridColumn, type GridMouseEventArgs, type GridSelection, type Highlight, type Item, CompactSelection } from "@glideapps/glide-data-grid";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { CellEdit, CellValue, ColumnSchema } from "../../shared/model";
+import type { CellEdit, CellValue, ColumnSchema } from "@mxstage/eam-connectors";
 import { headerLines } from "../../shared/columnLabel";
 import type { ViewKind, Workspace } from "../store";
 import type { RowState } from "../store/sheet";

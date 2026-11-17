@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { TONE_STYLE } from "../../src/app/grid/cellStyle";
 import { RowDetail } from "../../src/app/grid/RowDetail";
 import { rowDetailItems } from "../../src/app/grid/detailItems";
-import type { ColumnSchema } from "../../src/shared/model";
+import type { ColumnSchema } from "@mxstage/eam-connectors";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

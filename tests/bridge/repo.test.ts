@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { APP_VERSION } from "../../src/app/boot/version.ts";
-import { LicenseStore, readDevLicenses } from "../../src/bridge/license.ts";
+import { LicenseStore, readDevLicenses } from "@mxstage/eam-connectors/node";
 
 const ROOT = join(import.meta.dirname, "..", "..");
 

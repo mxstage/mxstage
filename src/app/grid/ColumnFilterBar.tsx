@@ -5,7 +5,7 @@ import { Pin, PinFilled } from "@carbon/icons-react";
 import { Button, Checkbox, DismissibleTag, FormGroup, Layer, TextInput } from "@carbon/react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { TONE_STYLE } from "./cellStyle";
-import { getLocale } from "../../shared/i18n";
+import { getLocale } from "@mxstage/eam-connectors";
 import { changeLabel, distinctValues, filterLabel, type ChangeKind, type GridFilter } from "./filters";
 import { gridMessages } from "./messages";
 

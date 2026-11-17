@@ -4,14 +4,14 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConnectInput, VaultView } from "../../src/app/keyvault/client";
-import { ENVIRONMENTS_STORAGE_KEY, LicenseClient } from "../../src/app/license/client";
+import { ENVIRONMENTS_STORAGE_KEY, LicenseClient } from "@mxstage/eam-connectors/license";
 import { EnvironmentTag } from "../../src/app/license/EnvironmentTag";
 import type { MaximoConnectionInfo } from "../../src/app/runtime/contracts";
 import { SettingsPage, type SettingsVault } from "../../src/app/settings/SettingsPage";
 import { fakeSkillsBridge } from "./fakeSkillsBridge";
 import { licenseStatusView } from "../../src/app/tools/registry";
 import type { SettingsTab } from "../../src/app/ui/routes";
-import type { LicenseEntry } from "../../src/shared/license";
+import type { LicenseEntry } from "@mxstage/eam-connectors/license";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

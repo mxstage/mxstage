@@ -2,7 +2,7 @@
 
 import { isReservedDemoHost } from "../../shared/demo";
 import { VaultRequestError } from "../keyvault/client";
-import { MaximoError, MaximoNetworkError, type MaximoVia } from "../maximo/client";
+import { MaximoError, MaximoNetworkError, type MaximoVia } from "@mxstage/eam-connectors";
 import { localizeVaultMessage, settingsMessages as m } from "./messages";
 
 export interface SettingsFormInput {

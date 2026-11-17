@@ -3,7 +3,7 @@
 // 候補が 1 件に決まらない行（0 件・2 件以上）は結ばずに返し、人か AI が判断する。
 
 import { applyAliases, type CompiledAlias } from "../../shared/dictionary";
-import type { CellValue, MatchConditions, NormalizeOption } from "../../shared/model";
+import type { CellValue, MatchConditions, NormalizeOption } from "@mxstage/eam-connectors";
 import { StoreError } from "./errors";
 import { compileFilters } from "./filters";
 import { normalizeCompositeKey, normalizeKey, type CompositeKey } from "./normalize";

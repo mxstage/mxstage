@@ -1,6 +1,6 @@
 // ツール結果の組み立て: JSON テキストと structuredContent、約 40KB の上限、長いセルの切り詰め、データの注意書き。
 
-import type { CellValue } from "../../shared/model";
+import type { CellValue } from "@mxstage/eam-connectors";
 import type { ToolOutcome } from "../relay";
 
 /**

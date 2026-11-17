@@ -7,9 +7,9 @@
 //      スキーマに値の一覧の印（hasList）が付いた列だけ。シートのどの列にも印が無い（印の無い古い定義）ときは、
 //      短い文字列の列（maxLength が LAZY_MAX_LENGTH 以下）で編集を開いたときに取りに行き、無ければ普通の入力にする。
 
-import type { ColumnSchema } from "../../shared/model";
-import { parseRowKey } from "../../shared/sheet";
-import type { ValueListItem, ValueListTarget } from "../maximo/valueList";
+import type { ColumnSchema } from "@mxstage/eam-connectors";
+import { parseRowKey } from "@mxstage/eam-connectors";
+import type { ValueListItem, ValueListTarget } from "@mxstage/eam-connectors";
 import type { Sheet, Workspace } from "../store";
 import type { RowState } from "../store/sheet";
 import { formatCellValue } from "./cellStyle";

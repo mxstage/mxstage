@@ -6,9 +6,9 @@ import { diffReportFileName, diffReportSheets, diffReportXlsx, takeReportSnapsho
 import { buildXlsx, columnLetter, crc32, safeSheetNames } from "../../src/app/commit/xlsxWriter";
 import { parseXlsx } from "../../src/app/imports/xlsx";
 import { Workspace } from "../../src/app/store/workspace";
-import { setLocale } from "../../src/shared/i18n";
-import type { ColumnSchema } from "../../src/shared/model";
-import { makeChildRowKey, makeParentKey, type SheetMeta, type SheetRow } from "../../src/shared/sheet";
+import { setLocale } from "@mxstage/eam-connectors";
+import type { ColumnSchema } from "@mxstage/eam-connectors";
+import { makeChildRowKey, makeParentKey, type SheetMeta, type SheetRow } from "@mxstage/eam-connectors";
 
 const SHEET = "assets";
 const CH = "ASSETSPEC";

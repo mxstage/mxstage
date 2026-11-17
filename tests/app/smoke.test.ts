@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { makeChildRowKey, makeParentKey, parseRowKey } from "../../src/shared/sheet";
+import { makeChildRowKey, makeParentKey, parseRowKey } from "@mxstage/eam-connectors";
 
 describe("row keys", () => {
   it("round-trips parent and child keys", () => {

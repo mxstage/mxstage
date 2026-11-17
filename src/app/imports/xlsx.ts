@@ -4,7 +4,7 @@
 // - 共有文字列のふりがな（rPh）は本文に含めない。
 // - .xls（Excel 97-2003）・パスワード付き・.xlsb は読めないので、理由を添えてエラーにする。
 
-import type { CellValue } from "../../shared/model";
+import type { CellValue } from "@mxstage/eam-connectors";
 import { readZipDirectory, readZipEntry, ZipError, type ZipEntry } from "./zip";
 import { attrsOf, decodeXml, elementRe, NS, richText } from "./xml";
 import { columnIndex, IMPORT_MAX_COLUMNS, IMPORT_MAX_ROWS, ImportError, type ImportWorkbook, type MergeRange, type RawRow, type RawTable } from "./table";

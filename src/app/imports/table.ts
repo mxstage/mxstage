@@ -1,8 +1,8 @@
 // 取り込んだファイル（Excel のシート・CSV）の中間の形と、見出しの見当・列の組み立て・作業画面のシートへの変換。
 // ファイルの形式に依らない部分をここに置く（読み取りは xlsx.ts・csv.ts）。
 
-import type { CellValue, ColumnSchema, ColumnType, SheetSource } from "../../shared/model";
-import type { SheetMeta, SheetRow } from "../../shared/sheet";
+import type { CellValue, ColumnSchema, ColumnType, SheetSource } from "@mxstage/eam-connectors";
+import type { SheetMeta, SheetRow } from "@mxstage/eam-connectors";
 
 /** 結合したセルの範囲（行は 1 始まり、列は 0 始まり。値は左上のセルにだけある） */
 export interface MergeRange {

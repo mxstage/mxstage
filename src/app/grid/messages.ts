@@ -1,6 +1,6 @@
 // グリッド（セルの色・ホバー・直接編集・列の絞り込み・行の詳細）の文言。英語が正、日本語は同じ形（src/shared/i18n.ts）。
 
-import { defineMessages } from "../../shared/i18n";
+import { defineMessages } from "@mxstage/eam-connectors";
 
 export const gridMessages = defineMessages(
   {

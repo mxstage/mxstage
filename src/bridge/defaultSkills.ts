@@ -131,5 +131,5 @@ export const SKILLS: readonly BundledSkill[] = [
   },
 ];
 
-/** Skill の本文に書いてよい ConflictInfo.reason（src/shared/model.ts から読む）。利用者の Skill の検証に使う */
+/** Skill の本文に書いてよい ConflictInfo.reason（@mxstage/eam-connectors の model から読む）。利用者の Skill の検証に使う */
 export const CONFLICT_REASONS: readonly string[] = ["changed_since_read","column_not_found","invalid_value","lookup_ambiguous","read_only_column","row_not_found","user_editing"];

@@ -19,9 +19,9 @@ import type {
   RuleValue,
   SheetSummary,
   TypedFilter,
-} from "../../shared/model";
-import type { BatchRecord, MaximoRecord, OverlayOp, SheetMeta, SheetRow } from "../../shared/sheet";
-import { makeChildRowKey, makeParentKey, NEW_CHILD_PREFIX } from "../../shared/sheet";
+} from "@mxstage/eam-connectors";
+import type { BatchRecord, MaximoRecord, OverlayOp, SheetMeta, SheetRow } from "@mxstage/eam-connectors";
+import { makeChildRowKey, makeParentKey, NEW_CHILD_PREFIX } from "@mxstage/eam-connectors";
 import { StoreError } from "./errors";
 import { compileFilters } from "./filters";
 import { randomHex } from "./ids";
@@ -245,12 +245,9 @@ export interface SheetChanges {
   unwritableParentEdits: Array<{ parentKey: string; columns: string[] }>;
 }
 
-/** replaceParents の 1 件: 親キーと、Maximo から読み直した親レコード・その親の行 */
-export interface ParentReplacement {
-  parentKey: string;
-  record: MaximoRecord;
-  rows: readonly SheetRow[];
-}
+/** replaceParents の 1 件: 親キーと、Maximo から読み直した親レコード・その親の行（型は部品の commit/reload） */
+export type { ParentReplacement } from "@mxstage/eam-connectors";
+import type { ParentReplacement } from "@mxstage/eam-connectors";
 
 export interface ReplaceParentsOptions {
   /** 反映を始めたときのシート ID。違えば（シートが読み込み直されていれば）何も置き換えない */

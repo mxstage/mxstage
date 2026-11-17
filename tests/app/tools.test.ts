@@ -5,7 +5,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { ObjectStructureCatalog } from "../../src/app/catalog/catalog";
 import { createCommitController } from "../../src/app/commit/controller";
-import { MaximoClient, type FetchLike } from "../../src/app/maximo/client";
+import { MaximoClient, type FetchLike } from "@mxstage/eam-connectors";
 import { RelayToolError, type ToolContext } from "../../src/app/relay";
 import type { CommitPanelState, CommitRequester, MaximoConnection } from "../../src/app/runtime/contracts";
 import { JobRegistry, Workspace } from "../../src/app/store";
@@ -13,9 +13,9 @@ import { suggestNames } from "../../src/app/tools/errors";
 import { resolveKeyColumns } from "../../src/app/tools/loadSheet";
 import { createToolRegistry, loadWaitBudget, settingsUrlOf, TAB_TOOL_NAMES } from "../../src/app/tools/registry";
 import { DATA_NOTICE, MAX_CELL_CHARS, MAX_RESULT_TEXT_BYTES } from "../../src/app/tools/results";
-import type { CellValue, ColumnSchema } from "../../src/shared/model";
+import type { CellValue, ColumnSchema } from "@mxstage/eam-connectors";
 import { RelayErrorCode, type InvokeMsg } from "../../src/shared/protocol";
-import { makeChildRowKey, makeParentKey, type SheetMeta, type SheetRow } from "../../src/shared/sheet";
+import { makeChildRowKey, makeParentKey, type SheetMeta, type SheetRow } from "@mxstage/eam-connectors";
 import type { ToolName } from "../../src/shared/toolDefs";
 import { createFakeMaximo, sampleSeed, withDefinitions, type FakeOsSeed, type FakeRecordSeed, type FakeSeed } from "../fakes/fake-maximo";
 

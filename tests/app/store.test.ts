@@ -1,8 +1,8 @@
 // Workspace（作業タブの正本）の試験。
 
 import { describe, expect, it } from "vitest";
-import type { CellValue, ColumnSchema, RuleValue } from "../../src/shared/model";
-import { makeChildRowKey, makeParentKey, type SheetMeta, type SheetRow } from "../../src/shared/sheet";
+import type { CellValue, ColumnSchema, RuleValue } from "@mxstage/eam-connectors";
+import { makeChildRowKey, makeParentKey, type SheetMeta, type SheetRow } from "@mxstage/eam-connectors";
 import { StoreError } from "../../src/app/store/errors";
 import type { ViewKind } from "../../src/app/store/sheet";
 import { Workspace, type ChangeEvent } from "../../src/app/store/workspace";

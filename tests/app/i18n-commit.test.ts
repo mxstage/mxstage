@@ -3,11 +3,11 @@
 
 import { describe, expect, it } from "vitest";
 import { notConnectedBlocker, describePlanError, structureChangedBlocker } from "../../src/app/commit/controller";
-import { commitEngineMessages, commitMessages } from "../../src/app/commit/messages";
-import { CommitInvariantError } from "../../src/app/maximo/commit";
+import { commitEngineMessages, commitMessages } from "@mxstage/eam-connectors";
+import { CommitInvariantError } from "@mxstage/eam-connectors";
 import { commitButtonState, commitStateLabel, confirmLines, resultStatusLabel, resultSummary, runOutcomeMessage } from "../../src/app/pages/commitLogic";
 import type { CommitPanelState } from "../../src/app/runtime/contracts";
-import { setLocale } from "../../src/shared/i18n";
+import { setLocale } from "@mxstage/eam-connectors";
 
 const JAPANESE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
 

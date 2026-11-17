@@ -6,7 +6,7 @@
 import { Button, ProgressBar, RadioButton, RadioButtonGroup } from "@carbon/react";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { DEMO_CONNECTION_IDS, demoLangOfBaseUrl, isDemoLang, type DemoLang } from "../../shared/demo";
-import { getLocale } from "../../shared/i18n";
+import { getLocale } from "@mxstage/eam-connectors";
 import type { AutoConnector } from "../connections/auto";
 import type { SavedConnectionsClient } from "../connections/client";
 import { createDemoApi, type DemoApi, type DemoState } from "../demo/client";

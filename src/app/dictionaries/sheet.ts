@@ -5,8 +5,8 @@
 
 import { entryProblem, parseEntryMode, type DictionaryEntry, type DictionaryEntryInput, type DictionaryKind, type EntryProblem } from "../../shared/dictionary";
 import { DICT_COLUMN, DICT_COLUMNS_OF, DICT_FIELD, DICT_FIND, DICT_MODE, DICT_NOTE, DICT_SCOPE, DICT_TO, DICT_UPDATED } from "../../shared/dictionarySheet";
-import type { CellValue, ColumnSchema } from "../../shared/model";
-import { makeParentKey, type SheetMeta, type SheetRow } from "../../shared/sheet";
+import type { CellValue, ColumnSchema } from "@mxstage/eam-connectors";
+import { makeParentKey, type SheetMeta, type SheetRow } from "@mxstage/eam-connectors";
 import type { Sheet } from "../store/sheet";
 import { dictionaryMessages } from "./messages";
 

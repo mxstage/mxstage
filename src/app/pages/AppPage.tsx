@@ -5,7 +5,7 @@ import { Button, ContentSwitcher, Switch } from "@carbon/react";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { Runtime } from "../boot/runtime";
 import type { ObjectStructureCatalog } from "../catalog/catalog";
-import type { LicenseClient } from "../license/client";
+import type { LicenseClient } from "@mxstage/eam-connectors/license";
 import { formatCellValue } from "../grid/cellStyle";
 import { SheetGrid, type GridHeaderInfo, type LinkFilter } from "../grid/SheetGrid";
 import { PivotGrid } from "../grid/PivotGrid";

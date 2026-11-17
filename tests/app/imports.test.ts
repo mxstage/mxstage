@@ -25,7 +25,7 @@ import { JobRegistry, Workspace } from "../../src/app/store";
 import { createToolRegistry } from "../../src/app/tools/registry";
 import { DATA_NOTICE } from "../../src/app/tools/results";
 import { RelayErrorCode, type InvokeMsg } from "../../src/shared/protocol";
-import { makeParentKey, type SheetMeta, type SheetRow } from "../../src/shared/sheet";
+import { makeParentKey, type SheetMeta, type SheetRow } from "@mxstage/eam-connectors";
 import type { ToolName } from "../../src/shared/toolDefs";
 import { makeXlsx, makeZip } from "./xlsx-fixture";
 

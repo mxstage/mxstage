@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { MaximoClient, type FetchLike } from "../../src/app/maximo/client";
-import { loadRecords, NO_ID_CHILD_PREFIX, parseMember, recordsToRows } from "../../src/app/maximo/load";
-import { getObjectStructureInfo } from "../../src/app/maximo/meta";
-import type { ColumnSchema } from "../../src/shared/model";
-import { makeChildRowKey, makeParentKey, type MaximoRecord } from "../../src/shared/sheet";
+import { MaximoClient, type FetchLike } from "@mxstage/eam-connectors";
+import { loadRecords, NO_ID_CHILD_PREFIX, parseMember, recordsToRows } from "@mxstage/eam-connectors";
+import { getObjectStructureInfo } from "@mxstage/eam-connectors";
+import type { ColumnSchema } from "@mxstage/eam-connectors";
+import { makeChildRowKey, makeParentKey, type MaximoRecord } from "@mxstage/eam-connectors";
 import { createFakeMaximo, sampleSeed, type FakeMaximo } from "../fakes/fake-maximo";
 
 async function setup(opts: { via?: "proxy" | "direct"; hrefOrigin?: string } = {}) {

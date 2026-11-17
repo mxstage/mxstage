@@ -1,6 +1,6 @@
 // 直接編集・取り消しの結果を利用者向けの文言にする（純関数）。
 
-import type { ConflictInfo } from "../../shared/model";
+import type { ConflictInfo } from "@mxstage/eam-connectors";
 import { isStoreError } from "../store";
 import { gridMessages } from "./messages";
 

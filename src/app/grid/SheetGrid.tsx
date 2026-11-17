@@ -26,8 +26,8 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Checkbox } from "@carbon/react";
-import type { BatchAuthor, CellEdit, CellValue, ColumnSchema } from "../../shared/model";
-import type { ValueListService } from "../maximo/valueList";
+import type { BatchAuthor, CellEdit, CellValue, ColumnSchema } from "@mxstage/eam-connectors";
+import type { ValueListService } from "@mxstage/eam-connectors";
 import type { ViewKind, Workspace } from "../store";
 import type { RowState } from "../store/sheet";
 import { TONE_STYLE, cellTone, diffCellTexts, formatCellValue, formatColumnValue, hoverLines, isCellEditable, parseEditedText } from "./cellStyle";

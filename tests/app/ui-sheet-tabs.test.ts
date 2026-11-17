@@ -5,7 +5,7 @@ import { createRoot, type Root as ReactRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { closeSheet, SheetTabs } from "../../src/app/pages/SheetTabs";
 import { Workspace } from "../../src/app/store";
-import { makeParentKey, type SheetMeta, type SheetRow } from "../../src/shared/sheet";
+import { makeParentKey, type SheetMeta, type SheetRow } from "@mxstage/eam-connectors";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

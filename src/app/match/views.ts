@@ -5,7 +5,7 @@
 // - シートの値ではない（差分・反映には入らない）。作業を終えると消える。
 
 import { classifyText, replaceValue } from "../../shared/dictionary";
-import type { MatchConditions, NormalizeOption, TypedFilter } from "../../shared/model";
+import type { MatchConditions, NormalizeOption, TypedFilter } from "@mxstage/eam-connectors";
 import type { Workspace } from "../store";
 import type { RowMatch } from "../store/matcher";
 

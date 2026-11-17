@@ -1,6 +1,6 @@
 // 設定の「Skill と辞書」の文言。英語が正、日本語は同じ形（src/shared/i18n.ts）。使うときに skillMessages() を呼ぶ。
 
-import { defineMessages } from "../../shared/i18n";
+import { defineMessages } from "@mxstage/eam-connectors";
 
 export const skillMessages = defineMessages(
   {

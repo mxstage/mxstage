@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { LOCALE_STORAGE_KEY, defineMessages, detectLocale, getLocale, isLocale, setLocale, subscribeLocale } from "../../src/shared/i18n";
+import { LOCALE_STORAGE_KEY, defineMessages, detectLocale, getLocale, isLocale, setLocale, subscribeLocale } from "@mxstage/eam-connectors";
 
 const m = defineMessages(
   { title: "Settings", saved: (n: number) => `${n} saved`, nested: { hint: "Paste the key" } },

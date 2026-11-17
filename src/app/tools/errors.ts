@@ -2,8 +2,8 @@
 // 列名・シート名などの誤りには近い名前の候補を添える。
 
 import { RelayErrorCode } from "../../shared/protocol";
-import { MaximoError, MaximoNetworkError } from "../maximo/client";
-import { QueryBuildError } from "../maximo/query";
+import { MaximoError, MaximoNetworkError } from "@mxstage/eam-connectors";
+import { QueryBuildError } from "@mxstage/eam-connectors";
 import { RelayToolError } from "../relay";
 import { isStoreError, type StoreError } from "../store";
 

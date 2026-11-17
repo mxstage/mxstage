@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import type { StoredObjectStructure } from "../../src/app/catalog/catalog";
 import { searchStructures, searchTerms } from "../../src/app/catalog/search";
-import type { ColumnSchema } from "../../src/shared/model";
+import type { ColumnSchema } from "@mxstage/eam-connectors";
 
 function entry(os: string, columns: ColumnSchema[], childIdAttrs: Record<string, string | null> = {}): StoredObjectStructure {
   return { baseUrl: "https://maximo.test/maximo", os, loadedAt: 1, info: { os, columns, keyColumns: [], childIdAttrs } };

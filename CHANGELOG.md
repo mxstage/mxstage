@@ -2,7 +2,7 @@
 
 All notable changes to MX Stage are listed here. Versions follow [Semantic Versioning](https://semver.org/). Each version becomes available under the Apache License 2.0 four years after its release (see [LICENSE](LICENSE)).
 
-## 0.3.0 — 2026-11-16
+## 0.3.0 — 2026-11-24
 
 ### Added
 
@@ -12,6 +12,8 @@ All notable changes to MX Stage are listed here. Versions follow [Semantic Versi
 ### Changed
 
 - **MX Stage opens the work screen for you.** When the AI uses a tool that needs the work screen and no work screen tab is open (for example, asking in a Claude Desktop chat to list the MX Stage connections), the bridge opens the work screen the way the desktop shortcut does (a Chrome or Edge app window, or the default browser when neither is installed), waits for it to connect and carries on; the AI no longer asks you to type `http://127.0.0.1:8788/app`. It opens the work screen only while no tab is connected, not again within 60 seconds, and at most twice before it asks you to open the URL yourself, so it never piles up tabs. If no browser can be opened, the AI gives you the URL as before. This is the default for the Claude Desktop extension (turn off **Open the work screen automatically** in its settings), `npx @mxstage/mxstage` and the installer (add `--no-open` to the server's arguments to turn it off). `--open` still also opens the work screen when the bridge starts.
+
+- **Settings → Skills: clearer counts on the folder card.** The card counts the Skills of that connection as "Skills of this connection" and shows the Skills of this PC (used in every connection) apart, for example "0 Skills of this connection (3 Skills of this PC, counted apart)". A folder that is not shared reads "Not shared with the members" instead of "This PC only", which looked wrong next to "synced by OneDrive".
 
 - **The Maximo connection, the commit engine, license keys and saved connections now come from a shared package,** [@mxstage/eam-connectors](https://github.com/mxstage/eam-connectors), which other TSUNAGI tools use too. Nothing changes for you: the work screen, commits, prices, license keys and where MX Stage keeps its data (`~/.config/mxstage`, the keychain item "MX Stage", the Windows DPAPI protection and the browser's `mxstage.*` settings) stay as they were.
 

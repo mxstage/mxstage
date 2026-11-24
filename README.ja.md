@@ -62,8 +62,10 @@ AI が何を書こうとしているかが見えず、推測の誤りがその�
 
 1. [最新のリリース](https://github.com/mxstage/mxstage/releases/latest)から `mxstage-<版>.mcpb` を取得する。
 2. Claude Desktop の「Settings → Extensions」で「Advanced settings → Install Extension…」を押してファイルを選ぶ（ファイルをダブルクリックするか、Extensions の画面にドラッグしてもよい）。「Install」を押す。
-3. Chrome か Edge で `http://127.0.0.1:8788/app` を開き、**設定で Maximo の URL と API キーを入れる。** API キーはチャットに書かない。
-4. 新しいチャットで「MX Stage の状態を見せて」と頼む。
+3. 新しいチャットで「MX Stage の状態を見せて」と頼む。作業画面がまだ開いていなければ、MX Stage が既定のブラウザで作業画面（`http://127.0.0.1:8788/app`）を開く（Chrome か Edge がよい）。
+4. 作業画面の**設定で Maximo の URL と API キーを入れる。** API キーはチャットに書かない。
+
+作業画面を自分で開くのは、ツールが作業画面を要るのに作業画面のタブが 1 つもつながっていないときだけ。開いてから 60 秒のあいだは開き直さず、タブが開いていれば開かない。止めるときは、拡張機能の設定（Settings → Extensions → MX Stage → Configure）で **Open the work screen automatically** を切る（そのときは、URL を開くよう AI が案内する）。
 
 拡張には Node.js も Git も要らない（Claude Desktop が動かす）。ほかの AI アシスタント（ChatGPT デスクトップ・IBM Bob・ターミナルの Claude Code・Antigravity）でも使うときは、下の導入スクリプトを使う。拡張が入っていれば、二重には登録しない。
 
@@ -95,6 +97,8 @@ Claude Code が下の「導入手順（Claude Code 向け）」に沿って入�
 設定では、Maximo ごとに **本番** か **テスト** かも選ぶ。本番への反映にはライセンスが要る（下の「ライセンス」）。それ以外はすべて無償。
 
 npm でサーバを起動する MCP クライアントでは、`npx -y @mxstage/mxstage` でサーバだけを動かすこともできる（Node.js 20 以上。Skill やショートカットは導入スクリプトでだけ入る）。
+
+ツールが作業画面を要るのに作業画面のタブが 1 つもつながっていないとき、サーバは PC の既定のブラウザで作業画面を開く（1 回だけ。60 秒のあいだは開き直さず、タブが開いていれば開かない）。止めるときは、サーバの引数に `--no-open` を足す（そのときは、URL を開くよう AI が案内する）。
 
 更新は「MX Stage を更新して」、取り消しは「MX Stage をアンインストールして」と Claude Code に伝える（下の「アンインストール」）。
 

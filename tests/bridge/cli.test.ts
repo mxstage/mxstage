@@ -57,6 +57,21 @@ describe("引数の解釈", () => {
     expect(parseArgs(["--open", "--no-open"])).toMatchObject({ kind: "run", options: { open: false } });
   });
 
+  it("ツールが作業画面を要るときに開くのは既定で入。--no-open と --open-work-screen false で切る（読めない値では止めない）", () => {
+    expect(parseArgs([])).toMatchObject({ kind: "run", options: { open: false, openWhenNeeded: true } });
+    expect(parseArgs(["--no-open"])).toMatchObject({ kind: "run", options: { open: false, openWhenNeeded: false } });
+    expect(parseArgs(["--open"])).toMatchObject({ kind: "run", options: { open: true, openWhenNeeded: true } });
+    for (const v of ["false", "FALSE", "0", "no", "off"]) {
+      expect(parseArgs(["--open-work-screen", v]), v).toMatchObject({ kind: "run", options: { openWhenNeeded: false } });
+      expect(parseArgs([`--open-work-screen=${v}`]), v).toMatchObject({ kind: "run", options: { openWhenNeeded: false } });
+    }
+    for (const v of ["true", "1", "${user_config.open_work_screen}"]) {
+      expect(parseArgs(["--open-work-screen", v, "--port", "9000"]), v).toMatchObject({ kind: "run", options: { openWhenNeeded: true, port: 9000 } });
+    }
+    expect(HELP_TEXT).toContain("--no-open");
+    expect(HELP_TEXT).toContain("--open-work-screen");
+  });
+
   it("--allow-host はカンマ区切りと複数回指定を受ける", () => {
     expect(parseArgs(["--allow-host", "a.example,B.example", "--allow-host", "c.example"])).toMatchObject({
       kind: "run",

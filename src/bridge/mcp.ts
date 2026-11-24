@@ -12,8 +12,8 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import type { CallToolResult, ServerContext } from "@modelcontextprotocol/server";
 import type { z } from "zod";
-import { RELAY_TIMEOUTS, RelayErrorCode, relayErrorMessage } from "../shared/protocol.ts";
-import type { HubInvokeRequest, HubInvokeResponse, HubRpc, InvokeProgress } from "../shared/protocol.ts";
+import { RELAY_TIMEOUTS, RelayErrorCode, relayErrorMessage, workScreenOpenMessage } from "../shared/protocol.ts";
+import type { HubInvokeRequest, HubInvokeResponse, HubRpc, InvokeProgress, WorkScreenOpenOutcome } from "../shared/protocol.ts";
 import { TOOL_DEFS, TOOL_NAMES, isReadOnlyTool, publishedInputSchema } from "../shared/toolDefs.ts";
 import type { ToolName } from "../shared/toolDefs.ts";
 import { updatesText } from "./freshness.ts";
@@ -26,6 +26,7 @@ import { createProgressForwarder, progressTokenOf } from "./progress.ts";
 import { IMPORT_MAX_BYTES } from "./importUpload.ts";
 import type { ImportTicket } from "./importUpload.ts";
 import type { TicketIssuer } from "./peer.ts";
+import type { WorkScreenOpener } from "./workScreen.ts";
 
 /**
  * どのクライアントにも届く案内。Skill の入らないクライアント（Claude Desktop のチャット・Gemini など）には、決まりはこれと
@@ -33,7 +34,7 @@ import type { TicketIssuer } from "./peer.ts";
  * 「Maximo のデータは作業画面のシートに読み込み、シートから読む」はツールの作りでも守る（scope_options も走査した行をシートにする）。
  */
 export const SERVER_INSTRUCTIONS =
-  "MX Stage is a local workbench for correcting IBM Maximo data in a work screen (a browser tab). Call get_status first; if no tab is open, give the user the URL from open_grid. " +
+  "MX Stage is a local workbench for correcting IBM Maximo data in a work screen (a browser tab). Call get_status first. If no work screen tab is open, MX Stage opens it in the default browser of this PC by itself and the result says so: tell the user and continue once it is open. Give the user the URL from open_grid only when the result says it could not be opened, and never open the work screen again in a new tab. " +
   "The result of your first tool call includes the MX Stage rules and the index of Skills (procedures for basic operations, standard Maximo objects and the user's own tasks). Read it and follow it; read the Skills it names with get_skill before those steps. " +
   "Always load Maximo data into work screen sheets (load_sheet, load_master, scope_options) and read it from the sheets (query_rows, aggregate), so that the user can see and check the same data in the work screen. " +
   "If the user wants to keep a procedure, show it to them, get their agreement, then send it with save_skill: it becomes a draft that the user checks and saves in the settings. " +
@@ -175,6 +176,52 @@ export interface BridgeMcpDeps {
   skillShelf?: SkillShelf | null;
   /** 古くなっているものを調べる（src/bridge/freshness.ts の checkUpdates）。省くと知らせを添えない */
   checkUpdates?: () => Promise<UpdateNotice[]>;
+  /** タブが無いときに既定のブラウザで作業画面を開く（src/bridge/workScreen.ts）。省くと開かず、URL を案内する */
+  workScreen?: WorkScreenOpener | null;
+  /** 開いたあとタブがつながるのを待つ間の休み（試験で差し替える） */
+  sleep?: (ms: number) => Promise<void>;
+}
+
+/** 作業画面を開いてから、タブがつながるのを待つ長さ（つながったら、その場で呼び出しを送り直す） */
+export const OPEN_WAIT_MS = 15_000;
+/** タブがつながったかを見る間隔 */
+export const OPEN_POLL_MS = 500;
+
+const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/**
+ * タブが無かったときの処理。開いてよければ既定のブラウザで開き（同じ橋渡しでは何度も開かない）、
+ * 開いたら（少し前に開いていたら）waitMs までタブがつながるのを待つ。
+ * tabConnected: 待つあいだにタブがつながった（呼び出しを送り直してよい）
+ */
+export async function openWorkScreenForTool(deps: BridgeMcpDeps, waitMs: number): Promise<{ outcome: WorkScreenOpenOutcome; tabConnected: boolean }> {
+  const opener = deps.workScreen;
+  if (opener === undefined || opener === null) return { outcome: "off", tabConnected: false };
+  // 呼び出しのあいだにタブがつながっていたら、開かない（新しいタブを増やさない）
+  if (await tabConnected(deps.hub)) {
+    opener.tabSeen();
+    return { outcome: "waiting", tabConnected: true };
+  }
+  const outcome = await opener.request();
+  if (outcome !== "opened" && outcome !== "waiting") return { outcome, tabConnected: false };
+  const sleep = deps.sleep ?? defaultSleep;
+  for (let waited = 0; waited < waitMs; waited += OPEN_POLL_MS) {
+    await sleep(Math.min(OPEN_POLL_MS, waitMs - waited));
+    if (await tabConnected(deps.hub)) {
+      opener.tabSeen();
+      return { outcome, tabConnected: true };
+    }
+  }
+  return { outcome, tabConnected: false };
+}
+
+/** タブが無かった呼び出しの答え。開けたなら「開いた。開いたら続ける」、開けなければ今までどおり URL を案内する */
+function noTabResult(name: ToolName, origin: string, outcome: WorkScreenOpenOutcome): CallToolResult {
+  const message = workScreenOpenMessage(outcome, origin);
+  const browserOpened = outcome === "opened" || outcome === "waiting";
+  if (name === "get_status") return jsonResult({ tabConnected: false, appUrl: `${origin}/app`, browserOpened, message });
+  const value = { error: { code: RelayErrorCode.NO_TAB, name: "NO_TAB", message, browserOpened } };
+  return { content: [{ type: "text", text: JSON.stringify(value) }], structuredContent: value, isError: true };
 }
 
 export function jsonResult(value: Record<string, unknown>): CallToolResult {
@@ -236,7 +283,25 @@ export async function runTabTool(deps: BridgeMcpDeps, name: ToolName, args: unkn
     const remainingMs = budgetMs - (now() - startedAt);
     if (remainingMs >= MIN_RETRY_BUDGET_MS) res = await invokeSafely(deps.hub, { ...req, deadlineMs: remainingMs }, opts.onProgress);
   }
-  if (res.ok) return res.result as CallToolResult;
+  if (res.ok) {
+    deps.workScreen?.tabSeen();
+    return res.result as CallToolResult;
+  }
+
+  if (res.code === RelayErrorCode.NO_TAB && deps.workScreen) {
+    // 作業画面を既定のブラウザで開き、つながったらこの呼び出しを送り直す（NO_TAB はタブに何も送っていないので、変更の呼び出しでも送り直せる）
+    const waitMs = Math.max(0, Math.min(OPEN_WAIT_MS, budgetMs - (now() - startedAt) - MIN_RETRY_BUDGET_MS));
+    const opened = await openWorkScreenForTool(deps, waitMs);
+    const remainingMs = budgetMs - (now() - startedAt);
+    if (opened.tabConnected && remainingMs >= MIN_RETRY_BUDGET_MS) {
+      res = await invokeSafely(deps.hub, { ...req, deadlineMs: remainingMs }, opts.onProgress);
+      if (res.ok) {
+        const result = res.result as CallToolResult;
+        return opened.outcome === "opened" ? withGuide(result, `[The work screen was not open, so MX Stage opened it in the default browser of this PC (${deps.origin}/app). Tell the user.]`) : result;
+      }
+    }
+    if (res.code === RelayErrorCode.NO_TAB) return noTabResult(name, deps.origin, opened.outcome);
+  }
 
   if (name === "get_status" && res.code === RelayErrorCode.NO_TAB) {
     return jsonResult({ tabConnected: false, appUrl: `${deps.origin}/app`, message: relayErrorMessage(RelayErrorCode.NO_TAB, deps.origin) });
@@ -296,8 +361,19 @@ export async function connectionContext(deps: BridgeMcpDeps): Promise<(Connectio
 export async function runWorkerTool(deps: BridgeMcpDeps, name: ToolName, args: Record<string, unknown>): Promise<CallToolResult> {
   const { origin } = deps;
   switch (name) {
-    case "open_grid":
-      return jsonResult({ appUrl: `${origin}/app`, settingsUrl: `${origin}/settings`, demoUrl: `${origin}/settings#demo`, tabConnected: await tabConnected(deps.hub) });
+    case "open_grid": {
+      const connected = await tabConnected(deps.hub);
+      const value: Record<string, unknown> = { appUrl: `${origin}/app`, settingsUrl: `${origin}/settings`, demoUrl: `${origin}/settings#demo`, tabConnected: connected };
+      if (connected) {
+        deps.workScreen?.tabSeen();
+      } else if (deps.workScreen) {
+        // タブが無ければ既定のブラウザで開く（待たない。少し前に開いていれば開き直さない）
+        const outcome = await deps.workScreen.request();
+        value.browserOpened = outcome === "opened" || outcome === "waiting";
+        value.message = workScreenOpenMessage(outcome, origin);
+      }
+      return jsonResult(value);
+    }
 
     case "list_skills": {
       // origin: default（アプリ既定）/ connection（今の接続先の Skill）/ user（この PC だけの Skill）。読み込めなかった利用者の Skill は problems に出す

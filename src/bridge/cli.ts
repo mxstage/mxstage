@@ -34,6 +34,7 @@ import { buildBridgeMcpServer } from "./mcp.ts";
 import { userSkillsDirOf } from "./skills.ts";
 import { SkillShelf } from "./sharedSkills.ts";
 import { HELP_TEXT, parseArgs } from "./options.ts";
+import { WorkScreenOpener, launchDefaultBrowser } from "./workScreen.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 /** src/bridge から見たリポジトリの根。同梱（.mcpb）では server/ の 1 つ上（隣に app/ がある） */
@@ -49,22 +50,9 @@ export function bridgeVersion(): string {
   }
 }
 
-/** 既定のブラウザで開く（標準入出力は渡さない） */
+/** 既定のブラウザで開く（標準入出力は渡さない。開けなくても橋渡しは動く） */
 export function openInBrowser(url: string): void {
-  const command =
-    process.platform === "win32"
-      ? { file: "cmd", args: ["/c", "start", "", url] }
-      : process.platform === "darwin"
-        ? { file: "open", args: [url] }
-        : { file: "xdg-open", args: [url] };
-  try {
-    // windowsHide: cmd /c start のために黒いコンソール窓を一瞬出さない
-    const child = spawn(command.file, command.args, { detached: true, stdio: "ignore", windowsHide: true });
-    child.on("error", () => undefined);
-    child.unref();
-  } catch {
-    // 開けなくても橋渡しは動く
-  }
+  void launchDefaultBrowser(url);
 }
 
 /** 起動の入口では鍵ファイルの場所がまだ決まっていないので、stderr だけに書く */
@@ -209,9 +197,11 @@ export async function main(argv: readonly string[]): Promise<number> {
             isPrimary: () => coordinator.role === "primary",
             primaryStale: () => coordinator.primaryStale(),
           });
+  // ツールが作業画面を要るのにタブが無いとき、既定のブラウザで開く（--no-open では開かない。src/bridge/workScreen.ts）
+  const workScreen = new WorkScreenOpener({ enabled: opts.openWhenNeeded, url: `${coordinator.origin}/app`, launch: (url) => launchDefaultBrowser(url) });
   const stdio = opts.mcp
     ? serveStdio(
-        () => buildBridgeMcpServer({ origin: coordinator.origin, hub: coordinator.hub, tickets: coordinator.tickets, version, userSkillsDir, skillShelf, checkUpdates: updates }),
+        () => buildBridgeMcpServer({ origin: coordinator.origin, hub: coordinator.hub, tickets: coordinator.tickets, version, userSkillsDir, skillShelf, checkUpdates: updates, workScreen }),
         {
           onerror: () => record("MCP の接続でエラーが発生しました。"),
         },

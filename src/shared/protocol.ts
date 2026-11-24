@@ -252,10 +252,42 @@ export interface HubRpc {
 }
 
 
+/**
+ * 作業画面のタブが無かったときに、橋渡しが既定のブラウザで開いたか（src/bridge/workScreen.ts）。
+ * opened: 今開いた / waiting: 少し前に開いた（開き直さない） / failed: 開けなかった / gave_up: 開いたがつながらなかった / off: 開かない設定
+ */
+export type WorkScreenOpenOutcome = "opened" | "waiting" | "failed" | "gave_up" | "off";
+
+/** 橋渡しが作業画面を既定のブラウザで開いた（開こうとした）ときに、AI に渡す文 */
+export function workScreenOpenMessage(outcome: WorkScreenOpenOutcome, appUrl: string): string {
+  switch (outcome) {
+    case "opened":
+      return (
+        `The work screen tab was not open, so MX Stage opened it (${appUrl}/app) in the default browser of this PC. ` +
+        "Tell the user that the work screen is opening in their browser (do not ask them to type the URL, and do not open it again), wait about 10 seconds, then call get_status and continue."
+      );
+    case "waiting":
+      return (
+        `MX Stage opened the work screen (${appUrl}/app) in the default browser of this PC a moment ago and it has not connected yet. ` +
+        "Do not open it again. Wait about 10 seconds, then call get_status and continue. If it is still not connected, ask the user to look at the browser window that opened."
+      );
+    case "gave_up":
+      return (
+        `MX Stage opened the work screen in the default browser of this PC, but no work screen tab has connected. ` +
+        `Ask the user to open ${appUrl}/app in Chrome or Edge (or to show the tab that opened), then try again.`
+      );
+    case "failed":
+      return `The work screen tab is not open and MX Stage could not open the default browser of this PC. Ask the user to open ${appUrl}/app in their browser, then try again.`;
+    case "off":
+      return relayErrorMessage(RelayErrorCode.NO_TAB, appUrl);
+  }
+}
+
 /** モデルに次の行動が分かる文言にする（汎用的なエラー文は使わない） */
 export function relayErrorMessage(code: RelayErrorCode, appUrl: string): string {
   switch (code) {
     case RelayErrorCode.NO_TAB:
+      // 橋渡しが既定のブラウザで開けなかったとき（--no-open・ブラウザが無い）の文。開けたときは workScreenOpenMessage
       return `The work screen tab is not open. Ask the user to open ${appUrl}/app in their browser, then try again.`;
     case RelayErrorCode.NO_ACK:
       return "The work screen tab did not answer. It reconnects by itself: wait about 20 seconds, then call get_status once. If that also fails, ask the user to show the work screen tab and press its Reload button. If the call was a change, check get_diff before repeating it, because it may have been applied.";

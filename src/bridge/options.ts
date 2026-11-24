@@ -5,8 +5,13 @@ import { DEFAULT_PORT } from "./server.ts";
 
 export interface BridgeOptions {
   port: number;
-  /** 既定のブラウザで作業画面を開くか（既定は開かない） */
+  /** 起動したときに既定のブラウザで作業画面を開くか（既定は開かない。--open） */
   open: boolean;
+  /**
+   * ツールが作業画面を要るのにタブが 1 つもつながっていないとき、既定のブラウザで作業画面を開くか（既定は開く）。
+   * --no-open と --open-work-screen=false で切る（src/bridge/workScreen.ts）
+   */
+  openWhenNeeded: boolean;
   /** Maximo の宛先ホストの許可リスト（空なら無制限） */
   allowHosts: string[];
   /** 自己署名証明書の Maximo に届かせる */
@@ -39,8 +44,13 @@ Options:
   --port <number>    Port to listen on (default ${DEFAULT_PORT}; never shifted.
                      If an MX Stage bridge already uses it, relays to that bridge;
                      if another application uses it, exits with code 1)
-  --open             Open the work screen in the default browser
-  --no-open          Do not open a browser (default)
+  --open             Also open the work screen in the default browser when the bridge starts
+  --no-open          Never open a browser. By default, when a tool needs the work screen and
+                     no work screen tab is connected, the bridge opens it once in the default
+                     browser (not again within 60 seconds, and never while a tab is connected)
+  --open-work-screen <true|false>
+                     The same as the default (true) or --no-open (false). Used by the
+                     Claude Desktop extension setting "Open the work screen automatically"
   --allow-host <h>   Maximo hosts that may be reached (comma-separated; can be repeated; default: any)
   --insecure         Accept a Maximo with a self-signed certificate (turns off verification for that connection only)
   --app-dir <path>   Location of the work screen files (dist/app)
@@ -70,7 +80,7 @@ function splitList(value: string): string[] {
 
 /** argv（process.argv.slice(2) の部分）を解釈する */
 export function parseArgs(argv: readonly string[]): ParseResult {
-  const options: BridgeOptions = { port: DEFAULT_PORT, open: false, allowHosts: [], insecure: false, mcp: true, appDir: null, devLicense: false, demo: true };
+  const options: BridgeOptions = { port: DEFAULT_PORT, open: false, openWhenNeeded: true, allowHosts: [], insecure: false, mcp: true, appDir: null, devLicense: false, demo: true };
 
   for (let i = 0; i < argv.length; i += 1) {
     const raw = argv[i] as string;
@@ -104,7 +114,18 @@ export function parseArgs(argv: readonly string[]): ParseResult {
         break;
       case "--no-open":
         options.open = false;
+        options.openWhenNeeded = false;
         break;
+      case "--open-work-screen": {
+        // 拡張機能の設定（真偽値）を受ける。読めない値（置き換えられなかった ${user_config...} など）では既定のまま開く。
+        // 切るのは、はっきり false と書いたときだけ（読めない値で橋渡しを止めない）
+        const v = next();
+        if (v !== null && /^(false|0|no|off)$/i.test(v.trim())) {
+          options.open = false;
+          options.openWhenNeeded = false;
+        }
+        break;
+      }
       case "--allow-host": {
         const v = next();
         if (v === null) return { kind: "error", message: "--allow-host needs a host name." };

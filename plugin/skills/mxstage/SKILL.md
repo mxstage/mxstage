@@ -37,13 +37,13 @@ Windows (macOS and Linux are untested), Chrome or Edge, and IBM Maximo or MAS Ma
 
 Ask which assistant they use, then give only the matching steps.
 
-**Claude Code or Cowork with this plugin**: the plugin already starts the MX Stage server (it needs Node.js 20 or later). Open `http://127.0.0.1:8788/app` in Chrome or Edge, enter the Maximo URL and API key in Settings, then ask "show the MX Stage status".
+**Claude Code or Cowork with this plugin**: the plugin already starts the MX Stage server (it needs Node.js 20 or later). Ask "show the MX Stage status": if the work screen is not open, MX Stage opens `http://127.0.0.1:8788/app` in the default browser. Enter the Maximo URL and API key in its Settings.
 
 **Claude Desktop (simplest, no Node.js needed)**
 1. Download `mxstage-<version>.mcpb` from https://github.com/mxstage/mxstage/releases/latest
 2. In Claude Desktop: Settings → Extensions → Advanced settings → Install Extension…, choose the file, then Install.
-3. Open `http://127.0.0.1:8788/app` in Chrome or Edge and enter the Maximo URL and API key in Settings.
-4. Start a new chat and ask "show the MX Stage status".
+3. Start a new chat and ask "show the MX Stage status". If the work screen is not open, MX Stage opens `http://127.0.0.1:8788/app` in the default browser by itself.
+4. Enter the Maximo URL and API key in Settings of the work screen.
 
 **ChatGPT desktop (Codex or Work mode), Antigravity, IBM Bob, Claude Code**: the installer registers MX Stage with every supported assistant on the PC. It needs Node.js 22.6 or later and Git. The easiest way is to give Claude Code (or the Code tab of Claude Desktop) the repository URL https://github.com/mxstage/mxstage and say "install this"; it follows the steps in the README and asks before each command. By hand: clone the repository to `%USERPROFILE%\mxstage` and run `node scripts/setup-local.mjs`. Then restart the assistant and enter the Maximo URL and API key in the work screen settings.
 

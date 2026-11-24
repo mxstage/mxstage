@@ -319,7 +319,8 @@ export class CliProcess {
     if (!isUnderTmp(sandbox.keyFile) || sandbox.env[BRIDGE_KEY_FILE_ENV] !== sandbox.keyFile) {
       throw new Error("CLI の試験は一時フォルダの鍵ファイルでだけ動かします");
     }
-    this.child = spawn(process.execPath, ["--experimental-strip-types", "src/bridge/cli.ts", ...args], {
+    // 試験では本物のブラウザを開かない（橋渡しは、タブが無いとツールが作業画面を要るときに既定のブラウザを開く）。--no-open は先頭に置き、後ろの指定で上書きできる
+    this.child = spawn(process.execPath, ["--experimental-strip-types", "src/bridge/cli.ts", "--no-open", ...args], {
       cwd: REPO_ROOT,
       env: sandbox.env,
       stdio: ["pipe", "pipe", "pipe"],

@@ -51,8 +51,10 @@ Several Maximo MCP servers let the AI call the REST API. That is fine for readin
 
 1. Download `mxstage-<version>.mcpb` from the [latest release](https://github.com/mxstage/mxstage/releases/latest).
 2. In Claude Desktop, open **Settings → Extensions**, then **Advanced settings → Install Extension…** and choose the file (or double-click the file, or drag it onto the Extensions page). Choose **Install**.
-3. Open `http://127.0.0.1:8788/app` in Chrome or Edge and **enter your Maximo URL and API key in Settings.** Never paste the API key into the chat.
-4. In a new chat, ask "show the MX Stage status".
+3. In a new chat, ask "show the MX Stage status". When the work screen is not open yet, MX Stage opens it (`http://127.0.0.1:8788/app`) the way the desktop shortcut does: in a Chrome or Edge app window, or in your default browser when neither is installed.
+4. **Enter your Maximo URL and API key in Settings** of the work screen. Never paste the API key into the chat.
+
+The work screen opens by itself only when a tool needs it and no work screen tab is connected; it is not opened again within 60 seconds, and never while a tab is open. To turn this off, turn off **Open the work screen automatically** in the extension's settings (Settings → Extensions → MX Stage → Configure); MX Stage then asks you to open the URL instead.
 
 The extension needs no Node.js or Git: Claude Desktop runs it. To use MX Stage from other assistants as well (ChatGPT desktop, IBM Bob, Claude Code in the terminal, Antigravity), use the installer below; it detects the extension and does not register MX Stage twice.
 
@@ -81,6 +83,8 @@ To install by hand, clone this repository to `%USERPROFILE%\mxstage` and run `no
 In Settings, also choose for each Maximo whether it is **production** or **test**. Committing to production needs a license (see [License](#license)); everything else is free.
 
 MCP clients that start servers with npm can also run the server alone with `npx -y @mxstage/mxstage` (Node.js 20 or later; the Skills and shortcuts come only with the installer).
+
+When a tool needs the work screen and no work screen tab is connected, the server opens it the way the desktop shortcut does (a Chrome or Edge app window on Windows, otherwise the default browser; once; not again within 60 seconds, never while a tab is open). Add `--no-open` to the server's arguments to turn this off; the AI then gives the user the URL instead.
 
 To update, say "update MX Stage"; to remove it, say "uninstall MX Stage" (see [Uninstall](#uninstall)).
 

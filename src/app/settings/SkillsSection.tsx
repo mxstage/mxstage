@@ -139,7 +139,7 @@ export function SkillsSection(props: SkillsSectionProps) {
       {member !== null && <MemberName member={member} client={dicts} onSaved={setMember} />}
       {places !== null && places.length === 0 && <p className="muted small">{t.places.empty}</p>}
       {places?.map((p) => (
-        <PlaceCard key={p.scope} place={p} current={p.scope === props.currentScope} client={dicts} onChanged={reload} />
+        <PlaceCard key={p.scope} place={p} current={p.scope === props.currentScope} client={dicts} onChanged={reload} pcSkills={listing !== null ? pcSkills.length : null} />
       ))}
 
       {props.currentScope === null ? (
@@ -290,7 +290,7 @@ function MemberName({ member, client, onSaved }: { member: Member; client: Dicti
 }
 
 /** 接続先 1 つの置き場所 */
-function PlaceCard({ place, current, client, onChanged }: { place: PlaceInfo; current: boolean; client: DictionaryClient; onChanged: () => void }) {
+function PlaceCard({ place, current, client, onChanged, pcSkills }: { place: PlaceInfo; current: boolean; client: DictionaryClient; onChanged: () => void; pcSkills: number | null }) {
   const t = skillMessages().places;
   const f = dictionaryMessages().folder;
   const sync = dictionaryMessages().sync;
@@ -307,7 +307,8 @@ function PlaceCard({ place, current, client, onChanged }: { place: PlaceInfo; cu
   const counts = [
     isDefault ? t.thisPc : t.shared,
     ...(place.dictionaries !== null ? [t.dictionaries(place.dictionaries)] : []),
-    ...(place.skills !== null ? [t.skills(place.skills)] : []),
+    // この接続先の Skill と、どの接続先でも使うこの PC の Skill を分けて出す（運営者 2026-11-24：数が合わないように見えた）
+    ...(place.skills !== null ? [t.skills(place.skills) + (pcSkills !== null && pcSkills > 0 ? t.pcSkills(pcSkills) : "")] : []),
     ...(!isDefault && place.members !== null ? [t.members(place.members)] : []),
   ];
 

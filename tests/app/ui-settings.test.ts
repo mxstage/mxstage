@@ -284,7 +284,11 @@ describe("設定画面のフォーム", () => {
     expect(cards[0]!.textContent).toContain("メンバーと共有");
     expect(cards[1]!.textContent).toContain("Documents\\MX Stage\\南部工場（テスト）");
     expect(cards[1]!.textContent).toContain("既定");
-    expect(cards[1]!.textContent).toContain("この PC だけ");
+    // 既定の置き場所は「メンバーと共有していない」（OneDrive の同期と並んでも食い違わない言い方。運営者 2026-11-24）
+    expect(cards[1]!.textContent).toContain("メンバーと共有していない");
+    expect(cards[1]!.textContent).not.toContain("この PC だけ");
+    // この接続先の Skill と、この PC の Skill は分けて数える
+    expect(cards[1]!.textContent).toContain("この接続先の Skill 0（この PC の Skill 1 は別）");
     // 今の接続先の辞書と Skill
     expect(text).toContain("北部クリーンセンター（本番） の辞書");
     expect(text).toContain("北部 設備名の呼び方");

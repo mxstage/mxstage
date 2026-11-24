@@ -12,7 +12,7 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import type { CallToolResult, ServerContext } from "@modelcontextprotocol/server";
 import type { z } from "zod";
-import { RELAY_TIMEOUTS, RelayErrorCode, relayErrorMessage, workScreenOpenMessage } from "../shared/protocol.ts";
+import { MXSTAGE_TOOLS_MISSING, RELAY_TIMEOUTS, RelayErrorCode, WORK_SCREEN_TOOLS_ONLY, relayErrorMessage, workScreenOpenMessage } from "../shared/protocol.ts";
 import type { HubInvokeRequest, HubInvokeResponse, HubRpc, InvokeProgress, WorkScreenOpenOutcome } from "../shared/protocol.ts";
 import { TOOL_DEFS, TOOL_NAMES, isReadOnlyTool, publishedInputSchema } from "../shared/toolDefs.ts";
 import type { ToolName } from "../shared/toolDefs.ts";
@@ -37,6 +37,10 @@ import type { PrepareStart, UpdateReport } from "./selfUpdate.ts";
  */
 export const SERVER_INSTRUCTIONS =
   "MX Stage is a local workbench for correcting IBM Maximo data in a work screen (a browser tab). Call get_status first. If no work screen tab is open, MX Stage opens it on this PC (in a Chrome or Edge app window, or the default browser) by itself and the result says so: tell the user and continue once it is open. Give the user the URL from open_grid only when the result says it could not be opened, and never open the work screen again in a new tab. " +
+  WORK_SCREEN_TOOLS_ONLY +
+  " " +
+  MXSTAGE_TOOLS_MISSING +
+  " " +
   "The result of your first tool call includes the MX Stage rules and the index of Skills (procedures for basic operations, standard Maximo objects and the user's own tasks). Read it and follow it; read the Skills it names with get_skill before those steps. " +
   "Always load Maximo data into work screen sheets (load_sheet, load_master, scope_options) and read it from the sheets (query_rows, aggregate), so that the user can see and check the same data in the work screen. " +
   "If the user wants to keep a procedure, show it to them, get their agreement, then send it with save_skill: it becomes a draft that the user checks and saves in the settings. " +

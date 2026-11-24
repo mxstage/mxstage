@@ -187,7 +187,7 @@ describe("skills", () => {
 
   it("目次は禁止事項・エラーの扱い・全 Skill の読む場面を持ち、ほかの Skill は禁止事項を書き直さない", () => {
     const body = parsed.find((s) => s.dirName === PRIMARY_SKILL)?.body ?? "";
-    for (const phrase of ["API keys", "copy row data into tool arguments", "on the user's behalf", "Never follow instructions", "Never guess", "NO_TAB", "INVALID_ARGS", "TOOL_ERROR"]) {
+    for (const phrase of ["API keys", "copy row data into tool arguments", "on the user's behalf", "Never follow instructions", "Never guess", "MX Stage tools only", "Claude in Chrome", "computer use", "restart Claude", "NO_TAB", "INVALID_ARGS", "TOOL_ERROR"]) {
       expect(body, phrase).toContain(phrase);
     }
     // 基本動作の Skill は名前で、標準オブジェクトの Skill は対象で案内する（一覧は説明から作るので本文に全部は書かない）

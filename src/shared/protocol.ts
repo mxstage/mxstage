@@ -253,6 +253,18 @@ export interface HubRpc {
 
 
 /**
+ * 作業画面は MX Stage の道具だけで扱う決まり（AI 向け）。ブラウザ・画面の操作の道具（Claude in Chrome・computer use など）で
+ * 作業画面を開いたり読んだりすると、作業画面の守り（guard.ts の forbidden_origin）に断られる。作業画面が要るときは道具を呼べば橋渡しが開く。
+ * サーバの案内・ツールの説明・作業画面を開いたときの文・目次の Skill に同じ趣旨を書く（試験: tests/bridge/browserTools.test.ts）
+ */
+export const WORK_SCREEN_TOOLS_ONLY =
+  "Read, change and show the work screen only with the MX Stage tools. Never open, click or read it with browser or screen control tools (Claude in Chrome, computer use and the like): the work screen refuses calls from them. When the work screen is needed, call an MX Stage tool and MX Stage opens it.";
+
+/** MX Stage の道具が見えないとき（開き直しの直後など）の決まり（AI 向け） */
+export const MXSTAGE_TOOLS_MISSING =
+  "If the MX Stage tools are not visible (for example just after a restart), do not turn to a browser: wait a moment and check the tool list again, or ask the user in one line to restart Claude.";
+
+/**
  * 作業画面のタブが無かったときに、橋渡しが既定のブラウザで開いたか（src/bridge/workScreen.ts）。
  * opened: 今開いた / waiting: 少し前に開いた（開き直さない） / failed: 開けなかった / gave_up: 開いたがつながらなかった / off: 開かない設定
  */
@@ -264,20 +276,20 @@ export function workScreenOpenMessage(outcome: WorkScreenOpenOutcome, appUrl: st
     case "opened":
       return (
         `The work screen tab was not open, so MX Stage opened it (${appUrl}/app) on this PC (in a Chrome or Edge app window, or the default browser). ` +
-        "Tell the user that the work screen is opening in their browser (do not ask them to type the URL, and do not open it again), wait about 10 seconds, then call get_status and continue."
+        "Tell the user that the work screen is opening in their browser (do not ask them to type the URL, and do not open it again, nor with browser or screen control tools), wait about 10 seconds, then call get_status and continue."
       );
     case "waiting":
       return (
         `MX Stage opened the work screen (${appUrl}/app) on this PC (in a Chrome or Edge app window, or the default browser) a moment ago and it has not connected yet. ` +
-        "Do not open it again. Wait about 10 seconds, then call get_status and continue. If it is still not connected, ask the user to look at the browser window that opened."
+        "Do not open it again, nor with browser or screen control tools. Wait about 10 seconds, then call get_status and continue. If it is still not connected, ask the user to look at the browser window that opened."
       );
     case "gave_up":
       return (
         `MX Stage opened the work screen on this PC (in a Chrome or Edge app window, or the default browser), but no work screen tab has connected. ` +
-        `Ask the user to open ${appUrl}/app in Chrome or Edge (or to show the tab that opened), then try again.`
+        `Ask the user to open ${appUrl}/app in Chrome or Edge (or to show the tab that opened), then try again. Do not open it yourself with browser or screen control tools.`
       );
     case "failed":
-      return `The work screen tab is not open and MX Stage could not open a browser on this PC. Ask the user to open ${appUrl}/app in their browser, then try again.`;
+      return `The work screen tab is not open and MX Stage could not open a browser on this PC. Ask the user to open ${appUrl}/app in their browser, then try again. Do not open it yourself with browser or screen control tools.`;
     case "off":
       return relayErrorMessage(RelayErrorCode.NO_TAB, appUrl);
   }
@@ -288,7 +300,7 @@ export function relayErrorMessage(code: RelayErrorCode, appUrl: string): string 
   switch (code) {
     case RelayErrorCode.NO_TAB:
       // 橋渡しが既定のブラウザで開けなかったとき（--no-open・ブラウザが無い）の文。開けたときは workScreenOpenMessage
-      return `The work screen tab is not open. Ask the user to open ${appUrl}/app in their browser, then try again.`;
+      return `The work screen tab is not open. Ask the user to open ${appUrl}/app in their browser, then try again. Do not open it yourself with browser or screen control tools.`;
     case RelayErrorCode.NO_ACK:
       return "The work screen tab did not answer. It reconnects by itself: wait about 20 seconds, then call get_status once. If that also fails, ask the user to show the work screen tab and press its Reload button. If the call was a change, check get_diff before repeating it, because it may have been applied.";
     case RelayErrorCode.DEADLINE:

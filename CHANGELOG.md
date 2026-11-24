@@ -2,6 +2,12 @@
 
 All notable changes to MX Stage are listed here. Versions follow [Semantic Versioning](https://semver.org/). Each version becomes available under the Apache License 2.0 four years after its release (see [LICENSE](LICENSE)).
 
+## 0.3.1 — 2026-11-24
+
+### Changed
+
+- **The AI uses the MX Stage tools, not a browser, for the work screen.** The rules, the Skills and the tool descriptions now tell the AI to read, change and show the work screen only with the MX Stage tools, and never to open, click or read it with browser or screen control tools such as Claude in Chrome or computer use (the work screen refuses those calls, so the AI used to stop with an error). When the work screen is needed, the AI calls an MX Stage tool and MX Stage opens it. If the MX Stage tools are not visible yet, for example just after restarting your assistant, the AI waits and checks again or asks you in one line to restart it, instead of turning to the browser.
+
 ## 0.3.0 — 2026-11-24
 
 ### Added

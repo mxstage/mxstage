@@ -2,7 +2,7 @@
 name: mxstage-core-screen
 description: "MX Stage basic operation: how the work screen shows sheets (related tables, views, colors, one-row-per-record specifications, filters, windows, reload, settings), to guide the user to what they see."
 metadata:
-  version: "1.1.0"
+  version: "1.2.0"
   category: "core"
 ---
 
@@ -42,6 +42,7 @@ Column headers of every table open a filter menu. Filters only change what the u
 
 ## Windows and reload
 
+- You never look at the screen yourself: read it with the MX Stage tools (get_status, query_rows, get_diff) and let the user look. Do not open, click or read it with browser or screen control tools (Claude in Chrome, computer use and the like); the work screen refuses them.
 - The work belongs to one window. If the user opens the work screen in another window (for example the browser inside the AI assistant), that window offers "Move it to this window"; the sheets, changes and undo history move there.
 - When the screen says it is out of date and asks to reload, the work is kept on this PC for 10 minutes while the tab reloads, then comes back. A reload from the browser's own button discards the work in that tab.
 - End work discards all sheets and history (nothing is committed).

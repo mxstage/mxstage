@@ -151,6 +151,13 @@ function tool<S extends z.ZodObject>(def: ToolDef<S>): ToolDef<S> {
   return def;
 }
 
+/**
+ * 作業画面は MX Stage の道具だけで扱う（ブラウザ・画面の操作の道具では開かない・読まない）。src/shared/protocol.ts の
+ * WORK_SCREEN_TOOLS_ONLY と同じ趣旨（共有のファイルどうしは実行時に import しない：画面は拡張子なし、橋渡しは .ts 付きで読むため）
+ */
+const TOOLS_ONLY_NOTE =
+  "Use only the MX Stage tools for the work screen: never open, click or read it with browser or screen control tools (Claude in Chrome, computer use and the like), which the work screen refuses.";
+
 const RO = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const EDIT = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false };
 const MAXIMO_READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true };
@@ -160,7 +167,8 @@ export const TOOL_DEFS = {
     name: "get_status",
     title: "Work screen status",
     description:
-      "Returns the state of the MX Stage work screen (a browser tab): whether it is connected, the workspace name, the loaded sheets, the revision, the Maximo connection, the environment (production or not) and the license. Always call it before starting work and after any error.",
+      "Returns the state of the MX Stage work screen (a browser tab): whether it is connected, the workspace name, the loaded sheets, the revision, the Maximo connection, the environment (production or not) and the license. Always call it before starting work and after any error. " +
+      TOOLS_ONLY_NOTE,
     inputSchema: z.strictObject({}),
     annotations: RO,
     runAt: "tab",
@@ -169,7 +177,8 @@ export const TOOL_DEFS = {
     name: "open_grid",
     title: "Open the work screen",
     description:
-      "Returns the URL of the work screen. If no work screen tab is connected, MX Stage opens it on this PC (in a Chrome or Edge app window, or the default browser) (browserOpened: true; tell the user and wait for it, do not open it again). Give the URL to the user only when browserOpened is false. demoUrl opens the built-in demo (a fictional Maximo on this PC) for users without Maximo.",
+      "Returns the URL of the work screen. If no work screen tab is connected, MX Stage opens it on this PC (in a Chrome or Edge app window, or the default browser) (browserOpened: true; tell the user and wait for it, do not open it again). Give the URL to the user only when browserOpened is false. demoUrl opens the built-in demo (a fictional Maximo on this PC) for users without Maximo. " +
+      TOOLS_ONLY_NOTE,
     inputSchema: z.strictObject({}),
     annotations: RO,
     runAt: "worker",

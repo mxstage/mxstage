@@ -27,6 +27,7 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
+import { READY_MARKER, VERSIONS_DIR, VERSIONS_FILE, chooseLaunch, readVersions, versionComplete, writeVersions } from "./launch.mjs";
 
 // ---------------------------------------------------------------------------
 // 橋渡しとの取り決め（contract）
@@ -57,6 +58,12 @@ const BRIDGE_CANDIDATES = [
   "dist/bridge/cli.js",
   "bin/mxstage-bridge.mjs",
 ];
+/**
+ * 起動の台本（scripts/launch.mjs を状態フォルダに写したもの）。Claude などの MCP の設定と自動起動は、これを起動する。
+ * 台本が versions.json を読み、版ごとのフォルダ（v/<commit>。src/bridge/selfUpdate.ts が用意する）か、
+ * 導入したこのフォルダ（seed）の入口を起こす。--bridge を指定したとき（開発・試験）は、指定した入口をそのまま登録する。
+ */
+const LAUNCHER_FILE = "launch.mjs";
 /** 画面と WebSocket だけを動かす（stdio の MCP を開かない）ときに橋渡しへ渡す引数（src/bridge/options.ts） */
 const BRIDGE_SERVE_ARGS = ["--no-mcp"];
 /** 既定のポート。橋渡しの既定（src/bridge/server.ts の DEFAULT_PORT）と合わせる。ずらさない */
@@ -183,7 +190,9 @@ const USAGE = `MX Stage をこの PC に入れる（1 ステップ導入）
   --uninstall              取り消す（Claude の設定から外す・ショートカットを消す・橋渡しを止める）
   --status                 今の状態を出すだけ（何も書き換えない）
   --port <番号>            使うポート（既定: ${DEFAULT_PORT}。橋渡しは Claude と同じポートを共有するので、塞がっていてもずらさない）
-  --bridge <パス>          橋渡しの入口（既定: ${BRIDGE_CANDIDATES[0]} などを順に探す）
+  --bridge <パス>          橋渡しの入口（既定: ${BRIDGE_CANDIDATES[0]} などを順に探す）。指定すると、起動の台本を使わずにこの入口をそのまま登録する
+  --launcher / --no-launcher  起動の台本（~/.config/mxstage/launch.mjs）を登録する／しない（既定: --bridge が無ければ登録する。
+                           台本は、チャットの mxstage_update が用意した新しい版を、次の起動で起こす）
   --dry-run                書き換えずに、やることだけ出す
   --no-install             npm install を実行しない
   --no-build               npm run build を実行しない
@@ -261,6 +270,8 @@ export function parseArgs(argv) {
     agentsSkillsDir: null,
     bobDir: null,
     claudeCli: null,
+    /** 起動の台本を登録するか（null: --bridge が無ければ登録する） */
+    launcher: null,
   };
   const withValue = {
     "--port": "port",
@@ -296,6 +307,8 @@ export function parseArgs(argv) {
     else if (arg === "--no-claude-desktop") opts.claudeDesktop = false;
     else if (arg === "--no-bob") opts.bob = false;
     else if (arg === "--claude-code") opts.claudeCode = true;
+    else if (arg === "--launcher") opts.launcher = true;
+    else if (arg === "--no-launcher") opts.launcher = false;
     else if (arg === "--json") opts.json = true;
     else if (arg === "--help" || arg === "-h") opts.help = true;
     else {
@@ -421,7 +434,9 @@ export function buildAntigravityEntry(nodePath, bridgeEntry, port) {
  * 知らない指定（将来の版で消えた場合）は付けない。付けると Claude から起動できなくなる。
  */
 export function nodeFlagsFor(bridgeEntry, accepts = (flag) => process.allowedNodeEnvironmentFlags.has(flag)) {
-  if (!bridgeEntry.toLowerCase().endsWith(".ts")) return [];
+  // 起動の台本は、同じプロセスで .ts の入口を読み込む
+  const lower = bridgeEntry.toLowerCase();
+  if (!lower.endsWith(".ts") && lower.split(/[\\/]/).pop() !== LAUNCHER_FILE) return [];
   return accepts("--experimental-strip-types") ? ["--experimental-strip-types"] : [];
 }
 
@@ -444,7 +459,14 @@ export function isOurEntry(entry, bridgeEntry) {
   if (!entry || typeof entry !== "object") return false;
   const args = Array.isArray(entry.args) ? entry.args : [];
   if (bridgeEntry && args.some((a) => typeof a === "string" && path.resolve(a) === path.resolve(bridgeEntry))) return true;
-  return args.some((a) => typeof a === "string" && /[\\/]bridge[\\/]/.test(a));
+  return args.some((a) => typeof a === "string" && (/[\\/]bridge[\\/]/.test(a) || isLauncherPath(a)));
+}
+
+/** 起動の台本のパスか（~/.config/mxstage/launch.mjs。状態フォルダは試験で差し替わるので、名前と親の名前で見る） */
+export function isLauncherPath(p) {
+  if (typeof p !== "string") return false;
+  const parts = p.replace(/\\/g, "/").toLowerCase().split("/");
+  return parts[parts.length - 1] === LAUNCHER_FILE && parts.length >= 2;
 }
 
 /**
@@ -459,6 +481,7 @@ export function isSetupShapedEntry(entry) {
   if (args[0] === "--experimental-strip-types") args.shift();
   if (args.length !== 3 || typeof args[0] !== "string" || args[1] !== "--port" || !/^\d{1,5}$/.test(String(args[2]))) return false;
   const script = args[0].replace(/\\/g, "/").toLowerCase();
+  if (script.endsWith(`/${LAUNCHER_FILE}`)) return true;
   return BRIDGE_CANDIDATES.some((candidate) => script.endsWith(`/${candidate.toLowerCase()}`));
 }
 
@@ -926,6 +949,109 @@ export function resolveBridgeEntry(repoRoot, explicit, exists = isFile) {
     if (exists(resolved)) return { entry: resolved, explicit: false };
   }
   return { entry: null, explicit: false };
+}
+
+// ---------------------------------------------------------------------------
+// 起動の台本と版ごとのフォルダ（チャットからの更新。src/bridge/selfUpdate.ts・scripts/launch.mjs）
+// ---------------------------------------------------------------------------
+
+/** 起動の台本の置き場所（状態フォルダの直下。版のフォルダの外なので、どの版が動いていても置き換えられる） */
+export function launcherPathOf(stateDir) {
+  return path.join(stateDir, LAUNCHER_FILE);
+}
+
+/** git を呼んで標準出力を返す（git が無い・失敗したら null） */
+function gitOut(args, cwd) {
+  const r = spawnSync("git", args, { cwd, encoding: "utf8", timeout: 30_000, windowsHide: true, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } });
+  return r.status === 0 && !r.error ? String(r.stdout ?? "").trim() : null;
+}
+
+/** git の終了コード（無い・止まったら null） */
+function gitStatus(args, cwd) {
+  const r = spawnSync("git", args, { cwd, encoding: "utf8", timeout: 30_000, windowsHide: true, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } });
+  return r.error ? null : r.status;
+}
+
+/**
+ * 導入したフォルダが開発用の写しなら、その理由（変更が残っている・main でない・取得元が mxstage/mxstage でない・git で読めない）。
+ * main のままの写しなら null。開発用の写しは、チャットからの更新で別の版に切り替えない
+ */
+export function cloneDevReason(repoRoot, git = gitOut) {
+  if (!existsSync(path.join(repoRoot, ".git"))) return "git の写しではない";
+  const origin = git(["remote", "get-url", "origin"], repoRoot);
+  if (origin === null) return "git で読めない";
+  if (!/github\.com[/:]mxstage\/mxstage(\.git)?\/?$/i.test(origin)) return "取得元が github.com/mxstage/mxstage ではない";
+  const branch = git(["rev-parse", "--abbrev-ref", "HEAD"], repoRoot);
+  if (branch !== "main") return `main ではない（${String(branch ?? "?").slice(0, 60)}）`;
+  const changes = git(["status", "--porcelain", "--untracked-files=no"], repoRoot);
+  if (changes === null) return "git で読めない";
+  if (changes !== "") return "手元に変更が残っている";
+  return null;
+}
+
+/** 版のフォルダの印（.mxstage-ready.json）を読む */
+function readReadyMarker(dir) {
+  try {
+    const v = JSON.parse(readFileSync(path.join(dir, READY_MARKER), "utf8"));
+    return typeof v?.commit === "string" ? { commit: v.commit, version: typeof v.version === "string" ? v.version : null, preparedAt: typeof v.preparedAt === "number" ? v.preparedAt : null } : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 導入のときに、起動の台本の記録（versions.json）をどうするかを決める（書き換えはしない）。
+ * - このフォルダが版ごとのフォルダ（v/<commit>）: その版を今の版にする（導入元 seed はそのまま）。
+ * - 開発用の clone: clone を起こす（今の版・用意済みの版を外す。開発中の写しから勝手に切り替えない）。
+ * - main のままの clone: 今の版（か用意済みの版）が clone と同じか新しい（clone の commit がその祖先）ならそちらを残し、
+ *   今の版が新しければ、その版の導入に任せる（forward。古い clone の Skill などで上書きしない）。
+ *   それ以外（git pull で clone の方が新しくなった・比べられない）は clone を起こす。
+ * 戻り値: { next, forward（任せる版のフォルダ）, note（画面の 1 行） }
+ */
+export function planLaunchState({ repoRoot, stateDir, entry, state, git = gitOut, ancestor = defaultAncestor, complete = (d) => versionComplete(d) }) {
+  const versionsDir = path.join(stateDir, VERSIONS_DIR);
+  const seedHere = { entry, root: repoRoot };
+  if (isInside(versionsDir, repoRoot)) {
+    const marker = readReadyMarker(repoRoot);
+    const ref = { commit: marker?.commit ?? "unknown", dir: repoRoot, version: marker?.version ?? null, preparedAt: marker?.preparedAt ?? null };
+    const ready = state.ready && isSameOrInside(state.ready.dir, repoRoot) && isSameOrInside(repoRoot, state.ready.dir) ? null : state.ready;
+    return { next: { ...state, seed: state.seed ?? seedHere, current: ref, ready }, forward: null, note: `版のフォルダ（${path.basename(repoRoot)}）を起こします` };
+  }
+  const dev = cloneDevReason(repoRoot, git);
+  if (dev !== null) {
+    return { next: { ...state, seed: seedHere, current: null, ready: null }, forward: null, note: `このフォルダ（${dev}）を起こします。チャットからの更新では切り替えません` };
+  }
+  const head = git(["rev-parse", "HEAD"], repoRoot);
+  const keep = (ref) => ref !== null && complete(ref.dir) && head !== null && ancestor(stateDir, head, ref.commit) === true;
+  const current = keep(state.current) ? state.current : null;
+  const ready = keep(state.ready) ? state.ready : null;
+  const forward = current !== null && current.commit !== head && existsSync(path.join(current.dir, "scripts", "setup-local.mjs")) ? current.dir : null;
+  const note =
+    current !== null
+      ? `版のフォルダ（${path.basename(current.dir)}）の方が新しいので、それを起こします`
+      : ready !== null
+        ? `このフォルダを起こします（用意済みの版 ${path.basename(ready.dir)} に、次の起動で切り替わります）`
+        : "このフォルダを起こします";
+  return { next: { ...state, seed: seedHere, current, ready }, forward, note };
+}
+
+/** commit a が b の祖先（か同じ）か。チャットからの更新が取得に使う倉庫（v/.cache.git）で比べる。比べられなければ null */
+function defaultAncestor(stateDir, a, b) {
+  if (a === b) return true;
+  const cache = path.join(stateDir, VERSIONS_DIR, ".cache.git");
+  if (!existsSync(cache)) return null;
+  const code = gitStatus(["--git-dir", cache, "merge-base", "--is-ancestor", a, b], stateDir);
+  return code === 0 ? true : code === 1 ? false : null;
+}
+
+/** 起動の台本を状態フォルダに置く（別の名前に書いてから置き換える。動いている橋渡しは台本を開いたままにしない） */
+function writeLauncher(stateDir) {
+  mkdirSync(stateDir, { recursive: true });
+  const target = launcherPathOf(stateDir);
+  const tmp = `${target}.${process.pid}.tmp`;
+  copyFileSync(path.join(import.meta.dirname, LAUNCHER_FILE), tmp);
+  renameSync(tmp, target);
+  return target;
 }
 
 /**
@@ -1622,15 +1748,16 @@ async function waitUntilDown(port, timeoutMs = 5_000) {
  * pid が本当にこの入口の橋渡しか確かめてから止める（番号の使い回しで無関係なプロセスを殺さない）。
  * Windows 以外ではコマンドラインを確かめられないので、確かめずには止めない。
  */
-function stopBridgeByPid(pid, bridgeEntry) {
+function stopBridgeByPid(pid, bridgeEntries) {
   if (!Number.isInteger(pid) || pid <= 0) return { ok: false, reason: "プロセス番号が分かりません。" };
+  const entries = (Array.isArray(bridgeEntries) ? bridgeEntries : [bridgeEntries]).filter(Boolean);
   const info = inspectProcess({ pid });
   if (!info.ok) return { ok: false, reason: info.reason };
   if (info.pid === 0) return { ok: true, stopped: false, reason: `プロセス ${pid} はもう動いていません。` };
-  if (!isBridgeCommandLine(info.commandLine, bridgeEntry)) {
-    return { ok: false, reason: `プロセス ${pid} は ${bridgeEntry ?? "mxstage"} の橋渡しではないようです。止めませんでした。` };
+  if (!entries.some((e) => isBridgeCommandLine(info.commandLine, e))) {
+    return { ok: false, reason: `プロセス ${pid} は ${entries[0] ?? "mxstage"} の橋渡しではないようです。止めませんでした。` };
   }
-  if (!isServeBridgeCommandLine(info.commandLine, bridgeEntry)) {
+  if (!entries.some((e) => isServeBridgeCommandLine(info.commandLine, e))) {
     return { ok: true, stopped: false, mcp: true, reason: `プロセス ${pid} は Claude Code / Claude Desktop が起動した橋渡しなので、止めませんでした。` };
   }
   try {
@@ -1807,6 +1934,24 @@ async function install(opts, paths, out) {
   result.bridgeEntry = found.entry;
   out.push(step("ok", "bridge_entry", `橋渡しの入口: ${found.entry}`));
 
+  // --- 起動の台本（Claude などには台本を登録し、台本がどの版を起こすかを決める。--bridge を指定したときは入口をそのまま登録する）---
+  // entry: Claude などの設定・自動起動・画面用の橋渡しが起動するもの。found.entry: このフォルダの橋渡しの入口
+  // 台本を置くのはポートを確かめたあと（ポートが塞がっていれば何も書き換えずに止めるため）
+  let entry = found.entry;
+  const launcherPath = (opts.launcher ?? !opts.bridge) ? launcherPathOf(paths.stateDir) : null;
+  const launchPlan = launcherPath ? planLaunchState({ repoRoot: paths.repoRoot, stateDir: paths.stateDir, entry: found.entry, state: readVersions(paths.stateDir) }) : null;
+  if (launcherPath) {
+    entry = launcherPath;
+    result.bridgeEntry = launcherPath;
+    result.bridgeTarget = found.entry;
+    result.launcher = launcherPath;
+  }
+  // ショートカットの作業フォルダ。台本を使うときは、あとで消えうる版のフォルダではなく状態フォルダにする
+  const shortcutDir = launcherPath ? paths.stateDir : paths.repoRoot;
+  /** このプロセスのコマンドラインが、この導入の橋渡し（台本・入口のどちらで起動したものでも）か */
+  const ourCommandLine = (line) => isBridgeCommandLine(line, entry) || isBridgeCommandLine(line, found.entry);
+  const ourServeCommandLine = (line) => isServeBridgeCommandLine(line, entry) || isServeBridgeCommandLine(line, found.entry);
+
   // --- 依存とビルド（更新のあとは、古い依存・古い画面のままにしない）---
   const install = needsInstall(paths.repoRoot);
   if (install !== null) {
@@ -1879,13 +2024,29 @@ async function install(opts, paths, out) {
     );
   }
 
+  // --- 起動の台本と、どの版を起こすかの記録 ---
+  if (launcherPath && launchPlan) {
+    if (dry) {
+      out.push(step("skip", "launcher", `起動の台本を ${launcherPath} に置きます（${launchPlan.note}）。--dry-run なので書いていません。`));
+    } else {
+      try {
+        writeLauncher(paths.stateDir);
+        writeVersions(paths.stateDir, launchPlan.next);
+        out.push(step("ok", "launcher", `起動の台本: ${launcherPath}（${launchPlan.note}）。`, "Claude などにはこの台本を登録します。チャットで「MX Stage を更新して」と頼むと、新しい版を別のフォルダに用意し、次に Claude を開き直したときに切り替わります。"));
+      } catch (err) {
+        out.push(step("error", "launcher", `起動の台本を置けませんでした: ${err instanceof Error ? err.message : String(err)}`, `${paths.stateDir} に書けるか確かめてから、もう一度実行してください。`));
+        return result;
+      }
+    }
+  }
+
   // --- 橋渡しの起動 ---
   if (decided.reused) {
     // 動いている橋渡しの本当のプロセス番号を Windows に聞く（記録の番号は古いことがある）
     const owner = IS_WINDOWS && !dry ? inspectProcess({ port }) : null;
-    if (owner?.ok && owner.pid > 0 && isServeBridgeCommandLine(owner.commandLine, found.entry)) {
+    if (owner?.ok && owner.pid > 0 && ourServeCommandLine(owner.commandLine)) {
       result.bridgePid = owner.pid;
-    } else if (owner?.ok && owner.pid > 0 && isBridgeCommandLine(owner.commandLine, found.entry)) {
+    } else if (owner?.ok && owner.pid > 0 && ourCommandLine(owner.commandLine)) {
       // Claude Code / Claude Desktop が起動した橋渡しがポートを持っている。その番号は記録しない（取り消しでも止めない）
       result.bridgePid = null;
       out.push(
@@ -1905,11 +2066,11 @@ async function install(opts, paths, out) {
   } else if (!opts.start) {
     out.push(step("skip", "bridge_start", "--no-start なので橋渡しを起動していません。"));
   } else if (dry) {
-    out.push(step("skip", "bridge_start", `橋渡しを起動します（node ${bridgeArgs(found.entry, port, BRIDGE_SERVE_ARGS).join(" ")}）。--dry-run なので実行していません。`));
+    out.push(step("skip", "bridge_start", `橋渡しを起動します（node ${bridgeArgs(entry, port, BRIDGE_SERVE_ARGS).join(" ")}）。--dry-run なので実行していません。`));
   } else {
     const keyEnv = keyFileEnvStep();
     if (keyEnv) out.push(keyEnv);
-    const started = await startBridge(nodePath, found.entry, port, paths.repoRoot, bridgeTestEnv(paths));
+    const started = await startBridge(nodePath, entry, port, paths.repoRoot, bridgeTestEnv(paths));
     if (started.ok) {
       // 起動する直前に別の橋渡しがポートを取ったときは、応えているのはそちら。health の番号を優先する
       result.bridgePid = Number.isInteger(started.health?.pid) ? started.health.pid : started.pid;
@@ -1923,7 +2084,7 @@ async function install(opts, paths, out) {
           "error",
           "bridge_start",
           `${why}${started.detail ? `\n         ${started.detail.replace(/\n/g, "\n         ")}` : ""}`,
-          `手で次を実行して、出てくるエラーを見てください: node ${quoteArgs(bridgeArgs(found.entry, port, BRIDGE_SERVE_ARGS))}`,
+          `手で次を実行して、出てくるエラーを見てください: node ${quoteArgs(bridgeArgs(entry, port, BRIDGE_SERVE_ARGS))}`,
         ),
       );
     }
@@ -1931,12 +2092,12 @@ async function install(opts, paths, out) {
 
   // --- Claude Code（Claude Desktop に拡張機能（.mcpb）の MX Stage が有効なら、--claude-code が無い限り登録しない）---
   const lastWritten = lastWrittenEntries(state);
-  const codeEntry = buildCodeEntry(nodePath, found.entry, port);
+  const codeEntry = buildCodeEntry(nodePath, entry, port);
   const extension = enabledDesktopExtension(opts, paths);
   const code = claudeCodeWanted(opts, state, extension);
   if (code.forced) result.claudeCodeForced = true;
   if (code.ok) {
-    registerCode(opts, paths, codeEntry, found.entry, lastWritten, result, out);
+    registerCode(opts, paths, codeEntry, entry, lastWritten, result, out);
     if (code.forced) {
       out.push(
         step(
@@ -1953,7 +2114,7 @@ async function install(opts, paths, out) {
       paths,
       { id: "claude_code", label: "Claude Code", configPath: paths.claudeCodeConfig },
       { why: claudeCodeSkipWhy(extension), okHint: CLAUDE_CODE_FORCE_HINT, duplicateHint: "Claude Desktop の Code タブではツールが二重に見えます。要らなければ claude mcp remove --scope user mxstage で外してください。" },
-      found.entry,
+      entry,
       lastWritten,
       result,
       out,
@@ -1962,22 +2123,22 @@ async function install(opts, paths, out) {
 
   // --- Claude Desktop（入っているときだけ。ふつうの版と Microsoft Store 版。拡張機能（.mcpb）で入っていれば設定ファイルには登録しない）---
   const desktop = claudeDesktopWanted(opts);
-  if (desktop.ok) installDesktop(opts, paths, buildDesktopEntry(nodePath, found.entry, port), found.entry, lastWritten, result, out);
+  if (desktop.ok) installDesktop(opts, paths, buildDesktopEntry(nodePath, entry, port), entry, lastWritten, result, out);
   else out.push(step("skip", "claude_desktop", `${desktop.reason}、Claude Desktop には登録していません。`));
 
   // --- Antigravity（入っているときだけ）---
   const antigravity = antigravityWanted(opts, paths);
-  if (antigravity.ok) registerAntigravity(opts, paths, buildAntigravityEntry(nodePath, found.entry, port), found.entry, lastWritten, result, out);
+  if (antigravity.ok) registerAntigravity(opts, paths, buildAntigravityEntry(nodePath, entry, port), entry, lastWritten, result, out);
   else out.push(step("skip", "antigravity", `${antigravity.reason}、Antigravity には登録していません。`));
 
   // --- Codex（入っているときだけ）---
   const codex = codexWanted(opts, paths);
-  if (codex.ok) registerCodex(opts, paths, nodePath, found.entry, port, lastWritten, result, out);
+  if (codex.ok) registerCodex(opts, paths, nodePath, entry, port, lastWritten, result, out);
   else out.push(step("skip", "codex", `${codex.reason}、Codex には登録していません。`));
 
   // --- IBM Bob（入っているときだけ）---
   const bob = bobWanted(opts, paths);
-  if (bob.ok) registerBob(opts, paths, buildDesktopEntry(nodePath, found.entry, port), found.entry, lastWritten, result, out);
+  if (bob.ok) registerBob(opts, paths, buildDesktopEntry(nodePath, entry, port), entry, lastWritten, result, out);
   else out.push(step("skip", "bob", `${bob.reason}、IBM Bob には登録していません。`));
 
   // --- Skill（アプリ既定と利用者の Skill を Claude Code の ~/.claude/skills、Antigravity の ~/.gemini/config/skills、Codex の ~/.agents/skills へ）---
@@ -1997,8 +2158,8 @@ async function install(opts, paths, out) {
     const made = createLnk({
       lnkPath: startupPath,
       target: nodePath,
-      args: quoteArgs(bridgeArgs(found.entry, port, BRIDGE_SERVE_ARGS)),
-      workDir: paths.repoRoot,
+      args: quoteArgs(bridgeArgs(entry, port, BRIDGE_SERVE_ARGS)),
+      workDir: shortcutDir,
       description: "MX Stage の橋渡し（ローカル）",
       windowStyle: 7, // 最小化して起動する
     });
@@ -2006,7 +2167,7 @@ async function install(opts, paths, out) {
       result.installed.startup = startupPath;
       out.push(step("ok", "autostart", `ログイン時に橋渡しを起動します（${startupPath}）。`, "やめたいときは、このファイルを消すだけです。"));
     } else {
-      out.push(step("error", "autostart", `自動起動のショートカットを作れませんでした。${made.detail}`, `エクスプローラーで shell:startup を開き、node.exe への"ショートカット"を手で作ってください（リンク先: ${quoteArgs([nodePath, ...bridgeArgs(found.entry, port, BRIDGE_SERVE_ARGS)])}）。`));
+      out.push(step("error", "autostart", `自動起動のショートカットを作れませんでした。${made.detail}`, `エクスプローラーで shell:startup を開き、node.exe への"ショートカット"を手で作ってください（リンク先: ${quoteArgs([nodePath, ...bridgeArgs(entry, port, BRIDGE_SERVE_ARGS)])}）。`));
     }
   }
 
@@ -2026,7 +2187,7 @@ async function install(opts, paths, out) {
         lnkPath,
         target: browser.exe,
         args: quoteArgs([`--app=${result.appUrl}`]),
-        workDir: paths.repoRoot,
+        workDir: shortcutDir,
         description: "MX Stage の作業画面",
         windowStyle: 1,
         // ブラウザを指すショートカットなので、MX Stage のアイコンを付ける（無いとブラウザのアイコンになる）
@@ -2833,6 +2994,17 @@ export function skillsStatusStep(paths, state, target = { id: "skills", label: "
  * 動いている橋渡しが、起動したあとに更新されたコードで動いていないか（health の stale）。
  * stale を載せない古い版の橋渡しなら null（何も言わない）。
  */
+/** 起動の台本と、次の起動で起こす版（台本が無ければ null） */
+export function launcherStatusStep(stateDir) {
+  const launcherPath = launcherPathOf(stateDir);
+  if (!existsSync(launcherPath)) return null;
+  const state = readVersions(stateDir);
+  const chosen = chooseLaunch(state);
+  if (chosen.entry === null) return step("warn", "launcher", `起動の台本（${launcherPath}）が起こせる版がありません。`, "MX Stage を入れたフォルダで node scripts/setup-local.mjs を実行してください。");
+  const what = chosen.source === "ready" ? `用意済みの版（${chosen.root}）。次の起動で切り替わります` : chosen.source === "current" ? `版のフォルダ（${chosen.root}）` : `導入したフォルダ（${chosen.root}）`;
+  return step("ok", "launcher", `起動の台本: ${launcherPath}。次の起動で起こすもの: ${what}。`);
+}
+
 export function bridgeCodeStep(probe) {
   if (probe?.state !== "bridge" || typeof probe.health?.stale !== "boolean") return null;
   if (!probe.health.stale) return step("ok", "bridge_code", "動いている橋渡しは、今のリポジトリのコードで動いています。");
@@ -3231,6 +3403,8 @@ async function uninstall(opts, paths, out) {
   const state = readState(paths.statePath);
   if (!state) out.push(step("warn", "state", `導入の記録がありません（${paths.statePath}）。分かる範囲で取り消します。`));
   const bridgeEntry = state?.bridgeEntry ?? resolveBridgeEntry(paths.repoRoot, opts.bridge).entry;
+  // 起動の台本で入れたときは、台本と入口のどちらで起動した橋渡しも、この導入のもの
+  const stopEntries = [bridgeEntry, typeof state?.bridgeTarget === "string" ? state.bridgeTarget : null].filter((e) => typeof e === "string" && e !== "");
 
   // --- 橋渡しを止める ---
   const port = Number.isInteger(state?.port) ? state.port : (opts.port ?? DEFAULT_PORT);
@@ -3251,7 +3425,7 @@ async function uninstall(opts, paths, out) {
       const owner = inspectProcess({ port });
       const pid = owner.ok && owner.pid > 0 ? owner.pid : Number.isInteger(before.health?.pid) ? before.health.pid : null;
       if (pid) handled.add(pid);
-      const stopped = pid ? stopBridgeByPid(pid, bridgeEntry) : { ok: false, reason: owner.ok ? "待ち受けているプロセスが分かりません。" : owner.reason };
+      const stopped = pid ? stopBridgeByPid(pid, stopEntries) : { ok: false, reason: owner.ok ? "待ち受けているプロセスが分かりません。" : owner.reason };
       const down = stopped.ok && !stopped.mcp && (await waitUntilDown(port));
       if (stopped.ok && stopped.mcp) {
         claudeOwned = pid;
@@ -3280,7 +3454,7 @@ async function uninstall(opts, paths, out) {
     }
     // 2) 記録にある番号（古い版の導入でポートがずれて起動した分など）
     if (Number.isInteger(state?.bridgePid) && !handled.has(state.bridgePid)) {
-      const stopped = stopBridgeByPid(state.bridgePid, bridgeEntry);
+      const stopped = stopBridgeByPid(state.bridgePid, stopEntries);
       // 番号が使い回されて別のプロセスになっていることがある。そのときは止めないのが正しいので失敗扱いにしない
       if (stopped.ok && stopped.stopped) reasons.push(stopped.reason);
     }
@@ -3369,6 +3543,9 @@ async function uninstall(opts, paths, out) {
   // --- 改名前（mxstudio）の導入が残したもの（登録・Skill の写し・ショートカット）も外す ---
   await migrateLegacy(opts, paths, out, { port, bridgeEntry, mode: "uninstall" });
 
+  // --- 起動の台本と版ごとのフォルダ（チャットからの更新で用意した版）---
+  removeLauncher(paths, dry, out);
+
   // --- 記録 ---
   if (!dry && existsSync(paths.statePath)) {
     try {
@@ -3379,6 +3556,26 @@ async function uninstall(opts, paths, out) {
     }
   }
   return state ?? {};
+}
+
+/** 起動の台本・版の記録・版ごとのフォルダを消す（利用者のデータは置いていない。動いている版のファイルが消せなければ知らせる） */
+function removeLauncher(paths, dry, out) {
+  const targets = [launcherPathOf(paths.stateDir), path.join(paths.stateDir, VERSIONS_FILE), path.join(paths.stateDir, VERSIONS_DIR)].filter((p) => existsSync(p));
+  if (targets.length === 0) return;
+  if (dry) {
+    out.push(step("skip", "launcher", `起動の台本と版ごとのフォルダを消します（${targets.join(" / ")}）。--dry-run なので消していません。`));
+    return;
+  }
+  const failed = [];
+  for (const p of targets) {
+    try {
+      rmSync(p, { recursive: true, force: true, maxRetries: 3 });
+    } catch (err) {
+      failed.push(`${p}（${err instanceof Error ? err.message : String(err)}）`);
+    }
+  }
+  if (failed.length === 0) out.push(step("ok", "launcher", `起動の台本と版ごとのフォルダを消しました（${targets.join(" / ")}）。`));
+  else out.push(step("warn", "launcher", `消せなかったものがあります: ${failed.join(" / ")}`, "Claude と MX Stage の橋渡しをすべて終了してから、エクスプローラーで消してください。"));
 }
 
 /** 設定から mxstage を外す（name を渡すとその名前を外す。改名前の mxstudio の片付けに使う）。置き換える前の設定があれば控えから戻す */
@@ -3504,12 +3701,14 @@ async function status(opts, paths, out) {
   }
   const port = opts.port ?? (Number.isInteger(state?.port) ? state.port : DEFAULT_PORT);
   // 橋渡しが 1 つ動いているか（/_mxstage/health で確かめる）。隣のポートに残っている古い版も知らせる
-  const entryForProtocol = typeof state?.bridgeEntry === "string" ? state.bridgeEntry : resolveBridgeEntry(paths.repoRoot, opts.bridge).entry;
+  const entryForProtocol = typeof state?.bridgeTarget === "string" ? state.bridgeTarget : typeof state?.bridgeEntry === "string" ? state.bridgeEntry : resolveBridgeEntry(paths.repoRoot, opts.bridge).entry;
   const probe = await probeBridge(port);
   out.push(singleBridgeStep(port, probe, true, expectedPeerProtocol(entryForProtocol)));
   const codeStep = bridgeCodeStep(probe);
   if (codeStep) out.push(codeStep);
   out.push(buildStatusStep(paths.repoRoot));
+  const launcher = launcherStatusStep(paths.stateDir);
+  if (launcher) out.push(launcher);
   const others = await findOtherBridges(port);
   if (others.length > 0) out.push(otherBridgesStep(others));
   // 改名前（mxstudio）の導入が残したもの（試験中は --legacy-state-dir を指定したときだけ見る）
@@ -3677,6 +3876,17 @@ export async function main(argv) {
     }
   }
   const paths = makePaths(opts);
+  // このフォルダより新しい版（チャットからの更新で用意して切り替えた版）があれば、その版の導入に任せる
+  // （古い clone の Skill や台本で上書きしない。main のままの clone で、clone の commit がその版の祖先のときだけ）
+  if (opts.mode === "install" && !opts.dryRun && (opts.launcher ?? !opts.bridge)) {
+    const found = resolveBridgeEntry(paths.repoRoot, opts.bridge);
+    const plan = found.entry ? planLaunchState({ repoRoot: paths.repoRoot, stateDir: paths.stateDir, entry: found.entry, state: readVersions(paths.stateDir) }) : null;
+    if (plan?.forward) {
+      console.error(`このフォルダ（${paths.repoRoot}）より新しい版（${plan.forward}）を使っているので、その版の導入を実行します。`);
+      const run = spawnSync(process.execPath, [path.join(plan.forward, "scripts", "setup-local.mjs"), ...argv], { stdio: "inherit", env: process.env, windowsHide: true });
+      return typeof run.status === "number" ? run.status : 1;
+    }
+  }
   const steps = [];
   let result = {};
   try {

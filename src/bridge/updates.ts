@@ -6,6 +6,9 @@
 //   手元に変更がある・main 以外・取得元が違うときは触らない（開発用の写しを壊さない）。
 // - Claude Desktop の拡張機能（.mcpb）で入れたもの: 自分では入れ替えない（Claude Desktop が管理する場所のため）。
 //   利用者が押したら、新しい .mcpb をダウンロードして SHA-256 を確かめ、置き場所を開く（利用者が Claude Desktop で入れる）。
+// - 起動の台本（~/.config/mxstage/launch.mjs）で起こしている導入（版ごとのフォルダ。src/bridge/selfUpdate.ts）では、その場では入れ替えない。
+//   「入れる」と自動の更新は、新しい版を別のフォルダに用意するだけにし、切り替えは次に Claude を開き直したとき（台本が切り替える）。
+//   自動の確かめは、起動のときと 6 時間ごと（GitHub の main）。リリースの確かめ（1 日 1 回）は画面に版を出すためだけに続ける。
 // 設定と最後に確かめた結果は状態フォルダの updates.json に置く。
 
 import { execFile, spawn } from "node:child_process";
@@ -108,6 +111,16 @@ const runCommand: RunCommand = (file, args, opts) =>
     });
   });
 
+/** 版ごとのフォルダへの用意（src/bridge/selfUpdate.ts の SelfUpdater）。起動の台本で起こしているときだけ使う */
+export interface ManagedUpdates {
+  /** 起動の台本で起こしていて、このやり方で更新できるか */
+  isManaged(): Promise<boolean>;
+  /** 新しい版を用意して終わるまで待つ */
+  prepareAndWait(): Promise<{ ok: boolean; error: string | null }>;
+  /** 自動の確かめ（起動のときと 6 時間ごと。新しい版があれば用意する） */
+  autoTick(): Promise<void>;
+}
+
 export interface UpdateManagerOptions {
   /** 状態フォルダ（~/.config/mxstage） */
   dir: string;
@@ -127,6 +140,8 @@ export interface UpdateManagerOptions {
   log?: (line: string) => void;
   /** 置き場所を開く（.mcpb のダウンロードのあと） */
   reveal?: (path: string) => void;
+  /** 版ごとのフォルダへの用意。あって isManaged() なら、git の入れ替えはその場で行わず、これに任せる */
+  managed?: ManagedUpdates | null;
 }
 
 export class UpdateManager {
@@ -229,6 +244,12 @@ export class UpdateManager {
     if (!this.opts.isPrimary() || this.busy) return;
     const s = this.read();
     if (!s.autoUpdate) return;
+    if (this.opts.kind === "git" && this.opts.managed && (await this.opts.managed.isManaged())) {
+      // 版ごとのフォルダに用意するだけ（動いている版は止めない。切り替えは次の起動）
+      await this.opts.managed.autoTick();
+      if (s.lastCheckAt === null || this.now() - s.lastCheckAt >= CHECK_INTERVAL_MS) await this.check();
+      return;
+    }
     if (s.lastCheckAt === null || this.now() - s.lastCheckAt >= CHECK_INTERVAL_MS) await this.check();
     const status = this.status();
     // 失敗したら翌日の確認まで待つ（作業中で断っただけなら、作業が終わり次第入れ替える）
@@ -261,6 +282,7 @@ export class UpdateManager {
   }
 
   private async applyGit(latest: LatestRelease): Promise<void> {
+    if (this.opts.managed && (await this.opts.managed.isManaged())) return this.prepareManaged();
     const repo = this.opts.repoRoot;
     if (!repo || !existsSync(join(repo, ".git"))) return this.fail("not_git");
     if (this.opts.isBusy()) return this.fail("busy");
@@ -291,6 +313,16 @@ export class UpdateManager {
       return;
     }
     // AI クライアントが起動した橋渡しは自分では起動し直せない（クライアントを開き直すと新しい版になる）
+    this.phase = "restart_needed";
+  }
+
+  /** 起動の台本で起こしている導入: 新しい版を別のフォルダに用意し、次の起動で切り替える（その場では入れ替えない） */
+  private async prepareManaged(): Promise<void> {
+    this.phase = "applying";
+    this.error = null;
+    const done = await this.opts.managed!.prepareAndWait();
+    if (!done.ok) return this.fail(done.error ?? "prepare_failed");
+    // Claude を開き直すと新しい版になる。画面用の橋渡しは、作業中でなくなったら自分で入れ替わる
     this.phase = "restart_needed";
   }
 

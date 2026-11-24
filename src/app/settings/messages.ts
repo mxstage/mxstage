@@ -80,7 +80,7 @@ export const settingsMessages = defineMessages(
       on: "On",
       off: "Off",
       autoHelpGit:
-        "Once a day, asks GitHub whether a new version exists. When one does, it is installed automatically while no work is open (no window has sheets and the AI is not running a tool), and the bridge restarts.",
+        "When the bridge starts and every 6 hours, asks GitHub whether a new version exists. When one does, it is prepared in a separate folder while the running MX Stage keeps working, and it starts the next time you restart your AI assistant (Claude Desktop: quit from the tray icon). You can also ask in the chat: \"update MX Stage\".",
       autoHelpBundle:
         "Once a day, asks GitHub whether a new version exists, and tells you here when one does. Claude Desktop manages the extension, so you install the new file with one click.",
       privacy: "Only the latest version number is fetched; nothing about you or your data is sent. While this is off, MX Stage does not contact GitHub (except when you press “Check now”).",
@@ -95,7 +95,7 @@ export const settingsMessages = defineMessages(
       installBundle: "Download and install",
       applying: "Updating… This can take a few minutes. The bridge restarts when it is done; then reopen this screen.",
       downloading: "Downloading…",
-      restartNeeded: "Updated. Restart your AI assistant to use the new version.",
+      restartNeeded: "The new version is ready. Restart your AI assistant to use it (Claude Desktop: quit from the tray icon; closing the window does not quit it).",
       downloaded: "Downloaded and checked the new extension file:",
       installSteps: "In Claude Desktop, open Settings → Extensions → Advanced settings → Install Extension… and choose this file.",
       folderHint: "If the folder did not open, paste the copied path into the File Explorer address bar.",
@@ -279,7 +279,7 @@ export const settingsMessages = defineMessages(
       on: "オン",
       off: "オフ",
       autoHelpGit:
-        "1 日 1 回、GitHub に新しい版があるかを問い合わせます。あれば、作業中でないとき（シートのある窓が無く、AI がツールを実行していないとき）に自動で入れ替え、橋渡しを起動し直します。",
+        "橋渡しの起動のときと 6 時間ごとに、GitHub に新しい版があるかを問い合わせます。あれば、動いている MX Stage はそのままで別のフォルダに用意し、次に AI アシスタントを開き直したときに切り替わります（Claude Desktop はタスクトレイのアイコンから終了）。チャットで「MX Stage を更新して」と頼むこともできます。",
       autoHelpBundle:
         "1 日 1 回、GitHub に新しい版があるかを問い合わせ、あればここでお知らせします。拡張機能は Claude Desktop が管理しているので、新しいファイルはボタン 1 つで入れられるようにします。",
       privacy: "問い合わせるのは最新の版の番号だけで、あなたや作業のデータは送りません。オフの間は GitHub に問い合わせません（「今すぐ確かめる」を押したときだけ）。",
@@ -294,7 +294,7 @@ export const settingsMessages = defineMessages(
       installBundle: "ダウンロードして入れる",
       applying: "更新しています…（数分かかります）。終わると橋渡しが起動し直すので、この画面を開き直してください。",
       downloading: "ダウンロードしています…",
-      restartNeeded: "入れ替えました。AI アシスタントを開き直すと新しい版になります。",
+      restartNeeded: "新しい版を用意しました。AI アシスタントを開き直すと新しい版になります（Claude Desktop はタスクトレイのアイコンから終了します。ウィンドウの × では終わりません）。",
       downloaded: "新しい拡張機能のファイルをダウンロードし、確かめました:",
       installSteps: "Claude Desktop の「Settings → Extensions」で「Advanced settings → Install Extension…」を押し、このファイルを選んでください。",
       folderHint: "フォルダが開かなかったときは、コピーした場所をエクスプローラーのアドレス欄に貼り付けてください。",

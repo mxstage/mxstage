@@ -29,6 +29,7 @@ import { ConnectionStore } from "@mxstage/eam-connectors/node";
 import { DictionaryStore } from "./dictionaries.ts";
 import { DemoManager } from "./demo.ts";
 import { UpdateManager, revealInFolder } from "./updates.ts";
+import { LAUNCHER_ENV, SelfUpdater } from "./selfUpdate.ts";
 import { createBridgeLogger } from "./logFile.ts";
 import { buildBridgeMcpServer } from "./mcp.ts";
 import { userSkillsDirOf } from "./skills.ts";
@@ -37,6 +38,10 @@ import { HELP_TEXT, parseArgs } from "./options.ts";
 import { WorkScreenOpener, launchWorkScreen } from "./workScreen.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+/** 画面用の橋渡しが、次の起動で起こす版が変わったかを見る間隔 */
+const FOLLOW_INTERVAL_MS = 60_000;
+/** 起動してすぐは見ない（起動し直しが続かないように） */
+const FOLLOW_MIN_UPTIME_S = 120;
 /** src/bridge から見たリポジトリの根。同梱（.mcpb）では server/ の 1 つ上（隣に app/ がある） */
 const ROOT = BUNDLE ? resolve(HERE, "..") : resolve(HERE, "..", "..");
 
@@ -102,6 +107,18 @@ export async function main(argv: readonly string[]): Promise<number> {
   const code = BUNDLE ? null : new CodeFingerprint(ROOT);
   // 新しい版の確認と入れ替え（既定はオフ。src/bridge/updates.ts）。橋渡しの状態は下で作る coordinator から読む
   let coordinatorRef: BridgeCoordinator | null = null;
+  // MX Stage 自身の更新（ツール mxstage_update。src/bridge/selfUpdate.ts）。新しい版は版ごとのフォルダに用意し、
+  // 起動の台本（~/.config/mxstage/launch.mjs）が次の起動で切り替える。拡張機能・npx・開発用の clone には案内だけを返す
+  let updaterRef: UpdateManager | null = null;
+  const selfUpdate = new SelfUpdater({
+    stateDir: dirname(keyPath),
+    root: ROOT,
+    version,
+    bundle: BUNDLE !== null,
+    launched: (process.env[LAUNCHER_ENV] ?? "").trim() !== "",
+    autoEnabled: () => updaterRef?.status().autoUpdate ?? false,
+    log: record,
+  });
   const updater = new UpdateManager({
     dir: dirname(keyPath),
     current: version,
@@ -113,7 +130,9 @@ export async function main(argv: readonly string[]): Promise<number> {
     restart: opts.mcp ? null : () => void restartSelf(),
     log: record,
     reveal: revealInFolder,
+    managed: BUNDLE ? null : selfUpdate,
   });
+  updaterRef = updater;
   // 保存した Maximo の接続先（API キーは OS の保護付きで暗号化する。src/bridge/connections.ts）
   const connections = new ConnectionStore({ dir: dirname(keyPath) });
   // 客先の辞書と共有フォルダ（共有フォルダを選んでいない接続先は、ドキュメント\MX Stage\<接続先の名前> に置く）
@@ -201,7 +220,7 @@ export async function main(argv: readonly string[]): Promise<number> {
   const workScreen = new WorkScreenOpener({ enabled: opts.openWhenNeeded, url: `${coordinator.origin}/app`, launch: (url) => launchWorkScreen(url) });
   const stdio = opts.mcp
     ? serveStdio(
-        () => buildBridgeMcpServer({ origin: coordinator.origin, hub: coordinator.hub, tickets: coordinator.tickets, version, userSkillsDir, skillShelf, checkUpdates: updates, workScreen }),
+        () => buildBridgeMcpServer({ origin: coordinator.origin, hub: coordinator.hub, tickets: coordinator.tickets, version, userSkillsDir, skillShelf, checkUpdates: updates, workScreen, selfUpdate }),
         {
           onerror: () => record("MCP の接続でエラーが発生しました。"),
         },
@@ -212,13 +231,31 @@ export async function main(argv: readonly string[]): Promise<number> {
   coordinatorRef = coordinator;
   updater.start();
 
-  /** 新しい版に入れ替えたあと、同じ引数で起動し直す（ポートを空けてから新しいプロセスを起こす） */
+  let restarting = false;
+  // 画面用の橋渡し（MCP を話さない。ログイン時の自動起動・導入が起動したもの）は、次の起動で起こす版が変わったら
+  // （Claude を開き直して台本が用意済みの版に切り替えたら）、作業中でないときに自分で起動し直して同じ版にそろえる。
+  // MCP を話す橋渡しは Claude と一緒に終わり、開き直したときに台本が新しい版で起こす
+  const follow =
+    !opts.mcp && !BUNDLE
+      ? setInterval(() => {
+          if (restarting || process.uptime() < FOLLOW_MIN_UPTIME_S) return;
+          if (coordinator.role !== "primary" || coordinator.isBusy() || !selfUpdate.switchPending()) return;
+          record("mxstage bridge: a new version starts on the next start; restarting the work screen bridge");
+          void restartSelf();
+        }, FOLLOW_INTERVAL_MS)
+      : null;
+  follow?.unref?.();
+
+  /** 新しい版に入れ替えたあと、同じ引数で起動し直す（ポートを空けてから新しいプロセスを起こす。台本があれば台本から起こす） */
   async function restartSelf(): Promise<void> {
+    if (restarting) return;
+    restarting = true;
     record("mxstage bridge restarting for an update");
     updater.stop();
+    if (follow) clearInterval(follow);
     await coordinator.close().catch(() => undefined);
     try {
-      const child = spawn(process.execPath, [...process.execArgv, ...process.argv.slice(1)], { cwd: process.cwd(), env: process.env, detached: true, stdio: "ignore", windowsHide: true });
+      const child = spawn(process.execPath, selfUpdate.relaunchArgs(process.execArgv, process.argv), { cwd: process.cwd(), env: process.env, detached: true, stdio: "ignore", windowsHide: true });
       child.unref();
     } catch (e) {
       record(`起動し直せませんでした: ${e instanceof Error ? e.message : String(e)}`);
@@ -232,6 +269,7 @@ export async function main(argv: readonly string[]): Promise<number> {
     stopping = true;
     record("mxstage bridge stopping");
     updater.stop();
+    if (follow) clearInterval(follow);
     void stdio?.close().catch(() => undefined);
     void coordinator.close().finally(() => process.exit(0));
   };

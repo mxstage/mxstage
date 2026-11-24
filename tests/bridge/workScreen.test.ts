@@ -2,11 +2,11 @@
 // 開く命令は差し替える（本物のブラウザは起動しない）。
 
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, win32 } from "node:path";
 import { describe, expect, it } from "vitest";
 import { OPEN_WAIT_MS, runTabTool, runWorkerTool } from "../../src/bridge/mcp.ts";
 import type { BridgeMcpDeps } from "../../src/bridge/mcp.ts";
-import { MAX_OPENS_WITHOUT_TAB, REOPEN_AFTER_MS, WorkScreenOpener, browserCommand, launchDefaultBrowser } from "../../src/bridge/workScreen.ts";
+import { MAX_OPENS_WITHOUT_TAB, REOPEN_AFTER_MS, WorkScreenOpener, findAppBrowser, launchWorkScreen, workScreenCommand } from "../../src/bridge/workScreen.ts";
 import { RelayErrorCode, relayErrorMessage, workScreenOpenMessage } from "../../src/shared/protocol.ts";
 import type { HubInvokeRequest, HubInvokeResponse, HubRpc, HubStatus, WorkScreenOpenOutcome } from "../../src/shared/protocol.ts";
 import { REPO_ROOT } from "./support.ts";
@@ -226,11 +226,11 @@ describe("タブが無いときのツールの呼び出し", () => {
   });
 });
 
-describe("既定のブラウザを開く命令", () => {
+describe("作業画面を開く命令（デスクトップの mxstage.lnk と同じ開き方）", () => {
   function fakeSpawn(behaviour: { exit?: number; error?: boolean; throws?: boolean }) {
-    const calls: { file: string; args: readonly string[] }[] = [];
-    const spawn = (file: string, args: readonly string[]) => {
-      calls.push({ file, args });
+    const calls: { file: string; args: readonly string[]; windowsHide: boolean | undefined }[] = [];
+    const spawn = (file: string, args: readonly string[], options: { windowsHide?: boolean }) => {
+      calls.push({ file, args, windowsHide: options.windowsHide });
       if (behaviour.throws) throw new Error("spawn failed");
       const listeners: Record<string, (v: never) => void> = {};
       const child = {
@@ -249,20 +249,61 @@ describe("既定のブラウザを開く命令", () => {
     return { calls, spawn };
   }
 
-  it("OS ごとの命令（Windows は cmd /c start、macOS は open、ほかは xdg-open）", () => {
-    expect(browserCommand(APP_URL, "win32")).toEqual({ file: "cmd", args: ["/c", "start", "", APP_URL] });
-    expect(browserCommand(APP_URL, "darwin")).toEqual({ file: "open", args: [APP_URL] });
-    expect(browserCommand(APP_URL, "linux")).toEqual({ file: "xdg-open", args: [APP_URL] });
+  const WIN_ENV = { ProgramFiles: "C:\\Program Files", "ProgramFiles(x86)": "C:\\Program Files (x86)", LOCALAPPDATA: "C:\\Users\\u\\AppData\\Local" };
+  const CHROME = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+  const CHROME_USER = "C:\\Users\\u\\AppData\\Local\\Google\\Chrome\\Application\\chrome.exe";
+  const EDGE = "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
+  const find = (present: string[]) => findAppBrowser((p) => present.includes(p), WIN_ENV, win32.join);
+
+  it("Windows: Chrome があれば Chrome のアプリ窓、無ければ Edge のアプリ窓、どちらも無ければ既定のブラウザ", () => {
+    expect(find([CHROME, EDGE])).toEqual({ kind: "chrome", exe: CHROME });
+    expect(find([CHROME_USER, EDGE])).toEqual({ kind: "chrome", exe: CHROME_USER });
+    expect(find([EDGE])).toEqual({ kind: "edge", exe: EDGE });
+    expect(find([])).toBeNull();
+
+    expect(workScreenCommand(APP_URL, { platform: "win32", browser: find([CHROME, EDGE]) })).toEqual({ how: "chrome-app", file: CHROME, args: [`--app=${APP_URL}`], windowsHide: false });
+    expect(workScreenCommand(APP_URL, { platform: "win32", browser: find([EDGE]) })).toEqual({ how: "edge-app", file: EDGE, args: [`--app=${APP_URL}`], windowsHide: false });
+    expect(workScreenCommand(APP_URL, { platform: "win32", browser: find([]) })).toEqual({ how: "default", file: "cmd", args: ["/c", "start", "", APP_URL], windowsHide: true });
   });
 
-  it("0 で終われば開けた。0 以外・起動できない・例外なら開けなかった。終わらなければ開けたとみなす", async () => {
+  it("Windows 以外は既定のブラウザ（macOS は open、ほかは xdg-open）", () => {
+    expect(workScreenCommand(APP_URL, { platform: "darwin" })).toMatchObject({ how: "default", file: "open", args: [APP_URL] });
+    expect(workScreenCommand(APP_URL, { platform: "linux" })).toMatchObject({ how: "default", file: "xdg-open", args: [APP_URL] });
+  });
+
+  it("選び方は導入（scripts/setup-local.mjs の findBrowser）と同じ（どのブラウザの組み合わせでも同じ答え）", async () => {
+    // 導入は型の無い .mjs なので、URL で読み込む（型を解決させない）
+    const setupUrl = new URL("../../scripts/setup-local.mjs", import.meta.url).href;
+    const { findBrowser } = (await import(setupUrl)) as { findBrowser: (exists: (p: string) => boolean) => { kind: string; exe: string } | null };
+    // この PC の環境で候補を全部集める（存在を 1 つずつ偽る）
+    const candidates: string[] = [];
+    for (let i = 0; i < 10; i += 1) {
+      const next = findAppBrowser((p) => !candidates.includes(p));
+      if (next === null) break;
+      candidates.push(next.exe);
+    }
+    expect(candidates).toHaveLength(5);
+    expect(findAppBrowser(() => true)?.kind).toBe("chrome");
+    for (let mask = 0; mask < 1 << candidates.length; mask += 1) {
+      const present = candidates.filter((_, i) => (mask >> i) & 1);
+      const exists = (p: string) => present.includes(p);
+      expect(findAppBrowser(exists), present.join(",")).toEqual(findBrowser(exists));
+    }
+  });
+
+  it("アプリ窓は --app=<URL> で起動し、窓を隠さない。0 で終われば開けた。0 以外・起動できない・例外なら開けなかった。終わらなければ開けたとみなす", async () => {
+    const app = fakeSpawn({});
+    expect(await launchWorkScreen(APP_URL, { spawn: app.spawn, platform: "win32", browser: { kind: "edge", exe: EDGE }, waitMs: 5 })).toBe(true);
+    expect(app.calls).toEqual([{ file: EDGE, args: [`--app=${APP_URL}`], windowsHide: false }]);
     const ok = fakeSpawn({ exit: 0 });
-    expect(await launchDefaultBrowser(APP_URL, { spawn: ok.spawn, platform: "linux" })).toBe(true);
-    expect(ok.calls).toEqual([{ file: "xdg-open", args: [APP_URL] }]);
-    expect(await launchDefaultBrowser(APP_URL, { spawn: fakeSpawn({ exit: 3 }).spawn, platform: "linux" })).toBe(false);
-    expect(await launchDefaultBrowser(APP_URL, { spawn: fakeSpawn({ error: true }).spawn, platform: "linux" })).toBe(false);
-    expect(await launchDefaultBrowser(APP_URL, { spawn: fakeSpawn({ throws: true }).spawn, platform: "linux" })).toBe(false);
-    expect(await launchDefaultBrowser(APP_URL, { spawn: fakeSpawn({}).spawn, platform: "win32", waitMs: 5 })).toBe(true);
+    expect(await launchWorkScreen(APP_URL, { spawn: ok.spawn, platform: "linux" })).toBe(true);
+    expect(ok.calls).toEqual([{ file: "xdg-open", args: [APP_URL], windowsHide: true }]);
+    const start = fakeSpawn({ exit: 0 });
+    expect(await launchWorkScreen(APP_URL, { spawn: start.spawn, platform: "win32", browser: null })).toBe(true);
+    expect(start.calls[0]).toMatchObject({ file: "cmd", args: ["/c", "start", "", APP_URL] });
+    expect(await launchWorkScreen(APP_URL, { spawn: fakeSpawn({ exit: 3 }).spawn, platform: "linux" })).toBe(false);
+    expect(await launchWorkScreen(APP_URL, { spawn: fakeSpawn({ error: true }).spawn, platform: "win32", browser: { kind: "chrome", exe: CHROME } })).toBe(false);
+    expect(await launchWorkScreen(APP_URL, { spawn: fakeSpawn({ throws: true }).spawn, platform: "linux" })).toBe(false);
   });
 });
 

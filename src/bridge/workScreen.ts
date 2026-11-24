@@ -1,5 +1,6 @@
 // 作業画面（ブラウザのタブ）が要るツールが呼ばれたのにタブが 1 つもつながっていないとき、この PC の既定のブラウザで
-// 作業画面（<origin>/app）を開く。開くのは橋渡し（OS の既定のブラウザを起動するだけ）で、AI が URL を打たせなくて済む。
+// 作業画面（<origin>/app）を開く。開くのは橋渡しで、AI が URL を打たせなくて済む。
+// 開き方はデスクトップの mxstage.lnk と同じ: Windows で Chrome か Edge があればアプリ窓（--app=<URL>）、どちらも無ければ既定のブラウザ。
 //
 // 新しいタブを何枚も開かない:
 //   - タブがつながっているあいだは開かない（呼ぶ側が Hub の状態を見てから頼む）。
@@ -10,6 +11,9 @@
 
 import { spawn } from "node:child_process";
 import type { SpawnOptions } from "node:child_process";
+import { statSync } from "node:fs";
+import { homedir } from "node:os";
+import path from "node:path";
 import type { WorkScreenOpenOutcome } from "../shared/protocol.ts";
 
 /** 開き直すまでの間 */
@@ -98,24 +102,82 @@ type SpawnLike = (command: string, args: readonly string[], options: SpawnOption
   unref(): void;
 };
 
-/** OS ごとの開く命令（標準入出力は渡さない） */
-export function browserCommand(url: string, platform: NodeJS.Platform = process.platform): { file: string; args: string[] } {
-  return platform === "win32"
-    ? { file: "cmd", args: ["/c", "start", "", url] }
-    : platform === "darwin"
-      ? { file: "open", args: [url] }
-      : { file: "xdg-open", args: [url] };
+/** 作業画面をアプリ窓で開くブラウザ（Chrome → Edge の順。scripts/setup-local.mjs の findBrowser と同じ選び方） */
+export interface AppBrowser {
+  kind: "chrome" | "edge";
+  exe: string;
+}
+
+function isFile(p: string): boolean {
+  try {
+    return statSync(p).isFile();
+  } catch {
+    return false;
+  }
 }
 
 /**
- * 既定のブラウザで開く。命令が起動できない・0 以外で終わったら false（xdg-open はブラウザが無いと 3 などで終わる）。
- * LAUNCH_WAIT_MS 待っても終わらなければ、開けたものとみなす
+ * Windows で、作業画面をアプリ窓で開くための実行ファイルを探す。
+ * 導入（scripts/setup-local.mjs の findBrowser）がデスクトップの mxstage.lnk を作るときと同じ候補・同じ順にする
+ * （tests/bridge/workScreen.test.ts で同じ答えになるかを確かめる）。どちらも無ければ null（既定のブラウザで開く）
  */
-export function launchDefaultBrowser(
+export function findAppBrowser(
+  exists: (p: string) => boolean = isFile,
+  env: NodeJS.ProcessEnv = process.env,
+  join: (...parts: string[]) => string = path.join,
+): AppBrowser | null {
+  const programFiles = env.ProgramFiles || "C:\\Program Files";
+  const programFilesX86 = env["ProgramFiles(x86)"] || "C:\\Program Files (x86)";
+  const local = env.LOCALAPPDATA || join(homedir(), "AppData", "Local");
+  const candidates: AppBrowser[] = [
+    { kind: "chrome", exe: join(programFiles, "Google", "Chrome", "Application", "chrome.exe") },
+    { kind: "chrome", exe: join(programFilesX86, "Google", "Chrome", "Application", "chrome.exe") },
+    { kind: "chrome", exe: join(local, "Google", "Chrome", "Application", "chrome.exe") },
+    { kind: "edge", exe: join(programFilesX86, "Microsoft", "Edge", "Application", "msedge.exe") },
+    { kind: "edge", exe: join(programFiles, "Microsoft", "Edge", "Application", "msedge.exe") },
+  ];
+  for (const candidate of candidates) if (exists(candidate.exe)) return candidate;
+  return null;
+}
+
+/** どう開くか。chrome-app / edge-app: デスクトップの mxstage.lnk と同じアプリ窓、default: 既定のブラウザ（mxstage.url と同じ） */
+export type OpenHow = "chrome-app" | "edge-app" | "default";
+
+export interface WorkScreenCommand {
+  how: OpenHow;
+  file: string;
+  args: string[];
+  /** アプリ窓は隠さない（windowsHide を付けると最初の窓が出ないことがある。導入の openApp と同じ） */
+  windowsHide: boolean;
+}
+
+/**
+ * 作業画面を開く命令。Windows では、Chrome か Edge があれば --app=<URL> でアプリ窓にする（デスクトップの mxstage.lnk と同じ）。
+ * どちらも無いとき・Windows 以外では既定のブラウザ（Windows は cmd /c start、macOS は open、ほかは xdg-open）
+ */
+export function workScreenCommand(
   url: string,
-  deps: { spawn?: SpawnLike; platform?: NodeJS.Platform; waitMs?: number } = {},
+  opts: { platform?: NodeJS.Platform; browser?: AppBrowser | null } = {},
+): WorkScreenCommand {
+  const platform = opts.platform ?? process.platform;
+  if (platform === "win32") {
+    const browser = opts.browser === undefined ? findAppBrowser() : opts.browser;
+    if (browser !== null) return { how: browser.kind === "chrome" ? "chrome-app" : "edge-app", file: browser.exe, args: [`--app=${url}`], windowsHide: false };
+    // windowsHide: cmd /c start のために黒いコンソール窓を一瞬出さない
+    return { how: "default", file: "cmd", args: ["/c", "start", "", url], windowsHide: true };
+  }
+  return { how: "default", file: platform === "darwin" ? "open" : "xdg-open", args: [url], windowsHide: true };
+}
+
+/**
+ * 作業画面を開く（workScreenCommand の命令）。命令が起動できない・0 以外で終わったら false（xdg-open はブラウザが無いと 3 などで終わる）。
+ * LAUNCH_WAIT_MS 待っても終わらなければ、開けたものとみなす（Chrome がまだ動いていなければ、起動した chrome.exe はそのまま動き続ける）
+ */
+export function launchWorkScreen(
+  url: string,
+  deps: { spawn?: SpawnLike; platform?: NodeJS.Platform; browser?: AppBrowser | null; waitMs?: number } = {},
 ): Promise<boolean> {
-  const command = browserCommand(url, deps.platform);
+  const command = workScreenCommand(url, { ...(deps.platform !== undefined ? { platform: deps.platform } : {}), ...(deps.browser !== undefined ? { browser: deps.browser } : {}) });
   const run = deps.spawn ?? (spawn as unknown as SpawnLike);
   return new Promise<boolean>((resolve) => {
     let settled = false;
@@ -129,8 +191,7 @@ export function launchDefaultBrowser(
     // 待つあいだも橋渡しの終了を妨げない
     timer.unref?.();
     try {
-      // windowsHide: cmd /c start のために黒いコンソール窓を一瞬出さない
-      const child = run(command.file, command.args, { detached: true, stdio: "ignore", windowsHide: true });
+      const child = run(command.file, command.args, { detached: true, stdio: "ignore", windowsHide: command.windowsHide });
       child.on("error", () => done(false));
       child.on("exit", (code) => done(code === 0));
       child.unref();

@@ -91,7 +91,13 @@ import {
   singleBridgeStep,
   skillTargets,
   testSandboxProblem,
+  cloneDevReason,
+  isLauncherPath,
+  launcherPathOf,
+  launcherStatusStep,
+  planLaunchState,
 } from "../../scripts/setup-local.mjs";
+import { chooseLaunch, readVersions, writeVersions } from "../../scripts/launch.mjs";
 import { buildIco, needsBuild, needsInstall, nodeVersionOk, npmEnv } from "../../scripts/setup-local.mjs";
 
 // 試験中の印（setup-local.mjs の main() が見る）
@@ -2979,6 +2985,229 @@ test("npmEnv:npm には IBM のテレメトリを止める変数を渡し、ほ�
   assert.equal(env.IBM_TELEMETRY_DISABLED, "true");
   assert.equal(env.PATH, "x");
   assert.equal(npmEnv().IBM_TELEMETRY_DISABLED, "true");
+});
+
+// ---------------------------------------------------------------------------
+// 起動の台本（チャットからの更新。scripts/launch.mjs・src/bridge/selfUpdate.ts）
+// ---------------------------------------------------------------------------
+
+test("起動の台本: 登録の形・node の引数・この導入のものかの見分け", () => {
+  const launcher = "C:\\Users\\u\\.config\\mxstage\\launch.mjs";
+  assert.deepEqual(nodeFlagsFor(launcher, () => true), ["--experimental-strip-types"], "台本は .ts の入口を読み込むので型を取り除く指定を付ける");
+  assert.deepEqual(bridgeArgs(launcher, 8788), ["--experimental-strip-types", launcher, "--port", "8788"]);
+  const entry = buildCodeEntry("C:\\Program Files\\nodejs\\node.exe", launcher, 8788);
+  assert.equal(isSetupShapedEntry(entry), true, "台本を指す登録も、この導入が書いた形");
+  assert.equal(isOurEntry(entry, null), true);
+  assert.equal(classifyPrevious(entry, {}).kind, "ours");
+  // 前の導入が書いた形（clone の入口を直接）も、この導入のものと見なす（移るときに利用者の設定として控えない）
+  assert.equal(classifyPrevious(buildCodeEntry("C:\\node.exe", "C:\\Users\\u\\mxstage\\src\\bridge\\cli.ts", 8788), {}).kind, "ours");
+  assert.equal(isLauncherPath(launcher), true);
+  assert.equal(isLauncherPath("C:\\tools\\launch.mjs.bak"), false);
+  assert.equal(isSetupShapedEntry({ command: "node", args: ["C:\\other\\run.mjs", "--port", "8788"] }), false);
+});
+
+test("planLaunchState: 版のフォルダ・開発用の clone・main のままの clone で、どの版を起こすかを決める", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "mxs-plan-"));
+  const stateDir = path.join(root, "state");
+  const repo = path.join(root, "mxstage");
+  mkdirSync(path.join(repo, ".git"), { recursive: true });
+  try {
+  const entry = path.join(repo, "src", "bridge", "cli.ts");
+  const cur = { commit: "c".repeat(40), dir: path.join(stateDir, "v", "cccccccccccc"), version: "0.3.0", preparedAt: 1 };
+  const rdy = { commit: "d".repeat(40), dir: path.join(stateDir, "v", "dddddddddddd"), version: "0.3.0", preparedAt: 2 };
+  const base = { schema: 1, seed: null, current: cur, ready: rdy, previous: null, lastPrepare: null, lastCheck: null };
+  const mainClone = (head) => (args) => (args[0] === "remote" ? "https://github.com/mxstage/mxstage.git" : args[0] === "rev-parse" && args[1] === "--abbrev-ref" ? "main" : args[0] === "status" ? "" : args[0] === "rev-parse" ? head : null);
+  const withGit = { repoRoot: repo, stateDir, entry, state: base, complete: () => true };
+
+  // 開発用の clone（取得元が違う）: clone を起こし、用意済みの版にも切り替えない
+  const fork = (args) => (args[0] === "remote" ? "https://github.com/someone/fork.git" : mainClone("a".repeat(40))(args));
+  const dev = planLaunchState({ ...withGit, git: fork, ancestor: () => true });
+  assert.equal(dev.next.current, null);
+  assert.equal(dev.next.ready, null);
+  assert.deepEqual(dev.next.seed, { entry, root: repo });
+  assert.equal(dev.forward, null);
+  assert.match(dev.note, /取得元/);
+
+  // main のままの clone で、今の版の方が新しい: 今の版を残し、その版の導入に任せる（台本の目当てのファイルがあるとき）
+  const newer = planLaunchState({ ...withGit, git: mainClone("a".repeat(40)), ancestor: () => true });
+  assert.deepEqual(newer.next.current, cur);
+  assert.deepEqual(newer.next.ready, rdy);
+  assert.equal(newer.forward, null, "版のフォルダに setup-local.mjs が無ければ任せない");
+
+  // git pull で clone の方が新しくなった: clone を起こす
+  const pulled = planLaunchState({ ...withGit, git: mainClone("a".repeat(40)), ancestor: () => false });
+  assert.equal(pulled.next.current, null);
+  assert.equal(pulled.next.ready, null);
+  assert.equal(pulled.note, "このフォルダを起こします");
+
+  // 比べられない（取得の倉庫が無い）: clone を起こす
+  assert.equal(planLaunchState({ ...withGit, git: mainClone("a".repeat(40)), ancestor: () => null }).next.current, null);
+
+  // 中身のそろわない版は残さない
+  assert.equal(planLaunchState({ ...withGit, git: mainClone("a".repeat(40)), ancestor: () => true, complete: () => false }).next.current, null);
+
+  // 版のフォルダから導入した: その版を今の版にし、導入元は変えない
+  const seed = { entry, root: repo };
+  const inVersion = planLaunchState({ repoRoot: rdy.dir, stateDir, entry: path.join(rdy.dir, "src", "bridge", "cli.ts"), state: { ...base, seed }, git: () => null, ancestor: () => null });
+  assert.equal(inVersion.next.current.dir, rdy.dir);
+  assert.equal(inVersion.next.ready, null, "用意済みだった版から導入したので、用意済みの印は外す");
+  assert.deepEqual(inVersion.next.seed, seed);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("planLaunchState: 今の版の方が新しく、その版に導入があれば、その版に任せる（forward）", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-plan-fwd-"));
+  try {
+    const stateDir = path.join(dir, "state");
+    const cur = { commit: "c".repeat(40), dir: path.join(stateDir, "v", "cccccccccccc"), version: "0.3.0", preparedAt: 1 };
+    mkdirSync(path.join(cur.dir, "scripts"), { recursive: true });
+    writeFileSync(path.join(cur.dir, "scripts", "setup-local.mjs"), "// newer\n");
+    mkdirSync(path.join(dir, "mxstage", ".git"), { recursive: true });
+    const git = (args) => (args[0] === "remote" ? "https://github.com/mxstage/mxstage.git" : args[1] === "--abbrev-ref" ? "main" : args[0] === "status" ? "" : "a".repeat(40));
+    const plan = planLaunchState({ repoRoot: path.join(dir, "mxstage"), stateDir, entry: path.join(dir, "mxstage", "src", "bridge", "cli.ts"), state: { schema: 1, seed: null, current: cur, ready: null, previous: null }, git, ancestor: () => true, complete: () => true });
+    assert.equal(plan.forward, cur.dir);
+    // 同じ commit なら任せない（同じ中身）
+    const same = planLaunchState({ repoRoot: path.join(dir, "mxstage"), stateDir, entry: "x", state: { schema: 1, seed: null, current: cur, ready: null, previous: null }, git: (a) => (a[0] === "rev-parse" && a[1] === "HEAD" ? cur.commit : git(a)), ancestor: () => true, complete: () => true });
+    assert.equal(same.forward, null);
+    assert.deepEqual(same.next.current, cur);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("cloneDevReason: main のままの clone だけを null にする", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-devclone-"));
+  try {
+    assert.match(cloneDevReason(dir, () => ""), /git の写しではない/);
+    mkdirSync(path.join(dir, ".git"));
+    const git = (over) => (args) => (args[0] === "remote" ? (over.origin ?? "git@github.com:mxstage/mxstage.git") : args[1] === "--abbrev-ref" ? (over.branch ?? "main") : args[0] === "status" ? (over.status ?? "") : null);
+    assert.equal(cloneDevReason(dir, git({})), null);
+    assert.match(cloneDevReason(dir, git({ branch: "feature" })), /main ではない/);
+    assert.match(cloneDevReason(dir, git({ status: " M src/bridge/cli.ts" })), /変更/);
+    assert.match(cloneDevReason(dir, git({ origin: "https://github.com/x/mxstage.git" })), /取得元/);
+    assert.match(cloneDevReason(dir, () => null), /読めない/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("今の入れ方（clone の入口を直接登録）から、入れ直しなしで起動の台本に移る。取り消しで台本と版のフォルダも消す", { timeout: 60_000 }, async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-setup-launcher-"));
+  let port = null;
+  try {
+    const bridge = path.join(dir, "fake-bridge.mjs");
+    writeFileSync(bridge, FAKE_BRIDGE, "utf8");
+    port = await freePort();
+    // 前の導入の名残: Claude Code に入口を直接登録し、記録にもそう書いてある
+    const codeConfig = path.join(dir, "claude-code.json");
+    const oldEntry = buildCodeEntry(process.execPath, bridge, port);
+    writeFileSync(codeConfig, JSON.stringify({ mcpServers: { other: { command: "x" }, mxstage: oldEntry } }, null, 2));
+    mkdirSync(path.join(dir, "state"), { recursive: true });
+    writeFileSync(path.join(dir, "state", "setup.json"), JSON.stringify({ version: 1, bridgeEntry: bridge, nodePath: process.execPath, port }));
+
+    const run = await runJson([...sandboxArgs(dir), "--no-autostart", "--no-shortcut", "--port", String(port), "--bridge", bridge, "--launcher"]);
+    assert.equal(run.code, 0, run.stdout);
+    const launcherPath = launcherPathOf(path.join(dir, "state"));
+    assert.equal(readFileSync(launcherPath, "utf8"), readFileSync(path.join(REPO_ROOT, "scripts", "launch.mjs"), "utf8"), "台本を状態フォルダに写した");
+    assert.equal(stepOf(run.json, "launcher")[0]?.level, "ok", run.stdout);
+    const versions = readVersions(path.join(dir, "state"));
+    assert.deepEqual(versions.seed, { entry: bridge, root: REPO_ROOT });
+    // 登録は台本を指す形に置き換わり、ほかのサーバはそのまま。前の登録は「この導入が書いたもの」なので戻す先に記録しない
+    const config = JSON.parse(readFileSync(codeConfig, "utf8"));
+    assert.deepEqual(config.mcpServers.other, { command: "x" });
+    assert.deepEqual(config.mcpServers.mxstage.args, bridgeArgs(launcherPath, port));
+    const state = JSON.parse(readFileSync(path.join(dir, "state", "setup.json"), "utf8"));
+    assert.equal(state.bridgeEntry, launcherPath);
+    assert.equal(state.bridgeTarget, bridge);
+    assert.ok(!state.previous?.claudeCode, "前の登録（この導入が書いたもの）は戻す先にしない");
+    // 画面用の橋渡しは台本から起こした（台本が導入元の入口を読み込んで動かした）
+    const probe = await probeBridge(port);
+    assert.equal(probe.state, "bridge", run.stdout);
+    assert.equal(stepOf(run.json, "bridge_start")[0]?.level, "ok", run.stdout);
+    // 台本が次に起こすのは導入元
+    assert.deepEqual(chooseLaunch(versions), { entry: bridge, root: REPO_ROOT, source: "seed", promoted: false, next: versions });
+    const check = spawnSync(process.execPath, [launcherPath, "--launcher-check"], { encoding: "utf8" });
+    assert.equal(JSON.parse(check.stdout).entry, bridge);
+    // 状態の確認にも出る
+    assert.match(launcherStatusStep(path.join(dir, "state")).message, /導入したフォルダ/);
+
+    // もう一度導入しても壊れない（同じ登録のまま）
+    await stopFakeBridgeOn(port);
+    await waitFor(async () => (await probeBridge(port, 300)).state !== "bridge");
+    const again = await runJson([...sandboxArgs(dir), "--no-autostart", "--no-shortcut", "--no-start", "--port", String(port), "--bridge", bridge, "--launcher"]);
+    assert.equal(again.code, 0, again.stdout);
+    assert.deepEqual(JSON.parse(readFileSync(codeConfig, "utf8")).mcpServers.mxstage.args, bridgeArgs(launcherPath, port));
+
+    // 版のフォルダがあっても、取り消しで台本・記録・版のフォルダを消す
+    mkdirSync(path.join(dir, "state", "v", "abcdefabcdef", "node_modules"), { recursive: true });
+    const removed = await runJson([...sandboxArgs(dir), "--uninstall", "--port", String(port), "--bridge", bridge]);
+    assert.equal(removed.code, 0, removed.stdout);
+    assert.equal(existsSync(launcherPath), false);
+    assert.equal(existsSync(path.join(dir, "state", "versions.json")), false);
+    assert.equal(existsSync(path.join(dir, "state", "v")), false);
+    assert.equal(JSON.parse(readFileSync(codeConfig, "utf8")).mcpServers.mxstage, undefined, "台本を指す登録も外す");
+  } finally {
+    if (port !== null) await stopFakeBridgeOn(port);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("--bridge だけを指定したときは、今までどおり入口をそのまま登録する（台本を置かない）", { timeout: 60_000 }, async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-setup-nolauncher-"));
+  try {
+    const bridge = path.join(dir, "fake-bridge.mjs");
+    writeFileSync(bridge, FAKE_BRIDGE, "utf8");
+    const port = await freePort();
+    const run = await runJson([...sandboxArgs(dir), "--no-autostart", "--no-shortcut", "--no-start", "--port", String(port), "--bridge", bridge]);
+    assert.equal(run.code, 0, run.stdout);
+    assert.equal(existsSync(launcherPathOf(path.join(dir, "state"))), false);
+    assert.equal(stepOf(run.json, "launcher").length, 0);
+    assert.deepEqual(JSON.parse(readFileSync(path.join(dir, "claude-code.json"), "utf8")).mcpServers.mxstage.args, bridgeArgs(bridge, port));
+    assert.equal(parseArgs(["--launcher"]).launcher, true);
+    assert.equal(parseArgs(["--no-launcher"]).launcher, false);
+    assert.equal(parseArgs([]).launcher, null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ポートが塞がっていて止めるときは、台本も記録も書かない", { timeout: 60_000 }, async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-setup-busy-launcher-"));
+  const server = createHttpServer((req, res) => {
+    res.writeHead(200, { "content-type": "text/plain" });
+    res.end("someone else");
+  });
+  try {
+    const bridge = path.join(dir, "fake-bridge.mjs");
+    writeFileSync(bridge, FAKE_BRIDGE, "utf8");
+    const port = await freePort();
+    await new Promise((resolve) => server.listen(port, "127.0.0.1", resolve));
+    const run = await runJson([...sandboxArgs(dir), "--no-autostart", "--no-shortcut", "--port", String(port), "--bridge", bridge, "--launcher"]);
+    assert.equal(run.code, 1);
+    assert.equal(stepOf(run.json, "port")[0]?.level, "error");
+    assert.equal(existsSync(launcherPathOf(path.join(dir, "state"))), false);
+    assert.equal(existsSync(path.join(dir, "state", "versions.json")), false);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("台本の記録の読み書き: 壊れた記録は空として読み、書いた記録はそのまま読める", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "mxs-versions-"));
+  try {
+    assert.deepEqual(readVersions(dir).current, null);
+    writeFileSync(path.join(dir, "versions.json"), "{ broken");
+    assert.deepEqual(readVersions(dir).seed, null);
+    const state = { schema: 1, seed: { entry: "e", root: "r" }, current: { commit: "c", dir: "d", version: "0.3.0", preparedAt: 1 }, ready: null, previous: null, lastPrepare: null, lastCheck: null };
+    writeVersions(dir, state);
+    assert.deepEqual(readVersions(dir), state);
+    assert.deepEqual(readdirSync(dir), ["versions.json"], "書きかけの一時ファイルを残さない");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("本物の ~/.claude.json・Claude Desktop（Microsoft Store 版を含む）・Antigravity・Codex・IBM Bob・スタートアップ・デスクトップ・~/.config/mxstage・改名前の ~/.config/mxstudio に触れていない（更新時刻を比べる）", (t) => {

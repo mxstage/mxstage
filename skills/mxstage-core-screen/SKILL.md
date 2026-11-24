@@ -2,7 +2,7 @@
 name: mxstage-core-screen
 description: "MX Stage basic operation: how the work screen shows sheets (related tables, views, colors, one-row-per-record specifications, filters, windows, reload, settings), to guide the user to what they see."
 metadata:
-  version: "1.0.0"
+  version: "1.1.0"
   category: "core"
 ---
 
@@ -51,7 +51,7 @@ Column headers of every table open a filter menu. Filters only change what the u
 - **Connection**: Maximo URL and API key, saved connections (encrypted on this PC; every window connects by itself), switching environments, production or test.
 - **License**: production license keys. Committing to production needs one; everything else is free.
 - **Skills**: the built-in and user Skills and their problems.
-- **Updates**: the version, checking for a new one, and automatic updates (off by default).
+- **Updates**: the version, checking for a new one, and automatic updates (off by default). For installs made with the setup script, an update (from here, from automatic updates, or asked for in the chat with mxstage_update) is prepared in a separate folder and starts when Claude is restarted.
 - Language follows the browser and can be changed here.
 
 Never ask for the API key in the chat; it goes only into Settings.

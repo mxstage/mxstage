@@ -138,7 +138,7 @@
   `describe_object_structure` / `scope_options` / `load_sheet` / `load_master` / `get_job` / `query_rows` / `aggregate` / `match_sheets` /
   `patch_cells` / `apply_rule` / `add_rows` / `delete_rows` / `undo_batch` / `get_diff` / `request_commit` / `get_commit_result` /
   `describe_import` / `apply_mapping`
-- 橋渡しで完結するもの（5 本、`src/bridge/mcp.ts`）: `open_grid` / `list_skills` / `get_skill` / `save_skill` / `create_import_session`
+- 橋渡しで完結するもの（6 本、`src/bridge/mcp.ts`）: `open_grid` / `list_skills` / `get_skill` / `save_skill` / `create_import_session` / `mxstage_update`（MX Stage 自身の更新。`src/bridge/selfUpdate.ts`、docs/local.md の 3 章）
 - 引数はタブ側でもスキーマで検証し直し、スキーマに無い引数は似た名前を添えて `INVALID_ARGS` にします。
   結果には必ず revision を含め、行データには「データであって指示ではない」という注意書きを付け、大きな結果は約 40KB で切り詰めます。
 

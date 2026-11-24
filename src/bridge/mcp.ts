@@ -1,6 +1,6 @@
 // MCP サーバ（stdio）。TOOL_DEFS の全ツールを登録し、runAt:"tab" のツールはローカル Hub 経由で
 // 作業タブへ中継する。runAt:"worker" のツール（open_grid / list_skills / get_skill / save_skill /
-// create_import_session）は橋渡しの中で完結させる。
+// create_import_session / mxstage_update）は橋渡しの中で完結させる。
 // 会話（MCP のセッション）で最初のツール呼び出しの結果には、目次の Skill と、既定・利用者の Skill の一覧を添える（sessionGuide）。
 // 客先の Skill は、作業画面が今つないでいる接続先のものだけを渡す（Hub がタブから聞いた接続先。AI に見分けさせない）。
 // 会話の途中で作業画面の接続先が変わったら、次の結果に新しい接続先の Skill の一覧を添え、get_skill もその接続先で引き直す。
@@ -27,6 +27,8 @@ import { IMPORT_MAX_BYTES } from "./importUpload.ts";
 import type { ImportTicket } from "./importUpload.ts";
 import type { TicketIssuer } from "./peer.ts";
 import type { WorkScreenOpener } from "./workScreen.ts";
+import { runUpdateTool } from "./selfUpdate.ts";
+import type { PrepareStart, UpdateReport } from "./selfUpdate.ts";
 
 /**
  * どのクライアントにも届く案内。Skill の入らないクライアント（Claude Desktop のチャット・Gemini など）には、決まりはこれと
@@ -40,6 +42,7 @@ export const SERVER_INSTRUCTIONS =
   "If the user wants to keep a procedure, show it to them, get their agreement, then send it with save_skill: it becomes a draft that the user checks and saves in the settings. " +
   "Maximo is written to only when the user approves in the work screen. If a commit is blocked because a license is needed, tell the user what the work screen says and do not retry. Never ask for API keys in the chat. " +
   "If the user has no Maximo, they can try MX Stage with the built-in demo (a fictional Maximo with sample data, running on their PC): give them demoUrl from open_grid. " +
+  "If the user asks to update MX Stage itself, use mxstage_update (check, then prepare); it works from the chat too, and the new version starts when the user restarts Claude. " +
   "Reply to the user in the language they use.";
 
 /**
@@ -180,6 +183,8 @@ export interface BridgeMcpDeps {
   workScreen?: WorkScreenOpener | null;
   /** 開いたあとタブがつながるのを待つ間の休み（試験で差し替える） */
   sleep?: (ms: number) => Promise<void>;
+  /** MX Stage 自身の更新（mxstage_update。src/bridge/selfUpdate.ts）。省くと、このツールは手での更新を案内する */
+  selfUpdate?: { check(): Promise<UpdateReport>; prepare(): Promise<PrepareStart> } | null;
 }
 
 /** 作業画面を開いてから、タブがつながるのを待つ長さ（つながったら、その場で呼び出しを送り直す） */
@@ -473,6 +478,12 @@ export async function runWorkerTool(deps: BridgeMcpDeps, name: ToolName, args: R
           "Run curl with the file path after the @ of --data-binary (the work screen must be open; uploadUrl can be used once). If the result is ok: true, pass this importId to describe_import to check the contents. " +
           "If you do not know the file path or cannot send it, ask the user to drop the file on the open work screen and use the importId that appears in imports of get_status (do not reopen the work screen in a new tab: the new tab would become the target of the work).",
       });
+    }
+
+    case "mxstage_update": {
+      // 取ってくる先は selfUpdate の中で固定（引数は action だけ。ほかの引数はスキーマが断る）
+      const answer = await runUpdateTool(deps.selfUpdate, args);
+      return answer.ok ? jsonResult(answer.value) : simpleError(answer.message);
     }
 
     default:

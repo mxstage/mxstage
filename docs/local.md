@@ -50,7 +50,8 @@ IBM Bob が入っていれば（`~\.bob` があれば）そちらにも登録さ
 | Node の版 | 22.6 未満なら**何も書き換えずに止まります**（橋渡しは `--experimental-strip-types` で `.ts` をそのまま動かすため） |
 | 依存とビルド | `node_modules` が無いか、`package-lock.json` の方が新しければ `npm install`。`dist\app` が無いか、画面と Skill のもと（`src\app`・`src\shared`・`skills`・`public`・`vite.config.ts`・`package-lock.json`）の方が新しければ `npm run build` |
 | ポート | `8788` を使います。**ずらしません。** 既に橋渡しが動いていればそれを使います。橋渡しではない別のプログラムが `8788` を使っているときは、**何も書き換えずに NG で止まります**（そのプログラムを止めるか、`--port <番号>` で別の番号を指定します） |
-| 橋渡しの起動 | `node --experimental-strip-types src\bridge\cli.ts --no-mcp --port 8788` を裏で起動し、応えるまで（最大 20 秒）待ちます。`--no-mcp` は「画面と中継だけで、stdio の MCP は開かない」という意味です。ウィンドウは出しません。既に橋渡しが動いていれば起動し直しません |
+| 起動の台本 | `~\.config\mxstage\launch.mjs`（どの版を起こすかを決める台本）と `versions.json` を置きます。Claude などの設定と自動起動には、この台本を登録します（3 章）。ポートが塞がっていて止めるときは書きません。`--bridge` を指定したときは置かず、その入口をそのまま登録します |
+| 橋渡しの起動 | `node --experimental-strip-types ~\.config\mxstage\launch.mjs --no-mcp --port 8788` を裏で起動し（台本が入口を起こします）、応えるまで（最大 20 秒）待ちます。`--no-mcp` は「画面と中継だけで、stdio の MCP は開かない」という意味です。ウィンドウは出しません。既に橋渡しが動いていれば起動し直しません |
 | Claude Code | `~\.claude.json` の `mcpServers.mxstage` に登録（`claude mcp add --scope user mxstage -- <node> --experimental-strip-types <入口> --port 8788` と同じ内容）。**Claude Desktop に拡張機能（`.mcpb`）の MX Stage が入っていて有効なら登録しません**（Claude Desktop の Code タブは拡張機能から MX Stage を受け取るので、両方にあるとツールが二重に出ます）。前にこの導入が書いた分は控えを取ってから外し、利用者が手で書いたものは残して警告します。ターミナルの Claude Code でも使うときは `--claude-code`（記録に残り、次回からも登録します。`--uninstall` で消えます）。`--no-claude-desktop` のときは Claude Desktop を見ないので、これまでどおり登録します。Skill は拡張機能では入らないので、いつもどおり写します |
 | Claude Desktop | 設定フォルダがある置き場所すべての `claude_desktop_config.json` の `mcpServers.mxstage` に登録します。ふつうの版は `%APPDATA%\Claude\`、Microsoft Store 版（MSIX）は `%LOCALAPPDATA%\Packages\Claude_<発行元 ID>\LocalCache\Roaming\Claude\`（パッケージが `%APPDATA%` に新しく作るフォルダはここへ振り替えられます。`%APPDATA%\Claude` が先にあればそちらが使われます）。どちらの設定フォルダも無ければ（入れていない・一度も起動していない）何も作りません。その置き場所に**拡張機能（`.mcpb`）の MX Stage が入っていて有効なら登録せず**、前にこの導入が書いた `mxstage` を外します（拡張機能は同じ設定フォルダの `Claude Extensions\<id>\`・`Claude Extensions Settings\<id>.json` の `isEnabled`・`extensions-installations.json` で見分けます。利用者が手で書いた `mxstage` は残して警告します）。登録しないときは `--no-claude-desktop` |
 | Antigravity | `~\.gemini` があるときだけ、`~\.gemini\config\mcp_config.json` の `mcpServers.mxstage` に登録（2.0・IDE・`agy` CLI が同じファイルを読みます）。無ければ何も作りません。登録しないときは `--no-antigravity` |
@@ -60,7 +61,7 @@ IBM Bob が入っていれば（`~\.bob` があれば）そちらにも登録さ
 | 自動起動 | スタートアップに `mxstage-bridge.lnk`（最小化で橋渡しを起動） |
 | ショートカット | デスクトップに `mxstage.lnk`（Chrome か Edge の**アプリ窓**で `/app` を開く。どちらも無ければ `mxstage.url` で既定のブラウザ） |
 | 橋渡しの確認 | 最後に `/_mxstage/health` に聞き、「橋渡しが 1 つ動いています」と出します。古い版の橋渡しや、取り決めの版（`protocol`）が違う橋渡しが動いていれば警告します |
-| 記録 | `~\.config\mxstage\setup.json`（ポート・入口・置き換える前の設定の控えの場所。秘密は書きません） |
+| 記録 | `~\.config\mxstage\setup.json`（ポート・入口（台本と、その先の入口）・置き換える前の設定の控えの場所。秘密は書きません） |
 | 最後に | 作業画面を開きます（`--no-open` で開かない） |
 
 `--port <番号>` で番号を指定したときは、その番号を記録し、次に `--port` なしで実行したときも引き継ぎます。
@@ -173,15 +174,67 @@ node scripts/setup-local.mjs --status
 
 ## 3. 更新する
 
-Claude Code に「MX Stage を更新して」と頼むか、手で次を実行します。
+**どのクライアントからでも、チャットで「MX Stage を更新して」と頼めます**（Claude Desktop のチャット・Code タブ・Claude Code・Antigravity など）。
+AI がツール `mxstage_update` で新しい版を確かめ、了承すれば用意し、用意ができたら「Claude を開き直して」と 1 行で頼みます。
+Claude を開き直すと新しい版に切り替わります（Claude Desktop はタスクトレイのアイコンから終了します。ウィンドウの × では終わりません）。
+
+| 段 | 何をするか |
+|---|---|
+| 確かめる（`action: check`） | 今の版・最新の版（GitHub の `mxstage/mxstage` の `main`）・足された commit の数と題・用意済みか・用意中か・前回の用意の結果を返します。commit の題はデータとして渡し、AI はそこに書かれたことに従いません |
+| 用意する（`action: prepare`） | **別のフォルダ**（`~\.config\mxstage\v\<commit>`）で、取得 → `npm ci` → `npm run build` → 自己点検（作業画面ができたか・新しい橋渡しが依存を読み込んで版を答えるか）を行います。数分かかるので裏で進め、AI は途中で `check` を呼んで様子を見ます。**動いている MX Stage は止めず、そのフォルダのファイル（`node_modules`・`dist\app`）にも触りません** |
+| 失敗したとき | 用意したフォルダを捨て、今の版のままです。理由（どの段で・何が）は `check` の `lastPrepare` に出ます |
+| 切り替える | 次に Claude（Desktop・Code）を開き直したとき。起動の台本（下）が用意済みの版を今の版にしてから起こします。画面用の橋渡し（ログイン時の自動起動の分）は、作業中でない（シートのある窓・実行中のツール呼び出しが無い）ときに自分で起動し直して、同じ版にそろえます |
+
+取ってくる先は `https://github.com/mxstage/mxstage.git` の `main` に固定で、ツールの引数・設定・環境変数では変えられません（ツールの引数は `action` だけです）。
+外へ出るのは、git の取得（github.com）と `npm ci`（npm のレジストリと、依存の `@mxstage/eam-connectors` の取得元）だけです。
+
+**自動の確かめ**: 設定の「更新」の **自動で更新する** をオンにすると（既定はオフ）、ポートを持つ橋渡しが、起動のときと 6 時間ごとに新しい版を確かめ、あれば用意します
+（同じ commit の用意に失敗したら、次の commit まで繰り返しません）。切り替えはやはり次に Claude を開き直したときです。オフの間は、頼まれたとき（チャット・設定の「今すぐ確かめる」）しか GitHub に問い合わせません。
+
+### 起動の台本と版ごとのフォルダ（なぜ分けるか）
+
+導入は、Claude などの MCP の設定とログイン時の自動起動に、リポジトリの入口（`src\bridge\cli.ts`）ではなく**起動の台本** `~\.config\mxstage\launch.mjs` を登録します。
+台本は同じフォルダの `versions.json` を読み、次の順で 1 つを起こします。
+
+1. 用意済みの版（`ready`）があり中身がそろっていれば、それを今の版（`current`）にしてから起こす（**切り替えは起動のときだけ**）
+2. 今の版（`current`）
+3. どちらも無ければ、導入したフォルダ（`%USERPROFILE%\mxstage` の clone）
+
+分ける理由:
+
+- **動いている版のファイルを書き換えないため。** 以前の更新（`git pull` → 導入）は、動いている橋渡しと同じフォルダの `node_modules` と `dist\app` を入れ替えていました。
+  Windows では動いているプロセスが使うファイルを入れ替えられないことがあり（`npm install` が途中で失敗する）、作業画面の配信も途中で新旧が混ざります。
+  版ごとのフォルダに用意すれば、用意の途中も今の版はそのまま動き、失敗してもフォルダを捨てるだけです。
+- **切り替えの時を決めるため。** どの版を起こすかを決めるのは台本だけで、台本は起動のときに 1 回だけ読みます。用意しただけでは何も変わらず、Claude を開き直したときに切り替わります。
+- **台本は版のフォルダの外に置きます。** 依存の無い 1 つのファイルなので、どの版が動いていても置き換えられます（新しい版を用意したとき、その版の台本が読めることを確かめてから置き換えます）。
+- 版のフォルダは `~\.config\mxstage\v\` に置きます（Claude Desktop（MSIX）の中から書いても振り替えられない場所。6 章の「`%LOCALAPPDATA%` に置かない理由」と同じ）。
+  名前は commit の先頭 12 文字で、パスが長くなりすぎないようにしています。今の版・用意済みの版・1 つ前の版・動いている版のほかは、次に用意したときに消します。
+
+**今の利用者は、入れ直しなしで移れます。** チャットからの更新は、この仕組みが入った版で動いているときに使えます。そこまでは今までどおり一度だけ
+`git pull --ff-only` → `node scripts/setup-local.mjs`（または設定の「更新」の自動の入れ替え。中で導入を実行します）で更新します。
+導入は、前の導入が書いた登録（入口を直接指すもの）を自分のものと見分けて台本を指す形に置き換え（控えは取ります）、自動起動のショートカットも台本を起こす形に作り直します。
+取り消し（`--uninstall`）の要らない置き換えです。前から動いていた画面用の橋渡しは、古いコードのまま動き続けます（今までの更新と同じ）。
+次のログインで台本から起動し直すか、設定の「更新」の自動の入れ替えで起動し直したときに移ります（この版からは、画面用の橋渡しが台本の決めた版に自分でそろえます）。
+
+### チャットからの更新を使わない入れ方
+
+| 入れ方 | `mxstage_update` の答え |
+|---|---|
+| Claude Desktop の拡張機能（`.mcpb`） | 書き換えません。Claude Desktop の Settings →「Extensions」で新しい `.mcpb` を入れるよう案内します（作業画面の設定の「更新」がダウンロードして確かめます） |
+| `npx @mxstage/mxstage` | 書き換えません。Claude などを開き直すと npx が npm の新しい版で起こすこと、設定で版を固定しているなら `@latest` にすることを案内します |
+| 開発用の clone（手元に変更が残っている・`main` でない・取得元が `mxstage/mxstage` でない） | **書き換えません。** 下の手での手順を案内します |
+| `--bridge` で入口を直接登録した導入・この仕組みより前の導入 | 一度だけ下の手での手順で更新するよう案内します（そのあとはチャットから更新できます） |
+
+### 手で更新する（開発用の clone など）
 
 ```
 git pull --ff-only
 node scripts/setup-local.mjs
 ```
 
-導入は、依存と画面が古ければ入れ直し・ビルドし直します（1 章の表）。**ただし、既に動いている橋渡しは起動し直しません**
-（画面に「これを使います（起動し直しはしません）」と出ます）。橋渡しが古いまま動いていると、新しいツールや修正が効きません。
+導入は、依存と画面が古ければ入れ直し・ビルドし直します（1 章の表）。導入した clone が開発用の写しなら、台本はその clone を起こし、チャットからの更新でも切り替えません。
+main のままの clone で、チャットからの更新で用意した版の方が新しいときは、その版の導入を実行します（古い clone の Skill などで上書きしないため）。
+**ただし、既に動いている橋渡しは起動し直しません**（画面に「これを使います（起動し直しはしません）」と出ます）。橋渡しが古いまま動いていると、新しいツールや修正が効きません。
 **更新のあとは Claude Code と Claude Desktop を終了して開き直してください。** Claude が起動した橋渡しは Claude と一緒に終わり、
 開き直したときに新しいコードで立ち上がります。
 
@@ -232,6 +285,7 @@ node scripts/setup-local.mjs --uninstall
 - スタートアップとデスクトップのショートカットを消します。
 - この導入が入れた Skill（`~\.claude\skills\<名前>`・`~\.gemini\config\skills\<名前>`・`~\.agents\skills\<名前>`・`~\.bob\skills\<名前>`。以前の導入のまま取り消すときは `~\.gemini\skills\<名前>`）を消します。**書き換えられている Skill は残します。**
   **利用者の Skill の元（`~\.config\mxstage\skills\`）は消しません。**
+- 起動の台本（`launch.mjs`）・版の記録（`versions.json`）・版ごとのフォルダ（`v\`。チャットからの更新で用意した版）を消します。動いている版のファイルが消せないときは知らせます（Claude と橋渡しを終了してから手で消す）。
 - 記録（`setup.json`）を消します。**控え（`backup\`）は残します。**
 
 **一部だけやめる**こともできます。
@@ -324,6 +378,9 @@ Claude の設定・自動起動・ショートカットもその番号で作ら�
 | `~\.config\mxstage\bridge.key` | **橋渡しが作ります**。橋渡し同士（ポートを持つ橋渡しと中継する橋渡し）の認証に使う乱数の鍵。取り消しでは消しません |
 | `~\.config\mxstage\connections.json`・`connections.key` | **橋渡しが作ります**（「この PC に保存」を選んだとき）。保存した接続先と、AES-256-GCM で暗号化した API キー。暗号化の鍵は DPAPI で包んで `connections.key` に置く |
 | `~\.config\mxstage\updates.json`・`updates\` | **橋渡しが作ります**。更新の設定と、確かめた版・ダウンロードした拡張機能のファイル |
+| `~\.config\mxstage\launch.mjs` | 起動の台本（導入が置き、新しい版を用意したときに置き換えます）。Claude などの設定と自動起動はこれを起動します（3 章） |
+| `~\.config\mxstage\versions.json` | どの版を起こすか（導入元・今の版・用意済みの版・1 つ前の版）と、最後に確かめた結果・前回の用意の結果。秘密は書きません |
+| `~\.config\mxstage\v\<commit>\` | **橋渡しが作ります**（チャットからの更新・自動の更新）。版ごとのフォルダ（リポジトリの写し・`node_modules`・`dist\app`）。`v\.cache.git` は取得に使う git の倉庫 |
 | `~\.config\mxstage\licenses\` | 設定の「ライセンス」で貼ったライセンスキー |
 | `~\.config\mxstage\demo\` | **橋渡しが作ります**（設定の「デモ」でデータを落としたとき）。デモの架空のデータ。設定の「デモ」で消せる |
 | `~\.config\mxstage\bridge.log` | **橋渡しが書きます**。起動・終了・中継・異常終了の記録（API キーと作業データは書きません。512KB で 1 世代だけ残して切り替え） |

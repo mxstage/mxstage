@@ -263,21 +263,21 @@ export function workScreenOpenMessage(outcome: WorkScreenOpenOutcome, appUrl: st
   switch (outcome) {
     case "opened":
       return (
-        `The work screen tab was not open, so MX Stage opened it (${appUrl}/app) in the default browser of this PC. ` +
+        `The work screen tab was not open, so MX Stage opened it (${appUrl}/app) on this PC (in a Chrome or Edge app window, or the default browser). ` +
         "Tell the user that the work screen is opening in their browser (do not ask them to type the URL, and do not open it again), wait about 10 seconds, then call get_status and continue."
       );
     case "waiting":
       return (
-        `MX Stage opened the work screen (${appUrl}/app) in the default browser of this PC a moment ago and it has not connected yet. ` +
+        `MX Stage opened the work screen (${appUrl}/app) on this PC (in a Chrome or Edge app window, or the default browser) a moment ago and it has not connected yet. ` +
         "Do not open it again. Wait about 10 seconds, then call get_status and continue. If it is still not connected, ask the user to look at the browser window that opened."
       );
     case "gave_up":
       return (
-        `MX Stage opened the work screen in the default browser of this PC, but no work screen tab has connected. ` +
+        `MX Stage opened the work screen on this PC (in a Chrome or Edge app window, or the default browser), but no work screen tab has connected. ` +
         `Ask the user to open ${appUrl}/app in Chrome or Edge (or to show the tab that opened), then try again.`
       );
     case "failed":
-      return `The work screen tab is not open and MX Stage could not open the default browser of this PC. Ask the user to open ${appUrl}/app in their browser, then try again.`;
+      return `The work screen tab is not open and MX Stage could not open a browser on this PC. Ask the user to open ${appUrl}/app in their browser, then try again.`;
     case "off":
       return relayErrorMessage(RelayErrorCode.NO_TAB, appUrl);
   }

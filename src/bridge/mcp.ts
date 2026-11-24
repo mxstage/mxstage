@@ -34,7 +34,7 @@ import type { WorkScreenOpener } from "./workScreen.ts";
  * 「Maximo のデータは作業画面のシートに読み込み、シートから読む」はツールの作りでも守る（scope_options も走査した行をシートにする）。
  */
 export const SERVER_INSTRUCTIONS =
-  "MX Stage is a local workbench for correcting IBM Maximo data in a work screen (a browser tab). Call get_status first. If no work screen tab is open, MX Stage opens it in the default browser of this PC by itself and the result says so: tell the user and continue once it is open. Give the user the URL from open_grid only when the result says it could not be opened, and never open the work screen again in a new tab. " +
+  "MX Stage is a local workbench for correcting IBM Maximo data in a work screen (a browser tab). Call get_status first. If no work screen tab is open, MX Stage opens it on this PC (in a Chrome or Edge app window, or the default browser) by itself and the result says so: tell the user and continue once it is open. Give the user the URL from open_grid only when the result says it could not be opened, and never open the work screen again in a new tab. " +
   "The result of your first tool call includes the MX Stage rules and the index of Skills (procedures for basic operations, standard Maximo objects and the user's own tasks). Read it and follow it; read the Skills it names with get_skill before those steps. " +
   "Always load Maximo data into work screen sheets (load_sheet, load_master, scope_options) and read it from the sheets (query_rows, aggregate), so that the user can see and check the same data in the work screen. " +
   "If the user wants to keep a procedure, show it to them, get their agreement, then send it with save_skill: it becomes a draft that the user checks and saves in the settings. " +
@@ -297,7 +297,7 @@ export async function runTabTool(deps: BridgeMcpDeps, name: ToolName, args: unkn
       res = await invokeSafely(deps.hub, { ...req, deadlineMs: remainingMs }, opts.onProgress);
       if (res.ok) {
         const result = res.result as CallToolResult;
-        return opened.outcome === "opened" ? withGuide(result, `[The work screen was not open, so MX Stage opened it in the default browser of this PC (${deps.origin}/app). Tell the user.]`) : result;
+        return opened.outcome === "opened" ? withGuide(result, `[The work screen was not open, so MX Stage opened it on this PC (in a Chrome or Edge app window, or the default browser) (${deps.origin}/app). Tell the user.]`) : result;
       }
     }
     if (res.code === RelayErrorCode.NO_TAB) return noTabResult(name, deps.origin, opened.outcome);

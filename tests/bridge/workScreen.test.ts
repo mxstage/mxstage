@@ -143,7 +143,7 @@ describe("タブが無いときのツールの呼び出し", () => {
     expect(launcher.calls).toEqual([APP_URL]);
     expect(result.isError).toBeFalsy();
     expect(result.content[0]).toMatchObject({ text: "answered query_rows" });
-    expect(JSON.stringify(result.content)).toContain("opened it in the default browser");
+    expect(JSON.stringify(result.content)).toContain("opened it on this PC");
     // 1 回目は NO_TAB、2 回目（送り直し）で答えた。どちらも同じ呼び出し（同じ冪等キー）
     expect(hub.invoked).toHaveLength(2);
     expect(hub.invoked[1]?.idempotencyKey).toBe(hub.invoked[0]?.idempotencyKey);

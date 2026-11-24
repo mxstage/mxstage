@@ -12,7 +12,7 @@ metadata:
 
 get_status, always before starting and after any error.
 
-- No tab: MX Stage opens the work screen in the default browser of this PC by itself (browserOpened: true). Tell the user, wait about 10 seconds and call get_status again; do not open it again in a new tab. Only if browserOpened is false, ask the user to open the URL from open_grid and wait for their reply (do not keep calling tools meanwhile).
+- No tab: MX Stage opens the work screen on this PC (in a Chrome or Edge app window, or the default browser) by itself (browserOpened: true). Tell the user, wait about 10 seconds and call get_status again; do not open it again in a new tab. Only if browserOpened is false, ask the user to open the URL from open_grid and wait for their reply (do not keep calling tools meanwhile).
 - Not connected to Maximo: ask the user to connect in the work screen settings (saved connections connect by themselves).
 - Note the environment (production or test) and say it when you summarise the plan.
 

@@ -1,0 +1,118 @@
+# リリースを出す（人が Actions の画面で「Run workflow」を押し、版の番号を入れる）。
+# 1. 確かめる：package.json の版が入れた版と同じ・そのタグがまだ無い・CHANGELOG.md にその版の節がある
+# 2. 組み立てる：作業画面・.mcpb・npm のパッケージ
+# 3. server.json の .mcpb の SHA-256 が、組み立てた .mcpb と同じかを確かめる（違えば止める。server.json を dist/mcpb/server.json の写しに直してから出し直す）
+# 4. タグ v<版> を打ち、.mcpb と .sha256 を添えてリリースを作る（説明は CHANGELOG.md のその版の節）
+# 5. npm と MCP Registry に出す：publish-mcp-registry.yml を、そのタグで動かす
+#    （GITHUB_TOKEN で作ったリリースは、ほかのワークフローの release のきっかけにならないので、workflow_dispatch で呼ぶ。
+#     npm の Trusted Publishing は publish-mcp-registry.yml の名前で登録してあるので、公開はそちらで行う）
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "出す版（package.json の version と同じ。例 0.3.0）"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      IBM_TELEMETRY_DISABLED: "true"
+      VERSION: ${{ inputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Update npm
+        run: npm install -g npm@11
+
+      - name: Check the version, the tag and the changelog
+        run: |
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then echo "版の形が違います: $VERSION"; exit 1; fi
+          pkg=$(node -p "require('./package.json').version")
+          if [ "$pkg" != "$VERSION" ]; then echo "package.json の版は $pkg です（入れた版は $VERSION）"; exit 1; fi
+          if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" > /dev/null 2>&1; then echo "タグ v$VERSION はもうあります"; exit 1; fi
+          if ! grep -Eq "^## $VERSION( |$)" CHANGELOG.md; then echo "CHANGELOG.md に「## $VERSION」の節がありません"; exit 1; fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: |
+          npm run build
+          npm run build:mcpb
+          npm run build:npm
+          test "$(node dist/npm/bin/mxstage.mjs --version)" = "$VERSION"
+
+      - name: Check that server.json matches the built .mcpb
+        run: |
+          built=$(cut -d' ' -f1 "dist/mcpb/mxstage-$VERSION.mcpb.sha256")
+          listed=$(node -p "((require('./server.json').packages || []).find(p => p.registryType === 'mcpb' && p.version === process.env.VERSION) || {}).fileSha256 || ''")
+          if [ "$built" != "$listed" ]; then
+            echo "server.json の .mcpb の SHA-256（$listed）が、組み立てた .mcpb（$built）と違います。"
+            echo "server.json を dist/mcpb/server.json の写しに直して main に入れてから、出し直してください。"
+            exit 1
+          fi
+          echo "SHA-256 が同じ: $built"
+
+      - name: Write the release notes
+        run: |
+          node -e '
+            const fs = require("node:fs");
+            const v = process.env.VERSION;
+            const lines = fs.readFileSync("CHANGELOG.md", "utf8").split("\n");
+            const start = lines.findIndex((l) => new RegExp("^## " + v.replace(/\./g, "\\.") + "( |$)").test(l));
+            let end = lines.findIndex((l, i) => i > start && /^## /.test(l));
+            if (end < 0) end = lines.length;
+            const section = lines.slice(start + 1, end).join("\n").trim();
+            const sha = fs.readFileSync(`dist/mcpb/mxstage-${v}.mcpb.sha256`, "utf8").split(/\s+/)[0];
+            const notes = [
+              "**MX Stage is a local-only AI workbench for correcting IBM Maximo data with your own AI assistant (Claude Desktop, ChatGPT, Antigravity, IBM Bob): every change is staged, diffed and approved by a human before it is written to Maximo.**",
+              "",
+              "### Install",
+              "",
+              `- **Claude Desktop**: download \`mxstage-${v}.mcpb\` below, then in Claude Desktop open **Settings → Extensions → Advanced settings → Install Extension…** and choose the file. To update, install the new file the same way (or use **Settings → Updates** in the work screen).`,
+              `- **npm**: \`npx -y @mxstage/mxstage@${v}\` (Node.js 20 or later).`,
+              "- **Other assistants** (ChatGPT desktop in Codex or Work mode, Antigravity, IBM Bob, Claude Code): see [Install](https://github.com/mxstage/mxstage#install). With the installer, ask \"update MX Stage\" in the chat.",
+              "",
+              "Free for test environments and for loading, analysing and editing production data. Committing to a production Maximo needs a license: [pricing](https://mxstage.tsunagi.app/pricing).",
+              "",
+              "### What'"'"'s new",
+              "",
+              section,
+              "",
+              "See [CHANGELOG.md](https://github.com/mxstage/mxstage/blob/main/CHANGELOG.md).",
+              "",
+              `SHA-256 of \`mxstage-${v}.mcpb\`: \`${sha}\``,
+              "",
+            ].join("\n");
+            fs.writeFileSync("release-notes.md", notes);
+          '
+          cat release-notes.md
+
+      - name: Create the tag and the release
+        run: |
+          gh release create "v$VERSION" \
+            "dist/mcpb/mxstage-$VERSION.mcpb" \
+            "dist/mcpb/mxstage-$VERSION.mcpb.sha256" \
+            --target "$(git rev-parse HEAD)" \
+            --title "MX Stage $VERSION" \
+            --notes-file release-notes.md
+
+      - name: Publish to npm and MCP Registry
+        run: gh workflow run publish-mcp-registry.yml --ref "v$VERSION"
